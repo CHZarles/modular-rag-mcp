@@ -131,13 +131,14 @@
     - 记录并可视化 RAG 流水线的每一个中间状态：覆盖 Ingestion（加载→切分→增强→编码→存储）与 Query（查询预处理→Dense/Sparse 召回→融合→重排→响应构建）两条完整链路。
     - 开发者可以清晰看到“系统为什么选了这个文档”以及“Rerank 起了什么作用”，从而精准定位坏 Case。
 - **可视化管理平台 (Visual Management Dashboard)**：
-    - 基于 Streamlit 的本地 Web 管理面板，提供六大功能页面：
+    - 基于 Streamlit 的本地开发者 Web 面板，默认只面向项目维护者/开发者使用，不作为 MCP tool 或对外 API 暴露。
+    - 提供六大功能页面：
         - **系统总览**：展示当前可插拔组件配置（LLM/Embedding/Splitter/Reranker）与数据资产统计。
         - **数据浏览器**：查看已索引的文档列表、Chunk 详情（原文、metadata 各字段、关联图片），支持搜索过滤。
         - **Ingestion 管理**：通过界面选择文件触发摄取、实时展示各阶段进度、支持删除已摄入文档（跨 4 个存储的协调删除）。
         - **Query 追踪**：查询历史列表，耗时瀑布图，Dense/Sparse 召回对比，Rerank 前后排名变化。
         - **Ingestion 追踪**：摄取历史列表，各阶段耗时与处理详情。
-        - **评估面板**：运行评估任务、查看各项指标、历史趋势对比。
+        - **评估面板**：本地手动运行评估、查看各项指标、历史趋势对比；用于开发调试和质量复盘，不对普通 MCP Client 暴露。
     - 所有页面基于 Trace 中的 `method`/`provider` 字段**动态渲染**，更换可插拔组件后 Dashboard 自动适配，无需修改代码。
 - **自动化评估闭环 (Automated Evaluation)**：
     - 集成 Ragas 等评估框架（可插拔），为每一次检索和生成计算“体检报告”（如召回率 Hit Rate、准确性 Faithfulness 等指标）。
@@ -361,18 +362,50 @@
 
 #### 3.2.2 传输协议：Stdio 本地通信
 
-本项目采用 **Stdio Transport** 作为唯一通信模式。
+本项目初期采用 **Stdio Transport** 作为 MCP 对外入口。
 
-- **工作方式**：Client（VS Code Copilot、Claude Desktop）以子进程方式启动我们的 Server，双方通过标准输入/输出交换 JSON-RPC 消息。
-- **选型理由**：
-	- **零配置**：无需网络端口、无需鉴权，用户只需在 Client 配置文件中指定启动命令即可使用。
-	- **隐私安全**：数据不经过网络，天然适合处理私有知识库与敏感业务数据。
-	- **契合定位**：Stdio 完美适配开发者本地工作流，满足私有知识管理与快速原型验证需求。
-- **实现约束**：
-	- `stdout` 仅输出合法 MCP 消息，禁止混入任何日志或调试信息。
-	- 日志统一输出至 `stderr`，避免污染通信通道。
+这里需要严格区分边界：**MCP 层只负责 Client 与本地 Server 进程之间的 JSON-RPC 通信，不感知底层知识库、存储实现或数据来源。** 知识库是否被团队共享，不应体现在 MCP Transport 概念里，而应由应用层的知识服务、索引构建、存储实现与部署方式决定。
 
-#### 3.2.3 SDK 与实现库选型
+| 模式 | 当前定位 | 适用场景 | 关键约束 |
+|-----|---------|---------|---------|
+| **Stdio Transport** | 主实现 | 本地 MCP Client 接入、个人使用、小团队统一配置分发 | Client 以子进程启动 Server；`stdout` 只能输出合法 MCP 消息；日志写 `stderr` |
+
+设计结论：
+
+- **当前最小闭环**：先实现 Stdio MCP Server，保证 Copilot/Claude 可以稳定调用。
+- **MCP 边界清晰**：不要在 MCP Server 层引入“远程知识后端”等概念；MCP tools 只调用 `KnowledgeService` 接口。
+- **团队知识库路径**：小团队可以通过统一文档目录、统一索引构建流程、共享配置或可选的共享检索服务来复用同一套知识资产，但这属于 RAG/应用服务层设计，不属于 MCP Transport 设计。
+- **复杂度控制**：不在初期引入 HTTP MCP 鉴权、多用户会话、服务端并发治理等问题。
+
+#### 3.2.3 工具到知识服务的边界：KnowledgeService
+
+MCP tools 不直接依赖 `HybridSearch`、`VectorStore`、`BM25Indexer` 等底层组件，而是统一依赖一个应用层接口：`KnowledgeService`。
+
+这个接口解决的核心问题是：**MCP Server 只负责把工具调用翻译成知识查询请求；知识能力到底是本进程执行，还是转发给一个共享检索服务，由 `KnowledgeService` 实现决定。**
+
+```python
+class KnowledgeService(Protocol):
+    def query(self, request: QueryRequest) -> QueryResponse: ...
+    def list_collections(self) -> list[CollectionInfo]: ...
+    def get_document_summary(self, doc_id: str) -> DocumentSummary: ...
+```
+
+默认实现：
+
+| 实现 | 定位 | 说明 |
+|-----|------|------|
+| `LocalKnowledgeService` | 默认实现 | 在当前 MCP Server 进程内调用 Query Engine、Response Builder 与本地存储 |
+| `HttpRetrievalServiceClient` | 可选实现 | 通过普通 HTTP 调用共享检索服务；这是应用层实现细节，不是 MCP Transport |
+
+设计约束：
+
+- MCP tools 只知道 `KnowledgeService`，不直接 new `HybridSearch` 或访问数据库。
+- `QueryRequest` / `QueryResponse` 是稳定契约，便于本地实现、HTTP 实现和测试 Fake 共用。
+- `mode=local` 是默认路径，保证本地优先、零外部服务依赖。
+- `mode=http` 只作为团队共享知识库的可选装配方式；完整 RAG trace、cache、eval 数据应由真正执行检索的服务记录，本地 MCP Server 最多记录 tool envelope、`request_id`、耗时和错误。
+- 图片返回要遵守同一契约：本地模式可读取本地图片并返回 base64；HTTP 模式要么由共享检索服务直接返回 `image_base64`，要么先只返回文本引用，避免 MCP Server 假设远端文件路径可读。
+
+#### 3.2.4 SDK 与实现库选型
 
 - **首选：Python 官方 MCP SDK (`mcp`)**
 	- **优势**：
@@ -387,7 +420,7 @@
 
 - **协议版本**：跟踪 MCP 最新稳定版本（如 `2025-06-18`），在 `initialize` 阶段进行版本协商，确保 Client/Server 兼容性。
 
-#### 3.2.4 对外暴露的工具函数设计 (Tools Design)
+#### 3.2.5 对外暴露的工具函数设计 (Tools Design)
 
 Server 通过 `tools/list` 向 Client 注册可调用的工具函数。工具设计应遵循"单一职责、参数明确、输出丰富"原则。
 
@@ -404,7 +437,7 @@ Server 通过 `tools/list` 向 Client 注册可调用的工具函数。工具设
 	- `verify_answer`：事实核查工具，检测生成内容是否有依据支撑。
 	- `list_document_sections`：浏览文档目录结构，支持多步导航式检索。
 
-#### 3.2.5 返回内容与引用透明设计 (Response & Citation Design)
+#### 3.2.6 返回内容与引用透明设计 (Response & Citation Design)
 
 MCP 协议的 Tool 返回格式支持多种内容类型（`content` 数组），本项目将充分利用这一特性实现"可溯源"的回答：
 
@@ -712,7 +745,7 @@ MCP 协议的 Tool 返回格式支持多种内容类型（`content` 数组），
 - **零外部依赖**：不依赖 LangSmith、LangFuse 等第三方平台，无需网络连接与账号注册，完全本地化运行。
 - **轻量易部署**：仅需 Python 标准库 + 一个轻量 Web 框架（如 Streamlit），`pip install` 即可使用，无需 Docker 或数据库服务。
 - **学习成本低**：结构化日志是通用技能，调试时可直接用 `jq`、`grep` 等命令行工具查询；Dashboard 代码简单直观，便于理解与二次开发。
-- **契合项目定位**：本项目面向本地 MCP Server 场景，单用户、单机运行，无需分布式追踪或多租户隔离等企业级能力。
+- **契合项目定位**：本项目面向本地 MCP Server 入口，小团队共享能力优先通过可配置的数据源/存储后端实现，无需在初期引入分布式追踪或多租户隔离等企业级能力。
 
 **实现架构**：
 
@@ -808,9 +841,10 @@ Dashboard 基于 Streamlit 构建多页面应用（`st.navigation`），提供�
     - **最终结果表**：展示 Top-K 候选文档的标题、分数、来源。
 
 **页面 6：评估面板 (Evaluation Panel)**
-- **评估运行**：选择评估后端（Ragas / Custom / All）与 golden test set，点击运行。
+- **评估运行**：开发者在本地 Dashboard 中选择评估后端（Ragas / Custom / All）与 golden test set，手动触发评估。
 - **指标展示**：以表格和图表展示 hit_rate、mrr、faithfulness 等指标。
 - **历史趋势**：对比不同时间的评估结果，观察策略调整的效果。
+- **暴露边界**：该页面不是 MCP tool，不提供给普通 MCP Client 调用；如需自动化评估，优先使用 `scripts/evaluate.py`。
 - **注意**：评估面板在 Phase H 实现，Phase G 完成后该页面显示"评估模块尚未启用"的占位提示。
 
 **Dashboard 技术架构**：
@@ -1177,7 +1211,7 @@ Hybrid Search 命中 Chunk（正文含 "[图片描述: 系统采用三层架构.
 **场景 3：MCP Client 功能测试**
 - **测试目标**：验证 MCP Server 与 Client（如 GitHub Copilot）的协议兼容性与功能完整性
 - **测试步骤**：
-  - 启动 MCP Server（Stdio Transport 模式）
+  - 启动 MCP Server（默认 Stdio Transport 模式）
   - 模拟 MCP Client 发送各类 JSON-RPC 请求
   - 测试工具调用：`query_knowledge_hub`、`list_collections` 等
   - 验证返回格式：符合 MCP 协议规范（content 数组、structuredContent）
@@ -1195,7 +1229,7 @@ Hybrid Search 命中 Chunk（正文含 "[图片描述: 系统采用三层架构.
 - **环境准备**：
   - 临时测试向量库（独立于生产数据）
   - 预置的标准测试文档集
-  - 本地 MCP Server 进程（Stdio Transport）
+  - 本地 MCP Server 进程（默认 Stdio Transport）
 
 ### 4.3 RAG 质量评估测试
 
@@ -1221,7 +1255,7 @@ Hybrid Search 命中 Chunk（正文含 "[图片描述: 系统采用三层架构.
 
 ### 4.4 性能与压力测试（可选）
 
-> **说明**：本项目定位为本地 MCP Server，单用户开发环境，采用 Stdio Transport 通信方式。性能与压力测试在当前阶段**不是必需的**，此处列出主要用于：
+> **说明**：本项目初期采用 Stdio MCP Server，性能与压力测试在当前阶段**不是必需的**，此处列出主要用于：
 > 1. **架构完整性**：展示完整的工程化测试体系，体现系统设计的专业性
 > 2. **未来扩展性**：若后续需要云端部署或多用户支持，可直接参考此方案
 > 3. **性能基准建立**：通过基础性能测试了解系统瓶颈，为优化提供数据支撑
@@ -1231,7 +1265,7 @@ Hybrid Search 命中 Chunk（正文含 "[图片描述: 系统采用三层架构.
 | 测试类型 | 验证点 | 工具 | 优先级 |
 |---------|-------|------|-------|
 | **延迟测试** | 单次查询的 P50/P95/P99 延迟 | `pytest-benchmark` | 中（可帮助识别慢查询） |
-| **吞吐量测试** | 并发查询时的 QPS 上限 | `locust` | 低（本地单用户无需求） |
+| **吞吐量测试** | 并发查询时的 QPS 上限 | `locust` | 低（后续需要服务化部署时再做） |
 | **内存泄漏检测** | 长时间运行后的内存占用 | `memory_profiler` | 低（短期运行无影响） |
 | **向量库性能** | 不同数据规模下的查询速度 | 自定义 Benchmark | 中（验证扩展性） |
 
@@ -1258,6 +1292,8 @@ Hybrid Search 命中 Chunk（正文含 "[图片描述: 系统采用三层架构.
 ## 5. 系统架构与模块设计
 
 ### 5.1 整体架构图
+
+以下图展示默认本地模式主路径；可选网络访问能力收敛在 `KnowledgeService` 实现中，不改变 MCP Stdio 入口。
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -1292,6 +1328,11 @@ Hybrid Search 命中 Chunk（正文含 "[图片描述: 系统采用三层架构.
 │                                   Core 层 (核心业务逻辑)                                     │
 │                                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────┐    │
+│  │                      KnowledgeService (知识服务接口)                                  │    │
+│  │   QueryRequest/QueryResponse 契约 | Local 实现 | HTTP 检索客户端（可选）              │    │
+│  └─────────────────────────────────────┬───────────────────────────────────────────────┘    │
+│                                        │                                                    │
+│  ┌─────────────────────────────────────┴───────────────────────────────────────────────┐    │
 │  │                            Query Engine (查询引擎)                                   │    │
 │  │  ┌─────────────────────────────────────────────────────────────────────────────┐    │    │
 │  │  │                         Query Processor (查询预处理)                         │    │    │
@@ -1427,6 +1468,13 @@ smart-knowledge-hub/
 │   │   ├── __init__.py
 │   │   ├── settings.py                   # 配置加载与校验 (Settings：load_settings/validate_settings)
 │   │   ├── types.py                      # 核心数据类型/契约（Document/Chunk/ChunkRecord），供 ingestion/retrieval/mcp 复用
+│   │   │
+│   │   ├── services/                     # 应用服务契约层（隔离 MCP 与具体 RAG 实现）
+│   │   │   ├── __init__.py
+│   │   │   ├── knowledge_service.py      # KnowledgeService Protocol + QueryRequest/QueryResponse
+│   │   │   ├── local_knowledge_service.py # 本进程实现：调用 QueryEngine/ResponseBuilder/DocumentManager
+│   │   │   ├── http_retrieval_service_client.py # 可选实现：调用共享检索服务
+│   │   │   └── knowledge_service_factory.py      # 根据 settings 构建具体实现
 │   │   │
 │   │   ├── query_engine/                # 查询引擎模块
 │   │   │   ├── __init__.py
@@ -1584,11 +1632,13 @@ smart-knowledge-hub/
 │
 ├── tests/                               # 测试目录
 │   ├── unit/                            # 单元测试
+│   │   ├── test_knowledge_service_contract.py # D8: KnowledgeService 契约测试
 │   │   ├── test_dense_retriever.py      # D2: 稠密检索器测试
 │   │   ├── test_sparse_retriever.py     # D3: 稀疏检索器测试
 │   │   ├── test_fusion_rrf.py           # D4: RRF 融合测试
 │   │   ├── test_reranker_fallback.py    # D6: Reranker 回退测试
 │   │   ├── test_protocol_handler.py     # E2: 协议处理器测试
+│   │   ├── test_query_knowledge_hub_tool.py # E3: Tool 依赖注入测试
 │   │   ├── test_response_builder.py     # E3: 响应构建器测试
 │   │   ├── test_list_collections.py     # E4: 集合列表工具测试
 │   │   ├── test_get_document_summary.py # E5: 文档摘要工具测试
@@ -1598,6 +1648,7 @@ smart-knowledge-hub/
 │   ├── integration/                     # 集成测试
 │   │   ├── test_ingestion_pipeline.py
 │   │   ├── test_hybrid_search.py        # D5: 混合检索集成测试
+│   │   ├── test_knowledge_service_local.py # D8: 本地 KnowledgeService 集成测试
 │   │   └── test_mcp_server.py           # E1-E6: MCP 服务器集成测试
 │   ├── e2e/                             # 端到端测试
 │   │   ├── test_data_ingestion.py
@@ -1635,6 +1686,10 @@ smart-knowledge-hub/
 |-----|-----|----------|
 | `settings.py` | 配置加载与校验 | 读取 `config/settings.yaml`，解析为 `Settings`，必填字段校验（fail-fast） |
 | `types.py` | 核心数据类型/契约（全链路复用） | 定义 `Document/Chunk/ChunkRecord/ProcessedQuery/RetrievalResult`；序列化稳定；作为 ingestion/retrieval/mcp 的数据契约中心 |
+| `services/knowledge_service.py` | MCP tools 与具体知识实现之间的应用层契约 | 定义 `KnowledgeService`、`QueryRequest`、`QueryResponse`、`CollectionInfo`、`DocumentSummary` |
+| `services/local_knowledge_service.py` | 默认知识服务实现 | 本进程调用 Query Engine、Response Builder、DocumentManager 与本地存储 |
+| `services/http_retrieval_service_client.py` | 可选共享检索服务客户端 | 通过 HTTP 调用外部检索服务；不改变 MCP Transport，不让 MCP 层感知网络实现 |
+| `services/knowledge_service_factory.py` | 知识服务工厂 | 根据 `settings.knowledge_service.mode` 选择 local/http 实现，便于测试注入 Fake |
 | `query_processor.py` | 查询预处理 | 关键词提取、同义词扩展、Metadata 解析 |
 | `hybrid_search.py` | 混合检索编排 | 并行 Dense/Sparse 召回，结果融合，Metadata 过滤 |
 | `dense_retriever.py` | 语义向量检索 | Query Embedding + VectorStore 检索，Cosine Similarity |
@@ -1754,6 +1809,8 @@ smart-knowledge-hub/
 
 #### 5.4.2 在线查询流 (Query Flow)
 
+下图展示统一的工具调用流程。`KnowledgeService` 默认使用本地实现；如果后续改成网络化检索，也应作为 `KnowledgeService` 的内部实现细节，不在主流程图中拆成另一条架构主链路。
+
 ```
 用户查询 (via MCP Client)
       │
@@ -1762,7 +1819,13 @@ smart-knowledge-hub/
 │  MCP Server     │  JSON-RPC 解析，工具路由
 │ (Stdio Transport)│
 └────────┬────────┘
-         │ query + params
+         │ tool call arguments
+         ▼
+┌─────────────────┐
+│ KnowledgeService│  稳定应用层契约：query/list/summary
+│   Interface     │
+└────────┬────────┘
+         │ 默认本地实现；可替换为网络化实现
          ▼
 ┌─────────────────┐
 │ Query Processor │  关键词提取 + 同义词扩展 + Metadata 解析
@@ -1801,7 +1864,15 @@ smart-knowledge-hub/
 返回给 MCP Client (Copilot / Claude Desktop)
 ```
 
-#### 5.4.3 管理操作流 (Management Flow)
+边界说明：
+
+- `Stdio Transport` 只负责 MCP JSON-RPC；是否访问共享知识库由 `KnowledgeService` 实现决定。
+- `mode=local` 时，完整 Query trace/cache/eval 由当前进程记录。
+- `mode=http` 时，当前 MCP Server 只记录 tool envelope、`request_id`、总耗时和错误；详细 RAG trace/cache/eval 应由共享检索服务侧记录。
+
+#### 5.4.3 本地开发者操作流 (Developer Local Flow)
+
+Dashboard 是本地开发者工具，不是对外 API 层。它可以读取本地索引、日志和评估结果，也可以在开发环境中触发摄取/删除/评估，但这些能力不注册为 MCP tools，不面向普通 MCP Client 暴露。
 
 ```
 Dashboard (Streamlit UI)
@@ -1828,12 +1899,12 @@ Dashboard (Streamlit UI)
       │    │   └── FileIntegrity.remove_record(file_hash)     │
       │    └── 刷新文档列表                                    │
       │                                                       │
-      └─── Trace 查看 ───────────────────────────────────────┘
-           │
-           TraceService
-           ├── 读取 logs/traces.jsonl
-           ├── 按 trace_type 分类 (query / ingestion)
-           └── 返回 Trace 列表与详情
+	      └─── Trace 查看 ───────────────────────────────────────┘
+	           │
+	           TraceService
+	           ├── 读取 logs/traces.jsonl
+	           ├── 按 trace_type 分类 (query / ingestion)
+	           └── 返回 Trace 列表与详情
 ```
 
 ### 5.5 配置驱动设计
@@ -1843,6 +1914,12 @@ Dashboard (Streamlit UI)
 
 ```yaml
 # config/settings.yaml 示例
+
+# 知识服务装配
+knowledge_service:
+  mode: local                    # local | http
+  endpoint: null                 # mode=http 时填写共享检索服务地址
+  timeout_seconds: 30
 
 # LLM 配置
 llm:
@@ -1899,6 +1976,12 @@ dashboard:
   refresh_interval: 5            # 自动刷新间隔（秒）
 ```
 
+`knowledge_service` 是应用层装配，不是 MCP Transport 配置：
+
+- `local`：默认模式，当前进程直接执行 Query Engine，并访问本地 Chroma/BM25/SQLite/ImageStore。
+- `http`：可选模式，当前进程通过 `HttpRetrievalServiceClient` 调用共享检索服务。适合团队复用同一套索引与数据资产；MCP 入口仍然是 Stdio。
+- 两种模式必须返回同一个 `QueryResponse` 契约，避免 MCP tools 分叉实现。
+
 ### 5.6 扩展性设计要点
 
 
@@ -1906,6 +1989,7 @@ dashboard:
 2. **新增文档格式**：实现 `BaseLoader` 接口，在 Pipeline 中注册对应文件扩展名的处理器
 3. **新增检索策略**：实现检索接口，在 `hybrid_search.py` 中组合调用
 4. **新增评估指标**：实现 `BaseEvaluator` 接口，在配置中添加到 `backends` 列表
+5. **新增知识服务实现**：实现 `KnowledgeService` 接口，并在 `knowledge_service_factory.py` 中注册；MCP tools 不需要改动
 
 
 ## 6. 项目排期
@@ -1926,15 +2010,15 @@ dashboard:
 3. **阶段 C：Ingestion Pipeline（PDF→MD→Chunk→Embedding→Upsert）**
   - 目的：离线摄取链路跑通，能把样例文档写入向量库/BM25 索引并支持增量。
 4. **阶段 D：Retrieval（Dense + Sparse + RRF + 可选 Rerank）**
-  - 目的：在线查询链路跑通，得到 Top-K chunks（含引用信息），并具备稳定回退策略。
+  - 目的：在线查询链路跑通，得到 Top-K chunks（含引用信息），并通过 `KnowledgeService` 契约暴露给 MCP/CLI/Dashboard 复用。
 5. **阶段 E：MCP Server 层与 Tools 落地**
    - 目的：按 MCP 标准暴露 tools，让 Copilot/Claude 可直接调用查询能力。
 6. **阶段 F：Trace 基础设施与打点**
    - 目的：增强 TraceContext，实现结构化日志持久化，在 Ingestion + Query 双链路打点，添加 Pipeline 进度回调。
 7. **阶段 G：可视化管理平台 Dashboard**
-   - 目的：搭建 Streamlit 六页面管理平台（系统总览 / 数据浏览 / Ingestion 管理 / Ingestion 追踪 / Query 追踪 / 评估占位），实现 DocumentManager 跨存储协调。
+   - 目的：搭建仅供开发者本地使用的 Streamlit 六页面管理平台（系统总览 / 数据浏览 / Ingestion 管理 / Ingestion 追踪 / Query 追踪 / 评估占位），实现 DocumentManager 跨存储协调。
 8. **阶段 H：评估体系**
-   - 目的：实现 RagasEvaluator + CompositeEvaluator + EvalRunner，启用评估面板页面，建立 golden test set 回归基线。
+   - 目的：实现 RagasEvaluator + CompositeEvaluator + EvalRunner，在本地开发者 Dashboard 与 `scripts/evaluate.py` 中使用，建立 golden test set 回归基线。
 9. **阶段 I：端到端验收与文档收口**
    - 目的：补齐 E2E 测试（MCP Client 模拟 + Dashboard 冒烟），完善 README，全链路验收，确保“开箱即用 + 可复现”。
 
@@ -2007,12 +2091,13 @@ dashboard:
 | D5 | HybridSearch 编排 | [ ] | | |
 | D6 | Reranker（Core 层编排 + Fallback） | [ ] | | |
 | D7 | 脚本入口 query.py（查询可用） | [ ] | | |
+| D8 | KnowledgeService 契约与本地实现 | [ ] | | |
 
 #### 阶段 E：MCP Server 层与 Tools
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| E1 | MCP Server 入口与 Stdio 约束 | [ ] | | |
+| E1 | MCP Server 入口与 Stdio Transport | [ ] | | |
 | E2 | Protocol Handler 协议解析与能力协商 | [ ] | | |
 | E3 | query_knowledge_hub Tool | [ ] | | |
 | E4 | list_collections Tool | [ ] | | |
@@ -2069,13 +2154,13 @@ dashboard:
 | 阶段 A | 3 | 0 | 0% |
 | 阶段 B | 16 | 0 | 0% |
 | 阶段 C | 15 | 0 | 0% |
-| 阶段 D | 7 | 0 | 0% |
+| 阶段 D | 8 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **68** | **0** | **0%** |
+| **总计** | **69** | **0** | **0%** |
 
 
 ---
@@ -2124,7 +2209,7 @@ dashboard:
   - `main.py`（启动时调用 `load_settings()`，缺字段直接 fail-fast 退出）
   - `src/observability/logger.py`（先占位：提供 get_logger，stderr 输出）
   - `src/core/settings.py`（新增：集中放 Settings 数据结构与加载/校验逻辑）
-  - `config/settings.yaml`（补齐字段：llm/embedding/vector_store/retrieval/rerank/evaluation/observability）
+  - `config/settings.yaml`（补齐字段：knowledge_service/llm/embedding/vector_store/retrieval/rerank/evaluation/observability）
   - `tests/unit/test_config_loading.py`
 - **实现类/函数**：
   - `Settings`（dataclass：只做结构与最小校验；不在这里做任何网络/IO 的“业务初始化”）
@@ -2662,7 +2747,7 @@ dashboard:
 
 ---
 
-## 阶段 D：Retrieval MVP（目标：能 query 并返回 Top-K chunks）
+## 阶段 D：Retrieval MVP（目标：能 query 并通过 KnowledgeService 返回 QueryResponse）
 
 ### D1：QueryProcessor（关键词提取 + filters 结构）
 - **目标**：实现 `query_processor.py`：关键词提取（先规则/分词），并解析通用 filters 结构（可空实现）。
@@ -2786,12 +2871,38 @@ dashboard:
   - `E3 query_knowledge_hub` 是生产环境的 MCP Tool
   - 两者共享 Core 层逻辑（HybridSearch + Reranker），但入口和输出格式不同
 
+### D8：KnowledgeService 契约与本地实现
+- **目标**：实现 `core/services/knowledge_service.py` 与 `LocalKnowledgeService`，把查询、集合列表、文档摘要封装成稳定应用层接口，供 MCP tools、CLI、Dashboard 复用。
+- **前置依赖**：D5（HybridSearch）、D6（Reranker）、E3 所需 ResponseBuilder 可先用最小实现或 Fake 注入
+- **修改文件**：
+  - `src/core/services/__init__.py`
+  - `src/core/services/knowledge_service.py`
+  - `src/core/services/local_knowledge_service.py`
+  - `src/core/services/knowledge_service_factory.py`
+  - `src/core/types.py`（如 QueryRequest/QueryResponse 放在统一 types 中）
+  - `tests/unit/test_knowledge_service_contract.py`
+  - `tests/integration/test_knowledge_service_local.py`
+- **实现类/函数**：
+  - `KnowledgeService` Protocol：`query()`、`list_collections()`、`get_document_summary()`
+  - `QueryRequest`：`query`、`top_k`、`collection`、`filters`、`include_images`
+  - `QueryResponse`：`answer`、`citations`、`items`、`images`、`request_id`、`metadata`
+  - `LocalKnowledgeService.query(request, trace?) -> QueryResponse`
+  - `build_knowledge_service(settings, deps?) -> KnowledgeService`
+- **验收标准**：
+  - MCP tool 测试可以注入 `FakeKnowledgeService`，不需要真实 Chroma/BM25/Embedding。
+  - `LocalKnowledgeService` 能把 HybridSearch + Reranker 的结果转换成统一 `QueryResponse`。
+  - `QueryResponse` 可 JSON 序列化，字段稳定，适合后续 HTTP 实现复用。
+  - `settings.knowledge_service.mode=local` 时工厂返回 `LocalKnowledgeService`。
+- **测试方法**：
+  - `pytest -q tests/unit/test_knowledge_service_contract.py`
+  - `pytest -q tests/integration/test_knowledge_service_local.py`
+
 ---
 
 ## 阶段 E：MCP Server 层与 Tools（目标：对外可用的 MCP tools）
 
-### E1：MCP Server 入口与 Stdio 约束
-- **目标**：实现 `mcp_server/server.py`：遵循"stdout 只输出 MCP 消息，日志到 stderr"。
+### E1：MCP Server 入口与 Stdio Transport
+- **目标**：实现 `mcp_server/server.py`：初期挂载 Stdio Transport，提供本地 MCP Client 接入；Server 入口只负责 MCP 协议生命周期、工具注册与 `KnowledgeService` 注入，具体知识库来源由应用服务层处理。Stdio 模式必须遵循"stdout 只输出 MCP 消息，日志到 stderr"。
 - **修改文件**：
   - `src/mcp_server/server.py`
   - `tests/integration/test_mcp_server.py`
@@ -2818,34 +2929,39 @@ dashboard:
 - **测试方法**：`pytest -q tests/unit/test_protocol_handler.py`。
 
 ### E3：实现 tool：query_knowledge_hub
-- **目标**：实现 `tools/query_knowledge_hub.py`：调用 HybridSearch + Reranker，构建带引用的响应，返回 Markdown + structured citations。
-- **前置依赖**：D5（HybridSearch）、D6（Reranker）、E1（Server）、E2（Protocol Handler）
+- **目标**：实现 `tools/query_knowledge_hub.py`：通过注入的 `KnowledgeService` 执行查询，构建带引用的 MCP 响应，返回 Markdown + structured citations。
+- **前置依赖**：D8（KnowledgeService）、E1（Server）、E2（Protocol Handler）
 - **修改文件**：
   - `src/mcp_server/tools/query_knowledge_hub.py`
+  - `src/core/services/knowledge_service.py`（复用 QueryRequest/QueryResponse）
   - `src/core/response/response_builder.py`（新增：构建 MCP 响应格式）
   - `src/core/response/citation_generator.py`（新增：生成引用信息）
+  - `tests/unit/test_query_knowledge_hub_tool.py`（新增：FakeKnowledgeService 注入）
   - `tests/unit/test_response_builder.py`（新增）
   - `tests/integration/test_mcp_server.py`（补用例）
 - **实现类/函数**：
-  - `ResponseBuilder.build(retrieval_results, query) -> MCPResponse`：构建 MCP 格式响应
-  - `CitationGenerator.generate(retrieval_results) -> List[Citation]`：生成引用列表
+  - `ResponseBuilder.build(query_response) -> MCPResponse`：构建 MCP 格式响应
+  - `CitationGenerator.generate(query_response.items) -> List[Citation]`：生成引用列表
   - `query_knowledge_hub(query, top_k?, collection?) -> MCPToolResult`：Tool 入口函数
 - **验收标准**：
+  - tool 内部只调用 `KnowledgeService.query()`，不直接访问 QueryEngine/VectorStore/BM25。
   - tool 返回 `content[0]` 为可读 Markdown（含 `[1]`、`[2]` 等引用标注）
   - `structuredContent.citations` 包含 `source`/`page`/`chunk_id`/`score` 字段
   - 无结果时返回友好提示而非空数组
-- **测试方法**：`pytest -q tests/integration/test_mcp_server.py -k query_knowledge_hub`。
+- **测试方法**：
+  - `pytest -q tests/unit/test_query_knowledge_hub_tool.py`
+  - `pytest -q tests/integration/test_mcp_server.py -k query_knowledge_hub`
 
 ### E4：实现 tool：list_collections
-- **目标**：实现 `tools/list_collections.py`：列出 `data/documents/` 下集合并附带统计（可延后到下一步）。
+- **目标**：实现 `tools/list_collections.py`：调用 `KnowledgeService.list_collections()`，返回可用集合及统计信息（统计可延后）。
 - **修改文件**：
   - `src/mcp_server/tools/list_collections.py`
   - `tests/unit/test_list_collections.py`
-- **验收标准**：对 fixtures 中的目录结构能返回集合名列表。
+- **验收标准**：可注入 `FakeKnowledgeService` 测试 tool 格式；默认本地实现能对 fixtures 中的目录结构返回集合名列表。
 - **测试方法**：`pytest -q tests/unit/test_list_collections.py`。
 
 ### E5：实现 tool：get_document_summary
-- **目标**：实现 `tools/get_document_summary.py`：按 doc_id 返回 title/summary/tags（可先从 metadata/缓存取）。
+- **目标**：实现 `tools/get_document_summary.py`：调用 `KnowledgeService.get_document_summary(doc_id)`，按 doc_id 返回 title/summary/tags（可先从 metadata/缓存取）。
 - **修改文件**：
   - `src/mcp_server/tools/get_document_summary.py`
   - `tests/unit/test_get_document_summary.py`
@@ -2853,7 +2969,7 @@ dashboard:
 - **测试方法**：`pytest -q tests/unit/test_get_document_summary.py`。
 
 ### E6：多模态返回组装（Text + Image）
-- **目标**：实现 `multimodal_assembler.py`：命中 chunk 含 image_refs 时读取图片并 base64 返回 ImageContent。
+- **目标**：实现 `multimodal_assembler.py`：本地模式下命中 chunk 含 image_refs 时读取图片并 base64 返回 ImageContent；HTTP 模式只消费 `QueryResponse.images` 中已经提供的 base64，不假设远端文件路径可读。
 - **修改文件**：
   - `src/core/response/multimodal_assembler.py`
   - `tests/integration/test_mcp_server.py`（补图像返回用例）
