@@ -63,7 +63,7 @@
 
 **🤖 Skill 驱动全流程**：内置 auto-coder（自动编码）、qa-tester（自动测试）、package（清理打包）、setup（一键配置）等 Agent Skill，覆盖从代码编写到测试、打包、部署的完整开发生命周期。每个 Skill 的使用方法和设计思路在笔记的项目部分均有讲解视频，可参考学习。
 
-> 📖 详细架构设计、模块说明和任务排期请参阅 [DEV_SPEC.md](DEV_SPEC.md)
+> 📖 详细架构设计、模块说明和任务排期请参阅 [DEV_SPEC.md](DEV_SPEC.md)；接口解耦规范见 [DEV_SPEC_INTERFACES.md](DEV_SPEC_INTERFACES.md)，软件工程图见 [INTERFACE_DIAGRAMS.md](INTERFACE_DIAGRAMS.md)。
 
 ---
 

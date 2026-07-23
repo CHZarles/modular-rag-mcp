@@ -2,7 +2,8 @@
 
 > 基于 [DEV_SPEC.md](DEV_SPEC.md) 整理。  
 > 图使用 Mermaid 编写，可在 GitHub、VS Code Mermaid Preview、Obsidian 等工具中直接渲染。  
-> Draw.io 版本已按 `DayuanJiang/next-ai-draw-io` 的 `.drawio` XML 结构生成：[diagrams/modular-rag-mcp-server.drawio](diagrams/modular-rag-mcp-server.drawio)。
+> Draw.io 版本已按 `DayuanJiang/next-ai-draw-io` 的 `.drawio` XML 结构生成：[diagrams/modular-rag-mcp-server.drawio](diagrams/modular-rag-mcp-server.drawio)。  
+> 面向开发 review 的类图/接口图集见 [INTERFACE_DIAGRAMS.md](INTERFACE_DIAGRAMS.md)，PlantUML 源文件位于 [diagrams/](diagrams/)。
 
 Draw.io 文件包含 6 个页面：
 

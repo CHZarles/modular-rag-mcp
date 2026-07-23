@@ -1,0 +1,103 @@
+@startuml review_04_query_response_ports
+!pragma layout smetana
+title 04 Query Runtime Collaboration: UML sequence with data contracts
+
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #334155
+skinparam sequence {
+  LifeLineBorderColor #94A3B8
+  LifeLineBackgroundColor #F8FAFC
+  ParticipantBorderColor #CBD5E1
+  ParticipantBackgroundColor #F8FAFC
+  BoxBorderColor #CBD5E1
+  BoxBackgroundColor #F8FAFC
+}
+
+actor "MCP Tool\nAdapter" as Tool
+participant "KnowledgeService" as KS #DBEAFE
+participant "QueryEngine" as QE #DCFCE7
+participant "QueryProcessor" as QP #DCFCE7
+participant "DenseRetriever" as DR #DCFCE7
+participant "SparseRetriever" as SR #DCFCE7
+participant "FusionStrategy" as Fusion #DCFCE7
+participant "MetadataFilter" as Filter #DCFCE7
+participant "BaseReranker" as Reranker #DCFCE7
+participant "ResponseBuilder" as Builder #DBEAFE
+
+Tool -> KS : Q1 query(request: QueryRequest)
+activate KS
+
+KS -> QE : Q1a search(request: QueryRequest, trace)
+activate QE
+
+QE -> QP : Q2 process(request: QueryRequest, trace)
+activate QP
+QP --> QE : processed: ProcessedQuery
+deactivate QP
+
+par Q3 dense route
+  QE -> DR : retrieve(processed: ProcessedQuery, trace)
+  activate DR
+  note right of DR
+    Input from 02:
+    ProcessedQuery.standalone_query
+
+    Internal data:
+    vector_store.query(...) -> list[SearchHit]
+    maps SearchHit -> RetrievalCandidate(source="dense")
+  end note
+  DR --> QE : dense_candidates: list[RetrievalCandidate]
+  deactivate DR
+else Q4 sparse route
+  QE -> SR : retrieve(processed: ProcessedQuery, trace)
+  activate SR
+  note right of SR
+    Input from 02:
+    ProcessedQuery.keywords
+
+    Internal data:
+    bm25_store.query(...) -> list[SearchHit]
+    maps SearchHit -> RetrievalCandidate(source="sparse")
+  end note
+  SR --> QE : sparse_candidates: list[RetrievalCandidate]
+  deactivate SR
+end
+
+QE -> Fusion : Q5 fuse(list[list[RetrievalCandidate]], top_k, trace)
+activate Fusion
+Fusion --> QE : candidates: list[RetrievalCandidate]
+deactivate Fusion
+
+QE -> Filter : Q6 apply(candidates: list[RetrievalCandidate], filters, trace)
+activate Filter
+Filter --> QE : candidates: list[RetrievalCandidate]
+deactivate Filter
+
+opt Q7 reranker enabled
+  QE -> Reranker : rerank(query, candidates: list[RetrievalCandidate], top_k, trace)
+  activate Reranker
+  Reranker --> QE : candidates: list[RetrievalCandidate]
+  deactivate Reranker
+end
+
+QE --> KS : candidates: list[RetrievalCandidate]
+deactivate QE
+
+KS -> Builder : Q8 build(request: QueryRequest, candidates: list[RetrievalCandidate], trace)
+activate Builder
+note right of Builder
+  Input from 02:
+  QueryRequest + list[RetrievalCandidate]
+
+  Output from 02:
+  QueryResponse
+end note
+Builder --> KS : response: QueryResponse
+deactivate Builder
+
+KS --> Tool : response: QueryResponse
+deactivate KS
+
+Tool -> Tool : Q9 convert QueryResponse to MCP\ncontent + structuredContent
+@enduml

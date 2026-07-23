@@ -490,22 +490,25 @@
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="p2" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=24;fontStyle=1;align=left;verticalAlign=middle;" value="可插拔组件与配置驱动" vertex="1">
-          <mxGeometry height="36" width="520" x="60" y="35" as="geometry" />
+        <mxCell id="p2" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=24;fontStyle=1;align=left;verticalAlign=middle;" value="配置如何驱动 01-05 的运行流程" vertex="1">
+          <mxGeometry height="36" width="620" x="60" y="35" as="geometry" />
         </mxCell>
-        <mxCell id="p3" parent="1" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#FFFFFF;strokeColor=#64748B;fontSize=14;fontStyle=1;" value="config/settings.yaml" vertex="1">
+        <mxCell id="p34" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;fontColor=#64748B;align=left;verticalAlign=middle;" value="本图不是新的业务流程，而是说明前面 Ingestion、Query、Evaluation 等流程如何由 settings.yaml 装配具体实现。" vertex="1">
+          <mxGeometry height="28" width="920" x="60" y="72" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" parent="1" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#FFFFFF;strokeColor=#64748B;fontSize=14;fontStyle=1;" value="config/settings.yaml&lt;br&gt;模型 / 索引 / 路径 / 评测配置" vertex="1">
           <mxGeometry height="74" width="180" x="80" y="150" as="geometry" />
         </mxCell>
         <mxCell id="p4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E2E8F0;strokeColor=#475569;fontSize=14;fontStyle=1;" value="Settings Loader&lt;br&gt;读取配置、校验必填项、失败快速暴露" vertex="1">
           <mxGeometry height="84" width="220" x="350" y="145" as="geometry" />
         </mxCell>
-        <mxCell id="p5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FAF5FF;strokeColor=#7E22CE;fontSize=14;fontStyle=1;" value="Factory Registry&lt;br&gt;根据 settings 创建接口实现" vertex="1">
+        <mxCell id="p5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FAF5FF;strokeColor=#7E22CE;fontSize=14;fontStyle=1;" value="Factory Registry&lt;br&gt;把配置映射为具体组件" vertex="1">
           <mxGeometry height="84" width="220" x="670" y="145" as="geometry" />
         </mxCell>
-        <mxCell id="p6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F0FDF4;strokeColor=#16A34A;fontSize=14;fontStyle=1;" value="Runtime Components&lt;br&gt;Query / Ingestion / Dashboard / Evaluation" vertex="1">
+        <mxCell id="p6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F0FDF4;strokeColor=#16A34A;fontSize=14;fontStyle=1;" value="Runtime Components&lt;br&gt;注入到 02 / 03 / 05 的流程" vertex="1">
           <mxGeometry height="84" width="260" x="1000" y="145" as="geometry" />
         </mxCell>
-        <mxCell id="p7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#EFF6FF;strokeColor=#93C5FD;fontSize=14;fontStyle=1;align=left;spacingLeft=18;verticalAlign=top;spacingTop=10;" value="抽象接口（由 Factory 选择实现）" vertex="1">
+        <mxCell id="p7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#EFF6FF;strokeColor=#93C5FD;fontSize=14;fontStyle=1;align=left;spacingLeft=18;verticalAlign=top;spacingTop=10;" value="前面流程依赖的接口（Factory 根据配置选择实现）" vertex="1">
           <mxGeometry height="95" width="1180" x="80" y="330" as="geometry" />
         </mxCell>
         <mxCell id="p8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#2563EB;fontSize=13;fontStyle=1;" value="LLMClient" vertex="1">
@@ -529,7 +532,7 @@
         <mxCell id="p31" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#2563EB;fontSize=13;fontStyle=1;" value="KnowledgeService" vertex="1">
           <mxGeometry height="42" width="160" x="110" y="370" as="geometry" />
         </mxCell>
-        <mxCell id="p14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontSize=14;fontStyle=1;align=left;spacingLeft=18;verticalAlign=top;spacingTop=10;" value="默认实现与替换方向（与上方接口一一对应）" vertex="1">
+        <mxCell id="p14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontSize=14;fontStyle=1;align=left;spacingLeft=18;verticalAlign=top;spacingTop=10;" value="当前默认实现与可替换方向（对应上方接口）" vertex="1">
           <mxGeometry height="125" width="1180" x="80" y="500" as="geometry" />
         </mxCell>
         <mxCell id="p15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#64748B;fontSize=13;" value="Azure OpenAI / OpenAI / Ollama / DeepSeek" vertex="1">
@@ -574,8 +577,8 @@
         <mxCell id="p27" edge="1" parent="1" source="p5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#16A34A;strokeWidth=2;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="p6" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="p33" parent="1" style="text;html=1;strokeColor=none;fillColor=none;fontSize=13;fontColor=#64748B;align=left;verticalAlign=middle;" value="下方三块是配置映射说明，不表示运行时调用链路" vertex="1">
-          <mxGeometry height="28" width="520" x="80" y="265" as="geometry" />
+        <mxCell id="p33" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontSize=13;fontColor=#475569;align=left;spacingLeft=16;verticalAlign=middle;" value="对应关系：02 Ingestion 使用 Loader / Splitter / Embedding / VectorStore；03 Query 使用 KnowledgeService / VectorStore / Reranker / LLMClient；05 可观测与评测使用 Evaluator / TraceSink / SQLite。" vertex="1">
+          <mxGeometry height="56" width="1180" x="80" y="255" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

@@ -1,0 +1,101 @@
+@startuml review_05_observability_evaluation
+!pragma layout smetana
+title Observability, Evaluation, and Review Slices
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #334155
+
+package "Runtime modules emit trace" {
+  class IngestionPipeline
+  class QueryEngine
+  class ResponseBuilder
+  class EvalRunner
+}
+
+package "Trace ports" {
+  interface BaseTracer {
+    +start_run(name, run_type, inputs): RunContext
+    +start_span(run_id, name, span_type, inputs): SpanContext
+    +record_event(run_id, span_id, event_type, payload): void
+    +record_artifact(run_id, span_id, artifact_type, content): void
+  }
+
+  interface BaseTraceSink {
+    +on_run_started(run): void
+    +on_run_finished(run): void
+    +on_span_started(span): void
+    +on_span_finished(span): void
+    +on_event(event): void
+    +on_artifact(artifact): void
+  }
+
+  interface BaseCacheStore {
+    +get(namespace, key): JsonDict?
+    +set(namespace, key, value, ttl_seconds): void
+    +delete(namespace, key): void
+  }
+}
+
+package "Evaluation ports" {
+  interface EvaluationService {
+    +run_evaluation(cases, evaluator_names): EvaluationReport
+  }
+
+  interface BaseEvaluator {
+    +name: str
+    +evaluate(case, response, trace): Dict<str,float>
+  }
+
+  class CompositeEvaluator
+  class RagasEvaluator
+  class CustomMetricsEvaluator
+}
+
+package "Stores and tools" {
+  class SQLiteTraceSink
+  class CompositeTraceSink
+  class NoopExternalTraceSink
+  class SQLiteCacheStore
+  class DashboardTraceService
+  class TrainingDataExporter
+}
+
+IngestionPipeline ..> BaseTracer
+QueryEngine ..> BaseTracer
+ResponseBuilder ..> BaseTracer
+EvalRunner ..> BaseTracer
+
+BaseTracer --> BaseTraceSink
+BaseTraceSink <|.. SQLiteTraceSink
+BaseTraceSink <|.. CompositeTraceSink
+BaseTraceSink <|.. NoopExternalTraceSink
+BaseCacheStore <|.. SQLiteCacheStore
+
+DashboardTraceService --> SQLiteTraceSink : reads runs/spans/events
+TrainingDataExporter --> SQLiteTraceSink : exports cases
+
+EvaluationService --> EvalRunner
+EvalRunner --> BaseEvaluator
+BaseEvaluator <|.. CompositeEvaluator
+BaseEvaluator <|.. RagasEvaluator
+BaseEvaluator <|.. CustomMetricsEvaluator
+CompositeEvaluator o-- BaseEvaluator
+
+note right of BaseTracer
+Review goal:
+Can we explain why a query/ingestion behaved that way?
+Trace should expose stage inputs, outputs, latency, provider, fallback.
+end note
+
+note bottom of BaseTraceSink
+Failure isolation:
+Trace/cache/evaluation failures must not break MCP/RAG main flow.
+end note
+
+note bottom of BaseEvaluator
+Evaluation consumes QueryResponse.
+It does not call MCP tools and does not know transport details.
+end note
+@enduml

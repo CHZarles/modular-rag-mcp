@@ -1,0 +1,80 @@
+@startuml reference_04_query_response_ports_full
+!pragma layout smetana
+title Reference 04: Query dependency structure with data contracts
+
+top to bottom direction
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #334155
+skinparam componentStyle rectangle
+skinparam linetype ortho
+skinparam component {
+  BorderColor #CBD5E1
+  BackgroundColor #F8FAFC
+}
+
+component "MCP Tool Adapter\nQ9 QueryResponse -> MCP content" as Tool #EEF2FF
+component "KnowledgeService\nQ1 QueryRequest -> QueryResponse" as KS #DBEAFE
+component "LocalKnowledgeService" as LocalKS #DBEAFE
+component "HttpRetrievalServiceClient\nsame request/response contract" as HttpKS #DBEAFE
+
+component "QueryEngine\nQ1a orchestrates Q2-Q7" as QE #DCFCE7
+component "«interface» ResponseBuilder\nQ8 QueryRequest + RetrievalCandidate[]\n-> QueryResponse\ndefault: DefaultResponseBuilder" as Builder #DBEAFE
+
+package "Capability interfaces called by QueryEngine\n能力接口，不是网络端口" #DCFCE7 {
+  component "«interface» QueryProcessor\nQ2 QueryRequest -> ProcessedQuery\ndefault: RuleBasedQueryProcessor" as QP
+  component "«interface» DenseRetriever\nQ3 ProcessedQuery -> RetrievalCandidate[]\ndefault: VectorDenseRetriever" as DR
+  component "«interface» SparseRetriever\nQ4 ProcessedQuery -> RetrievalCandidate[]\ndefault: BM25SparseRetriever" as SR
+  component "«interface» FusionStrategy\nQ5 RetrievalCandidate[][] -> RetrievalCandidate[]\ndefault: RRFFusion" as Fusion
+  component "«interface» MetadataFilter\nQ6 RetrievalCandidate[] -> RetrievalCandidate[]\ndefault: DefaultMetadataFilter" as Filter
+  component "«interface» BaseReranker\nQ7 RetrievalCandidate[] -> RetrievalCandidate[]\noptions: None/CrossEncoder/LLM" as Reranker
+}
+
+package "Retrieval/storage capability interfaces\n检索/存储能力接口" #FEF3C7 {
+  component "«interface» BaseEmbedding\nembed(texts)" as Embedding
+  component "«interface» BaseVectorStore\nquery() -> SearchHit[]\nget_by_ids() -> ChunkRecord[]" as VectorStore
+  component "«interface» BM25IndexStore\nquery() -> SearchHit[]" as BM25
+  component "«interface» ImageStore\nget(image_id) -> ImageRef?" as ImageStore
+}
+
+package "Response capability interfaces\n响应组装能力接口" #DBEAFE {
+  component "«interface» CitationGenerator\ngenerate(candidates)" as Citation
+  component "«interface» MultimodalAssembler\nresolve_images(...)" as Multi
+}
+
+Tool --> KS : Q1
+LocalKS ..|> KS
+HttpKS ..|> KS
+
+KS --> QE : Q1a search()
+KS --> Builder : Q8 build()
+
+QE --> QP : Q2 QueryRequest
+QE --> DR : Q3 ProcessedQuery
+QE --> SR : Q4 ProcessedQuery
+QE --> Fusion : Q5 RetrievalCandidate[]
+QE --> Filter : Q6 RetrievalCandidate[]
+QE --> Reranker : Q7 RetrievalCandidate[]
+
+DR --> Embedding : default impl embeds query
+DR --> VectorStore : SearchHit[] -> RetrievalCandidate[]
+SR --> BM25 : SearchHit[] -> RetrievalCandidate[]
+SR ..> VectorStore : ChunkRecord[] when BM25 lacks text
+
+Builder --> Citation : citations
+Builder --> Multi : images
+Multi --> ImageStore : ImageRef lookup
+
+note right of QE
+Orchestrator only:
+coordinates Q2-Q7 interfaces.
+It should not import Chroma,
+BM25, OpenAI, or reranker SDKs.
+end note
+
+note right of DR
+Store interfaces return SearchHit.
+Retrievers map SearchHit
+to RetrievalCandidate.
+end note
+@enduml

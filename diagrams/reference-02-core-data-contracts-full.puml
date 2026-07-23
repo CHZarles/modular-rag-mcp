@@ -1,0 +1,163 @@
+@startuml reference_02_core_data_contracts_full
+!pragma layout smetana
+title Reference 02: Core Data Contracts full field map
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #334155
+
+class Document <<domain contract>> {
+  +id: str
+  +text: str
+  +metadata: Metadata
+}
+
+class ImageRef <<storage reference>> {
+  +image_id: str
+  +path: str
+  +collection: str
+  +source_path: str
+  +page: int?
+  +mime_type: str
+  +text_offset: int?
+  +text_length: int?
+  +position: JsonDict
+}
+
+class Chunk <<domain contract>> {
+  +id: str
+  +text: str
+  +metadata: Metadata
+  +source_ref: str
+  +chunk_index: int
+  +start_offset: int?
+  +end_offset: int?
+}
+
+class ChunkRecord <<storage payload>> {
+  +id: str
+  +text: str
+  +metadata: Metadata
+  +dense_vector: List<float>?
+  +sparse_vector: JsonDict?
+  +content_hash: str?
+}
+
+enum ScoreKind {
+  similarity
+  distance
+  bm25
+  unknown
+}
+
+enum CandidateSource {
+  dense
+  sparse
+  fusion
+  rerank
+}
+
+enum IngestionStatus {
+  success
+  skipped
+  failed
+}
+
+class SearchHit <<store hit>> {
+  +id: str
+  +text: str
+  +metadata: Metadata
+  +score: float
+  +score_kind: ScoreKind
+  +raw: JsonDict
+}
+
+class RetrievalCandidate <<query candidate>> {
+  +chunk_id: str
+  +text: str
+  +metadata: Metadata
+  +score: float
+  +source: CandidateSource
+  +rank: int
+  +debug: JsonDict
+}
+
+class Citation <<response citation>> {
+  +citation_id: str
+  +chunk_id: str
+  +source_path: str
+  +page: int?
+  +text: str
+  +score: float
+  +metadata: Metadata
+}
+
+class ImagePayload <<response image>> {
+  +image_id: str
+  +mime_type: str
+  +data_base64: str?
+  +uri: str?
+  +source_ref: str?
+  +metadata: JsonDict
+}
+
+class QueryRequest <<service input>> {
+  +query: str
+  +top_k: int
+  +collection: str
+  +filters: JsonDict
+  +include_images: bool
+  +request_id: str?
+}
+
+class ProcessedQuery <<query stage output>> {
+  +original_query: str
+  +standalone_query: str
+  +keywords: List<str>
+  +filters: JsonDict
+}
+
+class QueryResponse <<service output>> {
+  +answer: str
+  +citations: List<Citation>
+  +items: List<RetrievalCandidate>
+  +images: List<ImagePayload>
+  +request_id: str?
+  +metadata: JsonDict
+}
+
+class IngestionRequest <<service input>> {
+  +source_path: str
+  +collection: str
+  +force: bool
+  +request_id: str?
+}
+
+class IngestionResult <<service output>> {
+  +source_path: str
+  +collection: str
+  +status: IngestionStatus
+  +file_hash: str
+  +document_id: str?
+  +chunk_count: int
+  +image_count: int
+  +error: str?
+  +metadata: JsonDict
+}
+
+Document "1" --> "*" ImageRef : metadata.images
+Document "1" --> "*" Chunk : split into
+Chunk "1" --> "1" ChunkRecord : encoded for storage
+ChunkRecord "1" --> "*" SearchHit : queried as
+SearchHit --> RetrievalCandidate : mapped by Retriever
+RetrievalCandidate --> Citation : cited by
+ImageRef --> ImagePayload : resolved by MultimodalAssembler
+QueryRequest --> ProcessedQuery : process
+ProcessedQuery --> SearchHit : retrievers query stores
+RetrievalCandidate --> QueryResponse
+Citation --> QueryResponse
+ImagePayload --> QueryResponse
+IngestionRequest --> Document : load
+IngestionRequest --> IngestionResult : pipeline returns
+@enduml

@@ -1,0 +1,107 @@
+@startuml review_03_ingestion_ports
+!pragma layout smetana
+title 03 Ingestion Runtime Collaboration: UML sequence with data contracts
+
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #334155
+skinparam sequence {
+  LifeLineBorderColor #94A3B8
+  LifeLineBackgroundColor #F8FAFC
+  ParticipantBorderColor #CBD5E1
+  ParticipantBackgroundColor #F8FAFC
+  BoxBorderColor #CBD5E1
+  BoxBackgroundColor #F8FAFC
+}
+
+actor "CLI / Dashboard" as Entry
+participant "IngestionService" as IS #DBEAFE
+participant "IngestionPipeline" as Pipe #DCFCE7
+participant "FileIntegrityStore" as Integrity #DCFCE7
+participant "BaseLoader" as Loader #DCFCE7
+participant "DocumentChunker" as Chunker #DCFCE7
+participant "TransformChain" as Transform #DCFCE7
+participant "BaseEmbedding" as Embedding #DCFCE7
+participant "SparseEncoder" as Sparse #DCFCE7
+participant "BaseVectorStore" as VectorStore #FEF3C7
+participant "BM25IndexStore" as BM25 #FEF3C7
+participant "ImageStore" as ImageStore #FEF3C7
+
+Entry -> IS : I1 ingest(request: IngestionRequest)
+activate IS
+
+IS -> Pipe : I1a run(request: IngestionRequest, trace)
+activate Pipe
+
+Pipe -> Integrity : I2 compute_sha256(request.source_path)
+activate Integrity
+Integrity --> Pipe : file_hash: str
+
+Pipe -> Integrity : I2 should_skip(file_hash, collection)
+Integrity --> Pipe : should_skip: bool
+deactivate Integrity
+
+alt I2a if skipped and force == false
+  Pipe --> IS : result: IngestionResult(status="skipped")
+  deactivate Pipe
+  IS --> Entry : IngestionResult
+  deactivate IS
+else I2b else run ingestion
+  Pipe -> Loader : I3 load(source_path, collection, trace)
+  activate Loader
+  Loader --> Pipe : document: Document
+  deactivate Loader
+
+  Pipe -> Chunker : I4 split_document(document: Document, trace)
+  activate Chunker
+  Chunker --> Pipe : chunks: list[Chunk]
+  deactivate Chunker
+
+  Pipe -> Transform : I5 transform(chunks: list[Chunk], trace)
+  activate Transform
+  Transform --> Pipe : chunks: list[Chunk]
+  deactivate Transform
+
+  par I6 dense encode
+    Pipe -> Embedding : embed([chunk.text], trace)
+    activate Embedding
+    Embedding --> Pipe : dense_vectors: list[list[float]]
+    deactivate Embedding
+  else I7 sparse encode
+    Pipe -> Sparse : encode(chunks: list[Chunk], trace)
+    activate Sparse
+    Sparse --> Pipe : sparse_vectors: list[dict]
+    deactivate Sparse
+  end
+
+  Pipe -> Pipe : I8 build ChunkRecord[]\nfrom Chunk[] + vectors
+
+  par I9a vector upsert
+    Pipe -> VectorStore : upsert(records: list[ChunkRecord], trace)
+    activate VectorStore
+    VectorStore --> Pipe : ok
+    deactivate VectorStore
+  else I9b BM25 upsert
+    Pipe -> BM25 : upsert(chunks, sparse_vectors, trace)
+    activate BM25
+    BM25 --> Pipe : ok
+    deactivate BM25
+  else I9c image refs save
+    Pipe -> ImageStore : save_refs(images: list[ImageRef], trace)
+    activate ImageStore
+    ImageStore --> Pipe : ok
+    deactivate ImageStore
+  end
+
+  Pipe -> Integrity : mark_success(file_hash, source_path, collection, chunk_count)
+  activate Integrity
+  Integrity --> Pipe : ok
+  deactivate Integrity
+
+  Pipe --> IS : result: IngestionResult(status="success")
+  deactivate Pipe
+
+  IS --> Entry : IngestionResult
+  deactivate IS
+end
+@enduml

@@ -1,0 +1,83 @@
+@startuml reference_03_ingestion_ports_full
+!pragma layout smetana
+title Reference 03: Ingestion dependency structure with data contracts
+
+top to bottom direction
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #334155
+skinparam componentStyle rectangle
+skinparam linetype ortho
+skinparam component {
+  BorderColor #CBD5E1
+  BackgroundColor #F8FAFC
+}
+
+component "CLI / Dashboard\nI1 IngestionRequest" as Entry #EEF2FF
+component "IngestionService\nI1 IngestionRequest -> IngestionResult" as IS #DBEAFE
+component "LocalIngestionService" as LocalIS #DBEAFE
+component "IngestionPipeline\nI1a orchestrates I2-I9" as Pipe #DCFCE7
+
+package "Capability interfaces called by IngestionPipeline\n能力接口，不是网络端口" #DCFCE7 {
+  component "«interface» FileIntegrityStore\nI2 source_path -> file_hash / skip\ndefault: SQLiteIntegrityStore" as Integrity
+  component "«interface» BaseLoader\nI3 source_path -> Document\ndefault: MarkItDownPdfLoader" as Loader
+  component "«interface» DocumentChunker\nI4 Document -> Chunk[]\ndefault: DefaultDocumentChunker" as Chunker
+  component "«interface» BaseTransform\nI5 Chunk[] -> Chunk[]\ndefault: TransformChain" as Transform
+  component "«interface» BaseEmbedding\nI6 Chunk.text[] -> dense vectors\ndefault: OpenAIEmbedding" as Embedding
+  component "«interface» SparseEncoder\nI7 Chunk[] -> sparse vectors\ndefault: BM25SparseEncoder" as Sparse
+}
+
+package "Storage capability interfaces\n存储能力接口" #FEF3C7 {
+  component "«interface» BaseVectorStore\nI9a ChunkRecord[] upsert\ndefault: ChromaStore" as VectorStore
+  component "«interface» BM25IndexStore\nI9b Chunk[] + sparse vectors upsert\ndefault: LocalBM25IndexStore" as BM25
+  component "«interface» ImageStore\nI9c ImageRef[] save\ndefault: SQLiteImageStore" as ImageStore
+}
+
+package "Helper interfaces / transform steps\n辅助接口和增强步骤" #F8FAFC {
+  component "«interface» BaseSplitter\ntext -> string[]\ndefault: RecursiveMarkdownSplitter" as Splitter
+  component "ChunkRefiner" as Refiner
+  component "MetadataEnricher" as Enricher
+  component "ImageCaptioner" as Captioner
+}
+
+Entry --> IS : I1
+LocalIS ..|> IS
+IS --> Pipe : I1a run()
+
+Pipe --> Integrity : I2 hash / skip / mark_success
+Pipe --> Loader : I3 Document
+Pipe --> Chunker : I4 Chunk[]
+Pipe --> Transform : I5 Chunk[]
+Pipe --> Embedding : I6 dense vectors
+Pipe --> Sparse : I7 sparse vectors
+Pipe --> Pipe : I8 build ChunkRecord[]
+Pipe --> VectorStore : I9a ChunkRecord[]
+Pipe --> BM25 : I9b Chunk[] + sparse vectors
+Pipe --> ImageStore : I9c ImageRef[]
+
+Chunker --> Splitter : split text
+Transform ..> Refiner
+Transform ..> Enricher
+Transform ..> Captioner
+
+note right of Pipe
+Orchestrator only:
+coordinates I2-I9 interfaces.
+
+Do not import concrete adapters here:
+MarkItDown / Chroma / OpenAI / BM25 internals.
+end note
+
+note right of Chunker
+Important boundary:
+Document -> Chunk[] preserves source metadata
+and distributes image refs to relevant chunks.
+end note
+
+legend right
+Line legend:
+solid arrow --> : runtime call / main dependency
+dashed triangle ..|> : concrete class implements interface
+dashed arrow ..> : internal helper / optional dependency
+endlegend
+@enduml

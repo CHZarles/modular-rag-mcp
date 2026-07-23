@@ -1,0 +1,91 @@
+@startuml review_02_core_data_contracts
+!pragma layout smetana
+title 02 Core Data Contracts: code-shaped flow
+
+top to bottom direction
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #334155
+hide circle
+hide empty methods
+
+class IngestionRequest <<dataclass>> #DCFCE7 {
+  +source_path: str
+  +collection: str = "default"
+  +force: bool = false
+}
+
+class Document <<dataclass>> #DCFCE7 {
+  +id: str
+  +text: str
+  +metadata: dict
+}
+
+class Chunk <<dataclass>> #DCFCE7 {
+  +id: str
+  +text: str
+  +metadata: dict
+  +source_ref: str
+}
+
+class ChunkRecord <<dataclass>> #DCFCE7 {
+  +id: str
+  +text: str
+  +metadata: dict
+  +dense_vector: list[float] | None
+  +sparse_vector: dict | None
+}
+
+class StoreInterfaces <<capability interfaces>> #EEF2FF {
+  not network ports
+  +vector_store.upsert(records)
+  +bm25_store.upsert(chunks, sparse_vectors)
+  +image_store.save_refs(images)
+  +vector_store.query(...) -> list[SearchHit]
+  +bm25_store.query(...) -> list[SearchHit]
+  +image_store.get(image_id) -> ImageRef?
+}
+
+class QueryRequest <<dataclass>> #FEF3C7 {
+  +query: str
+  +top_k: int = 5
+  +collection: str = "default"
+  +filters: dict
+  +include_images: bool = true
+}
+
+class SearchHit <<dataclass>> #FEF3C7 {
+  +id: str
+  +text: str
+  +metadata: dict
+  +score: float
+  +score_kind: ScoreKind
+}
+
+class RetrievalCandidate <<dataclass>> #FEF3C7 {
+  +chunk_id: str
+  +text: str
+  +metadata: dict
+  +score: float
+  +source: CandidateSource
+  +rank: int
+}
+
+class QueryResponse <<dataclass>> #FEF3C7 {
+  +answer: str
+  +citations: list[Citation]
+  +items: list[RetrievalCandidate]
+  +images: list[ImagePayload]
+}
+
+IngestionRequest -[#16A34A,thickness=3]-> Document : loader.load(...)
+Document -[#16A34A,thickness=3]-> Chunk : chunker.split_document(...)
+Chunk -[#16A34A,thickness=3]-> ChunkRecord : build_records(...)
+ChunkRecord -[#16A34A,thickness=3]-> StoreInterfaces : persist searchable assets
+
+QueryRequest -[#D97706,thickness=3]-> StoreInterfaces : retriever.query(...)
+StoreInterfaces -[#D97706,thickness=3]-> SearchHit : list[SearchHit]
+SearchHit -[#D97706,thickness=3]-> RetrievalCandidate : map_hit_to_candidate(...)
+RetrievalCandidate -[#D97706,thickness=3]-> QueryResponse : response_builder.build(...)
+@enduml
