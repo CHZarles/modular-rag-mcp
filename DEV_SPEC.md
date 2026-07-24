@@ -2071,9 +2071,9 @@ dashboard:
 | C5 | Transform 基类 + ChunkRefiner | [x] | 2026-07-25 | ChunkRefiner (whitespace 清理) + 9 测试 |
 | C6 | MetadataEnricher | [x] | 2026-07-25 | 标题/摘要/标签启发式 + 6 测试 |
 | C7 | ImageCaptioner | [x] | 2026-07-25 | ImageCaptioner (pass-through/降级) + 4 测试 |
-| C8 | DenseEncoder | [ ] | | |
-| C9 | SparseEncoder | [ ] | | |
-| C10 | BatchProcessor | [ ] | | |
+| C8 | DenseEncoder | [x] | 2026-07-25 | DenseEncoder 包装 BaseEmbedding + 2 测试 |
+| C9 | SparseEncoder | [x] | 2026-07-25 | SparseEncoder (纯 Python tokenizer) + 2 测试 |
+| C10 | BatchProcessor | [x] | 2026-07-25 | BatchProcessor + 4 测试 |
 | C11 | BM25Indexer（倒排索引+IDF计算） | [ ] | | |
 | C12 | VectorUpserter（幂等upsert） | [ ] | | |
 | C13 | ImageStorage（图片存储+SQLite索引） | [ ] | | |
