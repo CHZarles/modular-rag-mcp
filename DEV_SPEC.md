@@ -2057,7 +2057,7 @@ dashboard:
 | B7.6 | ChromaStore 默认实现 | [x] | 2026-07-25 | 本地 JSON 持久化 (避免 chromadb 重依赖) + 8 测试 |
 | B7.7 | LLM Reranker 实现 | [x] | 2026-07-25 | LLMReranker + RerankerFallback + 11 测试 |
 | B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-07-25 | CrossEncoderReranker + RerankerFallback + 8 测试 |
-| B8 | Vision LLM 抽象接口与工厂集成 | [ ] | | |
+| B8 | Vision LLM 抽象接口与工厂集成 | [x] | 2026-07-25 | VisionLLMFactory registry + 7 测试 |
 | B9 | Azure Vision LLM 实现 | [ ] | | |
 
 #### 阶段 C：Ingestion Pipeline MVP
