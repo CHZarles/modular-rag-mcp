@@ -50,6 +50,7 @@ class EmbeddingConfig:
     provider: str
     model: str | None = None
     api_key: str | None = None
+    azure_endpoint: str | None = None
 
 
 @dataclass(frozen=True)
