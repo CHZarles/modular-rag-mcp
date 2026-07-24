@@ -2069,8 +2069,8 @@ dashboard:
 | C3 | Loader 抽象基类与 PDF Loader | [x] | 2026-07-25 | PDFLoader (pypdf + txt fallback) + 5 测试 |
 | C4 | Splitter 集成（调用 Libs） | [x] | 2026-07-25 | DocumentChunker 8 测试 (稳定 id/offsets/images) |
 | C5 | Transform 基类 + ChunkRefiner | [x] | 2026-07-25 | ChunkRefiner (whitespace 清理) + 9 测试 |
-| C6 | MetadataEnricher | [ ] | | |
-| C7 | ImageCaptioner | [ ] | | |
+| C6 | MetadataEnricher | [x] | 2026-07-25 | 标题/摘要/标签启发式 + 6 测试 |
+| C7 | ImageCaptioner | [x] | 2026-07-25 | ImageCaptioner (pass-through/降级) + 4 测试 |
 | C8 | DenseEncoder | [ ] | | |
 | C9 | SparseEncoder | [ ] | | |
 | C10 | BatchProcessor | [ ] | | |
