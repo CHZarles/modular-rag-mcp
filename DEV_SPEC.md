@@ -2054,7 +2054,7 @@ dashboard:
 | B7.3 | OpenAI & Azure Embedding 实现 | [x] | 2026-07-25 | OpenAI/Azure Embedding + 12 测试 |
 | B7.4 | Ollama Embedding 实现 | [x] | 2026-07-25 | OllamaEmbedding + 6 测试 |
 | B7.5 | Recursive Splitter 默认实现 | [x] | 2026-07-25 | RecursiveCharacterSplitter (stdlib) + 8 测试 |
-| B7.6 | ChromaStore 默认实现 | [ ] | | |
+| B7.6 | ChromaStore 默认实现 | [x] | 2026-07-25 | 本地 JSON 持久化 (避免 chromadb 重依赖) + 8 测试 |
 | B7.7 | LLM Reranker 实现 | [ ] | | |
 | B7.8 | Cross-Encoder Reranker 实现 | [ ] | | |
 | B8 | Vision LLM 抽象接口与工厂集成 | [ ] | | |
