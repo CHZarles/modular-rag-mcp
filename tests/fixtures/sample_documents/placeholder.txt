@@ -1,0 +1,8 @@
+# Placeholder fixture for A2 file-integrity tests.
+
+This file intentionally has no meaningful content. It exists so that:
+- the SHA256 helper has something non-empty to hash,
+- tests/fixtures/sample_documents/ is tracked by git, and
+- downstream stages (C2, C14, etc.) have a stable filename to point at.
+
+Replace with a real PDF in stage C.
