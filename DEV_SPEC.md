@@ -2050,7 +2050,7 @@ dashboard:
 | B5 | Reranker 抽象接口与工厂（含 None 回退） | [x] | 2026-07-25 | RerankerFactory + register_default_rerankers |
 | B6 | Evaluator 抽象接口与工厂 | [x] | 2026-07-25 | EvaluatorFactory + register_default_evaluators |
 | B7.1 | OpenAI-Compatible LLM 实现 | [x] | 2026-07-25 | OpenAI/Azure/DeepSeek + mock HTTP |
-| B7.2 | Ollama LLM 实现 | [ ] | | |
+| B7.2 | Ollama LLM 实现 | [x] | 2026-07-25 | OllamaLLM + 7 测试 (含敏感信息不泄露断言) |
 | B7.3 | OpenAI & Azure Embedding 实现 | [ ] | | |
 | B7.4 | Ollama Embedding 实现 | [ ] | | |
 | B7.5 | Recursive Splitter 默认实现 | [ ] | | |
