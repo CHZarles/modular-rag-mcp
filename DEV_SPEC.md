@@ -2037,7 +2037,7 @@ dashboard:
 |---------|---------|------|---------|------|
 | A1 | 初始化目录树与最小可运行入口 | [x] | 2026-07-24 | main.py + config/ + prompts/ |
 | A2 | 引入 pytest 并建立测试目录约定 | [x] | 2026-07-25 | tests/{unit,integration,e2e,fixtures} 骨架 + 冒烟测试 |
-| A3 | 配置加载与校验（Settings） | [ ] | | |
+| A3 | 配置加载与校验（Settings） | [x] | 2026-07-25 | Settings dataclass + load/validate + logger |
 
 #### 阶段 B：Libs 可插拔层
 
