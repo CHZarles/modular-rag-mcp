@@ -2074,9 +2074,9 @@ dashboard:
 | C8 | DenseEncoder | [x] | 2026-07-25 | DenseEncoder 包装 BaseEmbedding + 2 测试 |
 | C9 | SparseEncoder | [x] | 2026-07-25 | SparseEncoder (纯 Python tokenizer) + 2 测试 |
 | C10 | BatchProcessor | [x] | 2026-07-25 | BatchProcessor + 4 测试 |
-| C11 | BM25Indexer（倒排索引+IDF计算） | [ ] | | |
-| C12 | VectorUpserter（幂等upsert） | [ ] | | |
-| C13 | ImageStorage（图片存储+SQLite索引） | [ ] | | |
+| C11 | BM25Indexer（倒排索引+IDF计算） | [x] | 2026-07-25 | BM25IndexStore (纯 Python) + 5 测试 |
+| C12 | VectorUpserter（幂等upsert） | [x] | 2026-07-25 | VectorUpserter (chunk+dense+sparse 缝合) + 2 测试 |
+| C13 | ImageStorage（图片存储+SQLite索引） | [x] | 2026-07-25 | ImageStorage (in-memory 索引) + 3 测试 |
 | C14 | Pipeline 编排（MVP 串起来） | [ ] | | |
 | C15 | 脚本入口 ingest.py | [ ] | | |
 
