@@ -1,0 +1,17 @@
+Query: {{QUERY}}
+
+You are reranking candidate passages for the query above.
+Each candidate is numbered as shown below. Return a JSON array of the same
+candidates ordered from most to least relevant, preserving each candidate's
+"id" and a short "reason" (≤ 20 words) explaining why it is placed there.
+
+Candidates:
+{{CANDIDATES}}
+
+Output schema:
+[
+  {"id": "<candidate id>", "reason": "<short reason>"},
+  ...
+]
+
+Return ONLY the JSON array, no extra text.

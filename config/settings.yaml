@@ -1,0 +1,88 @@
+# Modular RAG MCP Server — main configuration
+#
+# Single source of truth for runtime provider selection.
+# Each block below maps to a Factory in `src/libs/*` / `src/core/services/*`.
+# Concrete provider implementations will be wired up in stages B–E.
+
+# ---------------------------------------------------------------------------
+# Knowledge service assembly (mode is local | http)
+# ---------------------------------------------------------------------------
+knowledge_service:
+  mode: local                # local | http
+  endpoint: null             # required when mode=http
+  timeout_seconds: 30
+
+# ---------------------------------------------------------------------------
+# LLM provider (chat)
+# ---------------------------------------------------------------------------
+llm:
+  provider: azure            # azure | openai | ollama | deepseek
+  model: gpt-4o
+  azure_endpoint: null
+  api_key: null
+
+# ---------------------------------------------------------------------------
+# Embedding provider
+# ---------------------------------------------------------------------------
+embedding:
+  provider: openai           # openai | azure | ollama
+  model: text-embedding-3-small
+  api_key: null
+
+# ---------------------------------------------------------------------------
+# Vision LLM provider (image captioning)
+# ---------------------------------------------------------------------------
+vision_llm:
+  provider: azure            # azure | dashscope
+  model: gpt-4o
+  azure_endpoint: null
+  api_key: null
+
+# ---------------------------------------------------------------------------
+# Vector store
+# ---------------------------------------------------------------------------
+vector_store:
+  backend: chroma            # chroma | qdrant | pinecone
+  persist_path: ./data/db/chroma
+
+# ---------------------------------------------------------------------------
+# Retrieval (hybrid search)
+# ---------------------------------------------------------------------------
+retrieval:
+  sparse_backend: bm25       # bm25 | elasticsearch
+  fusion_algorithm: rrf      # rrf | weighted_sum
+  top_k_dense: 20
+  top_k_sparse: 20
+  top_k_final: 10
+
+# ---------------------------------------------------------------------------
+# Reranker
+# ---------------------------------------------------------------------------
+rerank:
+  backend: none              # none | cross_encoder | llm
+  model: null
+  top_m: 30
+
+# ---------------------------------------------------------------------------
+# Evaluation
+# ---------------------------------------------------------------------------
+evaluation:
+  backends: [ragas, custom]
+  golden_test_set: ./tests/fixtures/golden_test_set.json
+
+# ---------------------------------------------------------------------------
+# Observability (tracing + structured logs)
+# ---------------------------------------------------------------------------
+observability:
+  enabled: true
+  log_file: ./logs/traces.jsonl
+
+# ---------------------------------------------------------------------------
+# Local developer dashboard (Streamlit, dev only — not exposed via MCP)
+# ---------------------------------------------------------------------------
+dashboard:
+  enabled: true
+  port: 8501
+  traces_dir: ./logs
+  auto_refresh: true
+  refresh_interval: 5

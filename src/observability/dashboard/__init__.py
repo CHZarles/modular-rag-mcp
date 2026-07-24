@@ -1,0 +1,1 @@
+"""Local developer dashboard (Streamlit) — not exposed via MCP."""

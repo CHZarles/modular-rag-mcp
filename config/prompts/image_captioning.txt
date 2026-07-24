@@ -1,0 +1,12 @@
+{{IMAGE_CONTEXT}}
+
+Describe the image above in 1–3 sentences for downstream RAG retrieval.
+Focus on:
+- the visible subject (what it is, not just "an image")
+- any visible text, numbers, labels, or annotations
+- its likely purpose inside the document it was extracted from
+
+Rules:
+- plain prose only, no bullet lists, no JSON
+- do NOT invent details you cannot see
+- if the image is unreadable or empty, say so explicitly

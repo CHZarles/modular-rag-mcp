@@ -1,0 +1,10 @@
+{{CHUNK_TEXT}}
+
+You are cleaning up an extracted document chunk before it is indexed for RAG retrieval.
+Rewrite the chunk so that:
+- it stays semantically equivalent to the original (no new facts)
+- broken layout, repeated headers, and trailing page numbers are removed
+- in-line image references such as `[IMAGE: img-1]` are preserved verbatim
+- the rewritten text reads naturally as a standalone passage
+
+Return ONLY the rewritten chunk text. No preamble, no explanation.
