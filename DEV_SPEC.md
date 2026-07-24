@@ -2047,7 +2047,7 @@ dashboard:
 | B2 | Embedding 抽象接口与工厂 | [x] | 2026-07-25 | EmbeddingFactory registry + 9 路由/稳定性测试 |
 | B3 | Splitter 抽象接口与工厂 | [x] | 2026-07-25 | SplitterFactory registry + 10 路由/切分测试 |
 | B4 | VectorStore 抽象接口与工厂 | [x] | 2026-07-25 | VectorStoreFactory registry + 8 路由测试 |
-| B5 | Reranker 抽象接口与工厂（含 None 回退） | [ ] | | |
+| B5 | Reranker 抽象接口与工厂（含 None 回退） | [x] | 2026-07-25 | RerankerFactory + register_default_rerankers |
 | B6 | Evaluator 抽象接口与工厂 | [ ] | | |
 | B7.1 | OpenAI-Compatible LLM 实现 | [ ] | | |
 | B7.2 | Ollama LLM 实现 | [ ] | | |
