@@ -193,18 +193,50 @@
 
 #### 3.2.2 传输协议：Stdio 本地通信
 
-本项目采用 **Stdio Transport** 作为唯一通信模式。
+本项目初期采用 **Stdio Transport** 作为 MCP 对外入口。
 
-- **工作方式**：Client（VS Code Copilot、Claude Desktop）以子进程方式启动我们的 Server，双方通过标准输入/输出交换 JSON-RPC 消息。
-- **选型理由**：
-	- **零配置**：无需网络端口、无需鉴权，用户只需在 Client 配置文件中指定启动命令即可使用。
-	- **隐私安全**：数据不经过网络，天然适合处理私有知识库与敏感业务数据。
-	- **契合定位**：Stdio 完美适配开发者本地工作流，满足私有知识管理与快速原型验证需求。
-- **实现约束**：
-	- `stdout` 仅输出合法 MCP 消息，禁止混入任何日志或调试信息。
-	- 日志统一输出至 `stderr`，避免污染通信通道。
+这里需要严格区分边界：**MCP 层只负责 Client 与本地 Server 进程之间的 JSON-RPC 通信，不感知底层知识库、存储实现或数据来源。** 知识库是否被团队共享，不应体现在 MCP Transport 概念里，而应由应用层的知识服务、索引构建、存储实现与部署方式决定。
 
-#### 3.2.3 SDK 与实现库选型
+| 模式 | 当前定位 | 适用场景 | 关键约束 |
+|-----|---------|---------|---------|
+| **Stdio Transport** | 主实现 | 本地 MCP Client 接入、个人使用、小团队统一配置分发 | Client 以子进程启动 Server；`stdout` 只能输出合法 MCP 消息；日志写 `stderr` |
+
+设计结论：
+
+- **当前最小闭环**：先实现 Stdio MCP Server，保证 Copilot/Claude 可以稳定调用。
+- **MCP 边界清晰**：不要在 MCP Server 层引入“远程知识后端”等概念；MCP tools 只调用 `KnowledgeService` 接口。
+- **团队知识库路径**：小团队可以通过统一文档目录、统一索引构建流程、共享配置或可选的共享检索服务来复用同一套知识资产，但这属于 RAG/应用服务层设计，不属于 MCP Transport 设计。
+- **复杂度控制**：不在初期引入 HTTP MCP 鉴权、多用户会话、服务端并发治理等问题。
+
+#### 3.2.3 工具到知识服务的边界：KnowledgeService
+
+MCP tools 不直接依赖 `HybridSearch`、`VectorStore`、`BM25Indexer` 等底层组件，而是统一依赖一个应用层接口：`KnowledgeService`。
+
+这个接口解决的核心问题是：**MCP Server 只负责把工具调用翻译成知识查询请求；知识能力到底是本进程执行，还是转发给一个共享检索服务，由 `KnowledgeService` 实现决定。**
+
+```python
+class KnowledgeService(Protocol):
+    def query(self, request: QueryRequest) -> QueryResponse: ...
+    def list_collections(self) -> list[CollectionInfo]: ...
+    def get_document_summary(self, doc_id: str) -> DocumentSummary: ...
+```
+
+默认实现：
+
+| 实现 | 定位 | 说明 |
+|-----|------|------|
+| `LocalKnowledgeService` | 默认实现 | 在当前 MCP Server 进程内调用 Query Engine、Response Builder 与本地存储 |
+| `HttpRetrievalServiceClient` | 可选实现 | 通过普通 HTTP 调用共享检索服务；这是应用层实现细节，不是 MCP Transport |
+
+设计约束：
+
+- MCP tools 只知道 `KnowledgeService`，不直接 new `HybridSearch` 或访问数据库。
+- `QueryRequest` / `QueryResponse` 是稳定契约，便于本地实现、HTTP 实现和测试 Fake 共用。
+- `mode=local` 是默认路径，保证本地优先、零外部服务依赖。
+- `mode=http` 只作为团队共享知识库的可选装配方式；完整 RAG trace、cache、eval 数据应由真正执行检索的服务记录，本地 MCP Server 最多记录 tool envelope、`request_id`、耗时和错误。
+- 图片返回要遵守同一契约：本地模式可读取本地图片并返回 base64；HTTP 模式要么由共享检索服务直接返回 `image_base64`，要么先只返回文本引用，避免 MCP Server 假设远端文件路径可读。
+
+#### 3.2.4 SDK 与实现库选型
 
 - **首选：Python 官方 MCP SDK (`mcp`)**
 	- **优势**：
@@ -219,7 +251,7 @@
 
 - **协议版本**：跟踪 MCP 最新稳定版本（如 `2025-06-18`），在 `initialize` 阶段进行版本协商，确保 Client/Server 兼容性。
 
-#### 3.2.4 对外暴露的工具函数设计 (Tools Design)
+#### 3.2.5 对外暴露的工具函数设计 (Tools Design)
 
 Server 通过 `tools/list` 向 Client 注册可调用的工具函数。工具设计应遵循"单一职责、参数明确、输出丰富"原则。
 
@@ -236,7 +268,7 @@ Server 通过 `tools/list` 向 Client 注册可调用的工具函数。工具设
 	- `verify_answer`：事实核查工具，检测生成内容是否有依据支撑。
 	- `list_document_sections`：浏览文档目录结构，支持多步导航式检索。
 
-#### 3.2.5 返回内容与引用透明设计 (Response & Citation Design)
+#### 3.2.6 返回内容与引用透明设计 (Response & Citation Design)
 
 MCP 协议的 Tool 返回格式支持多种内容类型（`content` 数组），本项目将充分利用这一特性实现"可溯源"的回答：
 
@@ -544,7 +576,7 @@ MCP 协议的 Tool 返回格式支持多种内容类型（`content` 数组），
 - **零外部依赖**：不依赖 LangSmith、LangFuse 等第三方平台，无需网络连接与账号注册，完全本地化运行。
 - **轻量易部署**：仅需 Python 标准库 + 一个轻量 Web 框架（如 Streamlit），`pip install` 即可使用，无需 Docker 或数据库服务。
 - **学习成本低**：结构化日志是通用技能，调试时可直接用 `jq`、`grep` 等命令行工具查询；Dashboard 代码简单直观，便于理解与二次开发。
-- **契合项目定位**：本项目面向本地 MCP Server 场景，单用户、单机运行，无需分布式追踪或多租户隔离等企业级能力。
+- **契合项目定位**：本项目面向本地 MCP Server 入口，小团队共享能力优先通过可配置的数据源/存储后端实现，无需在初期引入分布式追踪或多租户隔离等企业级能力。
 
 **实现架构**：
 
@@ -640,9 +672,10 @@ Dashboard 基于 Streamlit 构建多页面应用（`st.navigation`），提供�
     - **最终结果表**：展示 Top-K 候选文档的标题、分数、来源。
 
 **页面 6：评估面板 (Evaluation Panel)**
-- **评估运行**：选择评估后端（Ragas / Custom / All）与 golden test set，点击运行。
+- **评估运行**：开发者在本地 Dashboard 中选择评估后端（Ragas / Custom / All）与 golden test set，手动触发评估。
 - **指标展示**：以表格和图表展示 hit_rate、mrr、faithfulness 等指标。
 - **历史趋势**：对比不同时间的评估结果，观察策略调整的效果。
+- **暴露边界**：该页面不是 MCP tool，不提供给普通 MCP Client 调用；如需自动化评估，优先使用 `scripts/evaluate.py`。
 - **注意**：评估面板在 Phase H 实现，Phase G 完成后该页面显示"评估模块尚未启用"的占位提示。
 
 **Dashboard 技术架构**：

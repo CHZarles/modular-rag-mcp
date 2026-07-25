@@ -2,6 +2,8 @@
 
 ### 5.1 整体架构图
 
+以下图展示默认本地模式主路径；可选网络访问能力收敛在 `KnowledgeService` 实现中，不改变 MCP Stdio 入口。
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                     MCP Clients (外部调用层)                                  │
@@ -35,6 +37,11 @@
 │                                   Core 层 (核心业务逻辑)                                     │
 │                                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────┐    │
+│  │                      KnowledgeService (知识服务接口)                                  │    │
+│  │   QueryRequest/QueryResponse 契约 | Local 实现 | HTTP 检索客户端（可选）              │    │
+│  └─────────────────────────────────────┬───────────────────────────────────────────────┘    │
+│                                        │                                                    │
+│  ┌─────────────────────────────────────┴───────────────────────────────────────────────┐    │
 │  │                            Query Engine (查询引擎)                                   │    │
 │  │  ┌─────────────────────────────────────────────────────────────────────────────┐    │    │
 │  │  │                         Query Processor (查询预处理)                         │    │    │
@@ -170,6 +177,13 @@ smart-knowledge-hub/
 │   │   ├── __init__.py
 │   │   ├── settings.py                   # 配置加载与校验 (Settings：load_settings/validate_settings)
 │   │   ├── types.py                      # 核心数据类型/契约（Document/Chunk/ChunkRecord），供 ingestion/retrieval/mcp 复用
+│   │   │
+│   │   ├── services/                     # 应用服务契约层（隔离 MCP 与具体 RAG 实现）
+│   │   │   ├── __init__.py
+│   │   │   ├── knowledge_service.py      # KnowledgeService Protocol + QueryRequest/QueryResponse
+│   │   │   ├── local_knowledge_service.py # 本进程实现：调用 QueryEngine/ResponseBuilder/DocumentManager
+│   │   │   ├── http_retrieval_service_client.py # 可选实现：调用共享检索服务
+│   │   │   └── knowledge_service_factory.py      # 根据 settings 构建具体实现
 │   │   │
 │   │   ├── query_engine/                # 查询引擎模块
 │   │   │   ├── __init__.py
@@ -327,11 +341,13 @@ smart-knowledge-hub/
 │
 ├── tests/                               # 测试目录
 │   ├── unit/                            # 单元测试
+│   │   ├── test_knowledge_service_contract.py # D8: KnowledgeService 契约测试
 │   │   ├── test_dense_retriever.py      # D2: 稠密检索器测试
 │   │   ├── test_sparse_retriever.py     # D3: 稀疏检索器测试
 │   │   ├── test_fusion_rrf.py           # D4: RRF 融合测试
 │   │   ├── test_reranker_fallback.py    # D6: Reranker 回退测试
 │   │   ├── test_protocol_handler.py     # E2: 协议处理器测试
+│   │   ├── test_query_knowledge_hub_tool.py # E3: Tool 依赖注入测试
 │   │   ├── test_response_builder.py     # E3: 响应构建器测试
 │   │   ├── test_list_collections.py     # E4: 集合列表工具测试
 │   │   ├── test_get_document_summary.py # E5: 文档摘要工具测试
@@ -341,6 +357,7 @@ smart-knowledge-hub/
 │   ├── integration/                     # 集成测试
 │   │   ├── test_ingestion_pipeline.py
 │   │   ├── test_hybrid_search.py        # D5: 混合检索集成测试
+│   │   ├── test_knowledge_service_local.py # D8: 本地 KnowledgeService 集成测试
 │   │   └── test_mcp_server.py           # E1-E6: MCP 服务器集成测试
 │   ├── e2e/                             # 端到端测试
 │   │   ├── test_data_ingestion.py
@@ -378,6 +395,10 @@ smart-knowledge-hub/
 |-----|-----|----------|
 | `settings.py` | 配置加载与校验 | 读取 `config/settings.yaml`，解析为 `Settings`，必填字段校验（fail-fast） |
 | `types.py` | 核心数据类型/契约（全链路复用） | 定义 `Document/Chunk/ChunkRecord/ProcessedQuery/RetrievalResult`；序列化稳定；作为 ingestion/retrieval/mcp 的数据契约中心 |
+| `services/knowledge_service.py` | MCP tools 与具体知识实现之间的应用层契约 | 定义 `KnowledgeService`、`QueryRequest`、`QueryResponse`、`CollectionInfo`、`DocumentSummary` |
+| `services/local_knowledge_service.py` | 默认知识服务实现 | 本进程调用 Query Engine、Response Builder、DocumentManager 与本地存储 |
+| `services/http_retrieval_service_client.py` | 可选共享检索服务客户端 | 通过 HTTP 调用外部检索服务；不改变 MCP Transport，不让 MCP 层感知网络实现 |
+| `services/knowledge_service_factory.py` | 知识服务工厂 | 根据 `settings.knowledge_service.mode` 选择 local/http 实现，便于测试注入 Fake |
 | `query_processor.py` | 查询预处理 | 关键词提取、同义词扩展、Metadata 解析 |
 | `hybrid_search.py` | 混合检索编排 | 并行 Dense/Sparse 召回，结果融合，Metadata 过滤 |
 | `dense_retriever.py` | 语义向量检索 | Query Embedding + VectorStore 检索，Cosine Similarity |
@@ -497,6 +518,8 @@ smart-knowledge-hub/
 
 #### 5.4.2 在线查询流 (Query Flow)
 
+下图展示统一的工具调用流程。`KnowledgeService` 默认使用本地实现；如果后续改成网络化检索，也应作为 `KnowledgeService` 的内部实现细节，不在主流程图中拆成另一条架构主链路。
+
 ```
 用户查询 (via MCP Client)
       │
@@ -505,7 +528,13 @@ smart-knowledge-hub/
 │  MCP Server     │  JSON-RPC 解析，工具路由
 │ (Stdio Transport)│
 └────────┬────────┘
-         │ query + params
+         │ tool call arguments
+         ▼
+┌─────────────────┐
+│ KnowledgeService│  稳定应用层契约：query/list/summary
+│   Interface     │
+└────────┬────────┘
+         │ 默认本地实现；可替换为网络化实现
          ▼
 ┌─────────────────┐
 │ Query Processor │  关键词提取 + 同义词扩展 + Metadata 解析
@@ -544,7 +573,15 @@ smart-knowledge-hub/
 返回给 MCP Client (Copilot / Claude Desktop)
 ```
 
-#### 5.4.3 管理操作流 (Management Flow)
+边界说明：
+
+- `Stdio Transport` 只负责 MCP JSON-RPC；是否访问共享知识库由 `KnowledgeService` 实现决定。
+- `mode=local` 时，完整 Query trace/cache/eval 由当前进程记录。
+- `mode=http` 时，当前 MCP Server 只记录 tool envelope、`request_id`、总耗时和错误；详细 RAG trace/cache/eval 应由共享检索服务侧记录。
+
+#### 5.4.3 本地开发者操作流 (Developer Local Flow)
+
+Dashboard 是本地开发者工具，不是对外 API 层。它可以读取本地索引、日志和评估结果，也可以在开发环境中触发摄取/删除/评估，但这些能力不注册为 MCP tools，不面向普通 MCP Client 暴露。
 
 ```
 Dashboard (Streamlit UI)
@@ -571,12 +608,12 @@ Dashboard (Streamlit UI)
       │    │   └── FileIntegrity.remove_record(file_hash)     │
       │    └── 刷新文档列表                                    │
       │                                                       │
-      └─── Trace 查看 ───────────────────────────────────────┘
-           │
-           TraceService
-           ├── 读取 logs/traces.jsonl
-           ├── 按 trace_type 分类 (query / ingestion)
-           └── 返回 Trace 列表与详情
+	      └─── Trace 查看 ───────────────────────────────────────┘
+	           │
+	           TraceService
+	           ├── 读取 logs/traces.jsonl
+	           ├── 按 trace_type 分类 (query / ingestion)
+	           └── 返回 Trace 列表与详情
 ```
 
 ### 5.5 配置驱动设计
@@ -586,6 +623,12 @@ Dashboard (Streamlit UI)
 
 ```yaml
 # config/settings.yaml 示例
+
+# 知识服务装配
+knowledge_service:
+  mode: local                    # local | http
+  endpoint: null                 # mode=http 时填写共享检索服务地址
+  timeout_seconds: 30
 
 # LLM 配置
 llm:
@@ -642,6 +685,12 @@ dashboard:
   refresh_interval: 5            # 自动刷新间隔（秒）
 ```
 
+`knowledge_service` 是应用层装配，不是 MCP Transport 配置：
+
+- `local`：默认模式，当前进程直接执行 Query Engine，并访问本地 Chroma/BM25/SQLite/ImageStore。
+- `http`：可选模式，当前进程通过 `HttpRetrievalServiceClient` 调用共享检索服务。适合团队复用同一套索引与数据资产；MCP 入口仍然是 Stdio。
+- 两种模式必须返回同一个 `QueryResponse` 契约，避免 MCP tools 分叉实现。
+
 ### 5.6 扩展性设计要点
 
 
@@ -649,4 +698,5 @@ dashboard:
 2. **新增文档格式**：实现 `BaseLoader` 接口，在 Pipeline 中注册对应文件扩展名的处理器
 3. **新增检索策略**：实现检索接口，在 `hybrid_search.py` 中组合调用
 4. **新增评估指标**：实现 `BaseEvaluator` 接口，在配置中添加到 `backends` 列表
+5. **新增知识服务实现**：实现 `KnowledgeService` 接口，并在 `knowledge_service_factory.py` 中注册；MCP tools 不需要改动
 

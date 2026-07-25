@@ -38,7 +38,7 @@ def test_bm25_returns_relevant_docs_first() -> None:
         ]
     )
     hits = idx.query(["fox"], top_k=3)
-    assert [cid for cid, _ in hits] == ["a"]
+    assert [h.id for h in hits] == ["a"]
 
 
 def test_bm25_metadata_filters_narrow_results() -> None:
@@ -50,7 +50,7 @@ def test_bm25_metadata_filters_narrow_results() -> None:
         ]
     )
     hits = idx.query(["keyword"], top_k=5, filters={"collection": "docs"})
-    assert [cid for cid, _ in hits] == ["a"]
+    assert [h.id for h in hits] == ["a"]
 
 
 def test_bm25_remove_document_drops_postings() -> None:
@@ -63,7 +63,7 @@ def test_bm25_remove_document_drops_postings() -> None:
     )
     idx.remove_document("a.pdf", "docs")
     hits = idx.query(["alpha"], top_k=5)
-    assert [cid for cid, _ in hits] == ["b"]
+    assert [h.id for h in hits] == ["b"]
 
 
 def test_bm25_query_empty_keywords_returns_empty() -> None:
@@ -80,7 +80,7 @@ def test_bm25_persistence_round_trip(tmp_path: Path) -> None:
     fresh = BM25IndexStore()
     fresh.load(path)
     hits = fresh.query(["cat"], top_k=5)
-    assert [cid for cid, _ in hits] == ["a"]
+    assert [h.id for h in hits] == ["a"]
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from src.core.types import Chunk
+from src.core.types import Chunk, SearchHit
 
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]+")
 _K1_DEFAULT = 1.5
@@ -58,7 +58,7 @@ class BM25IndexStore:
         top_k: int,
         filters: dict | None = None,
         trace: Any | None = None,
-    ) -> list[tuple[str, float]]:
+    ) -> list[SearchHit]:
         if not self._inverted or not keywords:
             return []
         scores: dict[str, float] = defaultdict(float)
@@ -79,7 +79,19 @@ class BM25IndexStore:
                 )
                 scores[chunk_id] += idf * (numerator / denominator)
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
-        return ranked[:top_k]
+        out: list[SearchHit] = []
+        for rank, (cid, score) in enumerate(ranked[:top_k], start=1):
+            chunk = self._chunks[cid]
+            out.append(
+                SearchHit(
+                    id=cid,
+                    text=chunk.text,
+                    metadata=dict(chunk.metadata),
+                    score=score,
+                    score_kind="bm25",
+                )
+            )
+        return out
 
     # ------------------------------------------------------------------
     # Internals
