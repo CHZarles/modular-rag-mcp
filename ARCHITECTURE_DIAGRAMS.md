@@ -39,6 +39,7 @@ flowchart TB
 
   subgraph service["KnowledgeService Boundary"]
     ks["KnowledgeService<br/>implementation hidden<br/>local by default, network-capable if configured"]
+    response["Response Builder<br/>TextContent / ImageContent / Citations"]
   end
 
   subgraph query["Query Engine"]
@@ -48,7 +49,6 @@ flowchart TB
     fusion["RRF Fusion"]
     filter["Metadata Filter"]
     rerank["Reranker<br/>None / Cross-Encoder / LLM"]
-    response["Response Builder<br/>TextContent / ImageContent / Citations"]
   end
 
   subgraph ingestion["Ingestion Pipeline"]
@@ -93,8 +93,9 @@ flowchart TB
   dense --> fusion
   sparse --> fusion
   fusion --> filter
-  filter --> rerank --> response --> protocol
-  filter -. fallback .-> response
+  filter --> rerank --> ks
+  ks --> response --> protocol
+  filter -. fallback .-> ks
 
   loader --> splitter --> transform --> embed --> upsert
   upsert --> chroma

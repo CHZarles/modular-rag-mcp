@@ -268,8 +268,8 @@ KnowledgeService -> QueryEngine -> Retriever/Fusion/Reranker -> ResponseBuilder 
 |---|---|---|
 | Q1/Q1a | `QueryRequest` | Query 入口对象 |
 | Q2 | `QueryRequest -> ProcessedQuery` | query 标准化后的中间对象 |
-| Q3 | `ProcessedQuery -> RetrievalCandidate[]` | dense route 内部先得到 `SearchHit[]`，再映射成候选 |
-| Q4 | `ProcessedQuery -> RetrievalCandidate[]` | sparse route 内部先得到 `SearchHit[]`，再映射成候选 |
+| Q3 | `query: str -> RetrievalCandidate[]` | QueryEngine 从 `ProcessedQuery.standalone_query` 取出 query，调 retriever；内部先得到 `SearchHit[]`，再映射成候选 |
+| Q4 | `keywords: list[str] -> RetrievalCandidate[]` | QueryEngine 从 `ProcessedQuery.keywords` 取出 keywords，调 retriever；内部先得到 `SearchHit[]`，再映射成候选 |
 | Q5-Q7 | `RetrievalCandidate[] -> RetrievalCandidate[]` | fusion/filter/rerank 都只处理候选证据 |
 | Q8 | `QueryRequest + RetrievalCandidate[] -> QueryResponse` | 响应组装 |
 | Q9 | `QueryResponse -> MCP content/structuredContent` | 协议适配 |
@@ -297,7 +297,7 @@ Q9 MCP Tool Adapter converts QueryResponse
 - `reference-04` 是 **Component Diagram**：看静态依赖结构、能力接口、默认实现、底层 store/adapter。
 - 两张图共享同一套 `Q1~Q9` 编号。
 
-这里的 `port` 不是网络端口。它来自 Ports and Adapters / Hexagonal Architecture，意思是“能力接口”或“依赖边界”。在这套图里可以直接读成 `interface`：
+这里的 `port` 不是网络端口。它来自 Ports and Adapters / Hexagonal Architecture，意思是“能力接口”或“依赖边界”：
 
 ```text
 DenseRetriever port = QueryEngine 需要的一种检索能力接口
@@ -310,7 +310,7 @@ BaseVectorStore port = Retriever 需要的一种向量存储能力接口
 
 例子：
 
-| Port / Interface | 默认实现类 | 意思 |
+| Port | 默认实现类 | 意思 |
 |---|---|---|
 | `DenseRetriever` | `VectorDenseRetriever` | 默认用向量检索路线 |
 | `SparseRetriever` | `BM25SparseRetriever` | 默认用 BM25 关键词检索路线 |
@@ -398,6 +398,6 @@ Review 重点：
 | “查询怎么召回？” | Query/Response Ports 图 |
 | “Hybrid Search 怎么接进去？” | `DenseRetriever`、`SparseRetriever`、`FusionStrategy` |
 | “怎么 debug 坏 case？” | Observability/Evaluation 图 |
-| “怎么替换 OpenAI/Chroma/Reranker？” | Factory/Registry + Port 接口 |
+| “怎么替换 OpenAI/Chroma/Reranker？” | Factory/Registry + Port 能力接口 |
 
 这套图的价值不是让你一次懂所有算法，而是让你知道：**每个算法在系统里的位置、输入输出、失败时该去哪里查。**

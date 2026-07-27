@@ -37,24 +37,27 @@ QP --> QE : processed: ProcessedQuery
 deactivate QP
 
 par Q3 dense route
-  QE -> DR : retrieve(processed: ProcessedQuery, trace)
+  QE -> DR : retrieve(query: str, top_k: int, filters: dict, trace)
   activate DR
   note right of DR
     Input from 02:
-    ProcessedQuery.standalone_query
+    QueryEngine 从 ProcessedQuery.standalone_query 取出 query，
+    再调用 retriever 接口（DEV_SPEC_INTERFACES §6.2）
 
     Internal data:
+    embedding.embed([query]) -> vector
     vector_store.query(...) -> list[SearchHit]
     maps SearchHit -> RetrievalCandidate(source="dense")
   end note
   DR --> QE : dense_candidates: list[RetrievalCandidate]
   deactivate DR
 else Q4 sparse route
-  QE -> SR : retrieve(processed: ProcessedQuery, trace)
+  QE -> SR : retrieve(keywords: list[str], top_k: int, filters: dict, trace)
   activate SR
   note right of SR
     Input from 02:
-    ProcessedQuery.keywords
+    QueryEngine 从 ProcessedQuery.keywords 取出 keywords，
+    再调用 retriever 接口（DEV_SPEC_INTERFACES §6.2）
 
     Internal data:
     bm25_store.query(...) -> list[SearchHit]

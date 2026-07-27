@@ -46,7 +46,7 @@
         <mxCell id="a15" value="Factory Registry&lt;br&gt;KnowledgeService / LLM / Embedding / Store / Reranker" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FAF5FF;strokeColor=#7E22CE;fontSize=13;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="1090" y="270" width="250" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="a16" value="Query Engine&lt;br&gt;预处理、混合检索、重排、响应构建" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+        <mxCell id="a16" value="Query Engine&lt;br&gt;预处理、混合检索、重排（不含响应组装）" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontSize=14;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="160" y="485" width="310" height="54" as="geometry" />
         </mxCell>
         <mxCell id="a17" value="Ingestion Pipeline&lt;br&gt;PDF 解析、切分、增强、向量化、写入" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#FDF2F8;strokeColor=#DB2777;fontSize=14;fontStyle=1;" vertex="1" parent="1">
@@ -73,7 +73,7 @@
         <mxCell id="a24" value="Streamlit Dashboard&lt;br&gt;Trace、Data、Eval" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#E2E8F0;strokeColor=#475569;fontSize=13;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="1240" y="670" width="150" height="54" as="geometry" />
         </mxCell>
-        <mxCell id="a32" value="KnowledgeService&lt;br&gt;稳定 query/list/summary 契约；实现可本地或网络化" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+        <mxCell id="a32" value="KnowledgeService&lt;br&gt;稳定 query/list/summary 契约；调用 QueryEngine 与 Response Builder；本地或网络化实现" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#DCFCE7;strokeColor=#16A34A;fontSize=13;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="520" y="415" width="470" height="52" as="geometry" />
         </mxCell>
         <mxCell id="a25" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#334155;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="a9" target="a12">
