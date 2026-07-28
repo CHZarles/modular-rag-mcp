@@ -1,4 +1,4 @@
-"""Document chunking helpers."""
+"""文档切块辅助组件。"""
 
 from src.ingestion.chunking.document_chunker import DocumentChunker
 

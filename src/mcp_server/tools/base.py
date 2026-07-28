@@ -1,7 +1,6 @@
-"""Small MCP tool adapter interface.
+"""精简的 MCP Tool 适配器接口。
 
-Concrete tools should translate JSON arguments into application service
-requests, then translate domain responses back into MCP-shaped dictionaries.
+具体 Tool 把 JSON 参数转换成应用服务请求，再把领域响应转换回 MCP 需要的字典结构。
 """
 
 from __future__ import annotations
@@ -13,6 +12,8 @@ from src.core.types import JsonDict
 
 @runtime_checkable
 class ToolHandler(Protocol):
+    """MCP Tool 的名称、输入 Schema 与调用契约。"""
+
     name: str
     input_schema: JsonDict
 

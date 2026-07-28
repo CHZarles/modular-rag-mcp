@@ -1,1 +1,1 @@
-"""Local observability dashboard."""
+"""本地可观测性 Dashboard。"""

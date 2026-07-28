@@ -1,1 +1,1 @@
-"""Application service contracts and implementations."""
+"""应用服务契约与实现。"""

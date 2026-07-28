@@ -1,6 +1,6 @@
-"""Core contracts shared by ingestion, query, response, and adapters."""
+"""供摄取、查询、响应及适配器共同使用的核心契约。"""
 
-from src.core.types import (
+from .types import (
     Chunk,
     ChunkRecord,
     Citation,

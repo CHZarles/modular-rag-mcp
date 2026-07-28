@@ -1,4 +1,4 @@
-"""Application service contracts and thin local service wrappers."""
+"""应用服务契约及其轻量本地封装。"""
 
 from src.application.services import (
     ComponentRegistry,

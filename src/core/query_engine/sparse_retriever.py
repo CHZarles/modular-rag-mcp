@@ -1,4 +1,4 @@
-"""Sparse retrieval adapter: BM25 index -> candidates."""
+"""稀疏检索适配器：从 BM25 索引生成候选结果。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ from src.ports.ingestion import BM25IndexStore
 
 
 class SparseRetriever:
+    """使用关键词在 BM25 索引中完成精确召回。"""
+
     def __init__(self, bm25_store: BM25IndexStore) -> None:
         self.bm25_store = bm25_store
 

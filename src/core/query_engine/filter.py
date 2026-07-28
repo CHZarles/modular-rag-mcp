@@ -1,4 +1,4 @@
-"""Metadata filtering helpers."""
+"""元数据过滤辅助组件。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from src.core.types import JsonDict, RetrievalCandidate
 
 
 class ExactMetadataFilter:
-    """Small default filter using exact metadata equality."""
+    """按元数据字段精确匹配的默认过滤器。"""
 
     def apply(
         self,

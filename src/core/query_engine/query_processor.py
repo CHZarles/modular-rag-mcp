@@ -1,8 +1,7 @@
-"""Minimal query processor.
+"""最小查询预处理器。
 
-The old implementation mixed useful token extraction with too much text
-cleanup policy. This version keeps the interface stable and the default
-behavior predictable.
+这里只保留稳定的分词与过滤参数合并逻辑，避免掺入过多文本清洗策略，确保默认行为
+简单且可预测。
 """
 
 from __future__ import annotations
@@ -15,6 +14,8 @@ _TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 
 
 class QueryProcessor:
+    """规范化查询文本并提取去重后的关键词。"""
+
     def process(self, request: QueryRequest, trace: object | None = None) -> ProcessedQuery:
         standalone_query = " ".join(request.query.strip().split())
         keywords = _extract_keywords(standalone_query)
@@ -30,6 +31,7 @@ class QueryProcessor:
 
 
 def _extract_keywords(text: str) -> list[str]:
+    """按首次出现顺序提取中英文词元，并忽略大小写重复项。"""
     seen: set[str] = set()
     keywords: list[str] = []
     for token in _TOKEN_RE.findall(text):

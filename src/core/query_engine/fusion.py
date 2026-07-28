@@ -1,4 +1,4 @@
-"""Reciprocal Rank Fusion."""
+"""倒数排名融合（Reciprocal Rank Fusion，RRF）。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from src.core.types import RetrievalCandidate
 
 
 class RRFFusion:
+    """按候选排名而非原始分数量纲融合多路召回结果。"""
+
     def __init__(self, k: int = 60) -> None:
         if k <= 0:
             raise ValueError("k must be positive")
@@ -23,6 +25,7 @@ class RRFFusion:
         first_seen: dict[str, RetrievalCandidate] = {}
         debug: dict[str, dict[str, object]] = {}
 
+        # 各检索后端的原始分数不可直接比较，因此只累加排名贡献。
         for list_index, ranked in enumerate(ranked_lists):
             for rank, candidate in enumerate(ranked, start=1):
                 chunk_id = candidate.chunk_id
@@ -38,6 +41,7 @@ class RRFFusion:
                     }
                 )
 
+        # 分数相同时按首次出现的排名和 Chunk ID 排序，保证结果可复现。
         ordered_ids = sorted(
             scores,
             key=lambda chunk_id: (-scores[chunk_id], first_seen[chunk_id].rank, chunk_id),

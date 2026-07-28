@@ -1,4 +1,4 @@
-"""Citation generation from retrieval candidates."""
+"""根据检索候选结果生成引用信息。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ from src.core.types import Citation, RetrievalCandidate
 
 
 class CitationGenerator:
+    """把候选 Chunk 转换为稳定编号的引用记录。"""
+
     def generate(self, candidates: list[RetrievalCandidate]) -> list[Citation]:
         return [
             Citation(
@@ -30,6 +32,7 @@ class CitationGenerator:
 
 
 def _snippet(text: str, limit: int = 320) -> str:
+    """压缩空白并截取适合展示的引用片段。"""
     compact = " ".join(text.split())
     if len(compact) <= limit:
         return compact

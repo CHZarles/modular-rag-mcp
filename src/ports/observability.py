@@ -1,7 +1,7 @@
-"""Observability ports.
+"""可观测性端口契约。
 
-Business code depends on these small contracts; concrete sinks can write JSONL,
-SQLite, OpenTelemetry, or any other backend without changing the pipeline.
+业务代码只依赖这些精简契约；具体 Sink 可写入 JSONL、SQLite、OpenTelemetry 或
+其他后端，而无需修改业务流水线。
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ from src.core.types import JsonDict
 
 @dataclass(frozen=True)
 class RunContext:
+    """一次顶层业务运行的标识与元数据。"""
+
     run_id: str
     name: str
     run_type: str
@@ -22,6 +24,8 @@ class RunContext:
 
 @dataclass(frozen=True)
 class SpanContext:
+    """业务运行内部单个阶段的追踪上下文。"""
+
     run_id: str
     span_id: str
     name: str
@@ -31,6 +35,8 @@ class SpanContext:
 
 @runtime_checkable
 class BaseTracer(Protocol):
+    """创建 Run、Span 并记录事件或产物的追踪端口。"""
+
     def start_run(self, name: str, run_type: str, inputs: JsonDict) -> RunContext: ...
     def start_span(self, run_id: str, name: str, span_type: str, inputs: JsonDict) -> SpanContext: ...
     def record_event(
@@ -51,6 +57,8 @@ class BaseTracer(Protocol):
 
 @runtime_checkable
 class BaseTraceSink(Protocol):
+    """消费追踪生命周期事件的存储端口。"""
+
     def on_run_started(self, run: JsonDict) -> None: ...
     def on_run_finished(self, run: JsonDict) -> None: ...
     def on_span_started(self, span: JsonDict) -> None: ...
@@ -61,6 +69,8 @@ class BaseTraceSink(Protocol):
 
 @runtime_checkable
 class BaseCacheStore(Protocol):
+    """按命名空间隔离且支持 TTL 的缓存端口。"""
+
     def get(self, namespace: str, key: str) -> JsonDict | None: ...
     def set(
         self,

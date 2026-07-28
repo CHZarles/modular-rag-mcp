@@ -1,4 +1,4 @@
-"""Dense retrieval adapter: embedding + vector store -> candidates."""
+"""稠密检索适配器：查询向量化后从向量库生成候选结果。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ from src.ports.ingestion import BaseEmbedding, BaseVectorStore
 
 
 class DenseRetriever:
+    """组合 Embedding 与向量存储完成语义召回。"""
+
     def __init__(self, embedding: BaseEmbedding, vector_store: BaseVectorStore) -> None:
         self.embedding = embedding
         self.vector_store = vector_store
@@ -20,6 +22,7 @@ class DenseRetriever:
     ) -> list[RetrievalCandidate]:
         if not query.strip():
             return []
+        # 查询只生成一个向量；批量接口由摄取和其他调用方共同复用。
         vectors = self.embedding.embed([query], trace=trace)
         if not vectors:
             return []

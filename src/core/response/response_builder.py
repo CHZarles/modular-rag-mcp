@@ -1,4 +1,4 @@
-"""Build domain-level query responses."""
+"""构建领域层查询响应。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ from src.ports.response import CitationGenerator, MultimodalAssembler
 
 
 class ResponseBuilder:
+    """统一组装答案、引用、检索项和多模态内容。"""
+
     def __init__(
         self,
         citation_generator: CitationGenerator | None = None,
@@ -44,6 +46,7 @@ class ResponseBuilder:
 
 
 def _default_answer(candidates: list[RetrievalCandidate]) -> str:
+    """在生成式回答尚未接入时返回可读的检索上下文。"""
     if not candidates:
         return "No relevant context found."
     lines = ["Retrieved context:"]

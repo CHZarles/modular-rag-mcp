@@ -1,4 +1,4 @@
-"""Provider-neutral ingestion pipeline orchestration."""
+"""与供应商无关的文档摄取流水线编排。"""
 
 from __future__ import annotations
 
@@ -28,11 +28,10 @@ from src.ports.ingestion import (
 
 
 class IngestionPipeline:
-    """Composable ingestion pipeline.
+    """可组合的文档摄取流水线。
 
-    This keeps the useful design from ``main``: load -> split -> transform ->
-    encode -> upsert, but removes provider construction and global settings from
-    the pipeline itself.
+    流程固定为加载、切分、转换、编码和写入，但供应商组件构造与全局配置不进入
+    Pipeline 本身，所有外部能力均通过端口注入。
     """
 
     _TOTAL_STAGES = 7
@@ -78,6 +77,7 @@ class IngestionPipeline:
         try:
             self._notify("integrity", 1, on_progress, trace)
             file_hash = self.integrity.compute_sha256(request.source_path)
+            # 文件内容未变化时尽早返回，避免 PDF 解析和模型调用成本。
             if not request.force and self.integrity.should_skip(file_hash, request.collection):
                 result = IngestionResult(
                     source_path=request.source_path,
@@ -98,16 +98,19 @@ class IngestionPipeline:
             chunks = self.chunker.split_document(document, trace=trace)
 
             self._notify("transform", 4, on_progress, trace)
+            # 转换器按注册顺序串行执行，后一个转换器接收前一个的输出。
             for transform in self.transforms:
                 chunks = transform.transform(chunks, trace=trace)
 
             self._notify("encode", 5, on_progress, trace)
             dense_vectors = self.embedding.embed([chunk.text for chunk in chunks], trace=trace) if chunks else []
             sparse_vectors = self.sparse_encoder.encode(chunks, trace=trace) if chunks else []
+            # 写入前验证三组数据严格对齐，防止向量与 Chunk 错位。
             self._validate_vector_counts(chunks, dense_vectors, sparse_vectors)
             records = self._build_records(chunks, dense_vectors, sparse_vectors)
 
             self._notify("upsert", 6, on_progress, trace)
+            # Dense 与 BM25 两套索引使用同一批 Chunk，保持跨检索通道 ID 一致。
             self.vector_store.upsert(records, trace=trace)
             self.bm25_store.upsert(chunks, sparse_vectors, trace=trace)
             images = _coerce_image_refs(
@@ -136,6 +139,7 @@ class IngestionPipeline:
             self._record(trace, "result", result.to_dict())
             return result
         except Exception as exc:
+            # 统一记录失败状态并返回领域结果，调用方无需理解底层异常类型。
             if file_hash:
                 self.integrity.mark_failed(file_hash, request.source_path, request.collection, str(exc))
             result = IngestionResult(
@@ -193,6 +197,7 @@ class IngestionPipeline:
 
 
 def _content_hash(text: str) -> str:
+    """生成用于增量向量化与幂等写入的内容指纹。"""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -201,6 +206,7 @@ def _coerce_image_refs(
     collection: str,
     source_path: str,
 ) -> list[ImageRef]:
+    """把 Loader 输出的宽松图片字典规范化为领域对象。"""
     if not isinstance(raw_images, list):
         return []
 

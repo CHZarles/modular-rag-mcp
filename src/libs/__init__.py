@@ -1,1 +1,1 @@
-"""Compatibility namespace for pluggable provider interfaces."""
+"""可插拔供应商接口的兼容命名空间。"""

@@ -1,4 +1,4 @@
-"""Request-scoped trace context for local observability."""
+"""面向单次请求的本地可观测性追踪上下文。"""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from src.core.types import JsonDict
 
 @dataclass
 class TraceContext:
+    """记录一次请求的阶段数据与单调时钟耗时。"""
+
     trace_type: Literal["query", "ingestion", "evaluation", "management"] = "query"
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -44,6 +46,7 @@ class TraceContext:
 
     @contextmanager
     def stage_timer(self, stage_name: str, data: JsonDict | None = None) -> Iterator[JsonDict]:
+        """以上下文管理器形式记录一个阶段，即使异常也会写入耗时。"""
         payload = data if data is not None else {}
         started = time.monotonic()
         try:
@@ -56,6 +59,7 @@ class TraceContext:
         self.finished_at = datetime.now(timezone.utc).isoformat()
 
     def elapsed_ms(self, stage_name: str | None = None) -> float:
+        """返回指定阶段或整条链路的毫秒耗时。"""
         if stage_name is not None:
             if stage_name not in self._stage_timings:
                 raise KeyError(f"stage has no recorded timing: {stage_name}")
@@ -64,6 +68,7 @@ class TraceContext:
         return (end - self._start_mono) * 1000.0
 
     def get_stage_data(self, stage_name: str) -> JsonDict | None:
+        """返回同名阶段最近一次记录的数据。"""
         for entry in reversed(self.stages):
             if entry.get("stage") == stage_name:
                 data = entry.get("data")

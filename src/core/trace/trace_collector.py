@@ -1,4 +1,4 @@
-"""Trace collectors."""
+"""链路追踪记录收集器。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from src.core.trace.trace_context import TraceContext
 
 
 class JsonlTraceCollector:
-    """Append traces to JSON Lines without making tracing a hard dependency."""
+    """以追加方式写入 JSON Lines，保持追踪组件轻量可选。"""
 
     def __init__(self, traces_path: str | Path) -> None:
         self._path = Path(traces_path)

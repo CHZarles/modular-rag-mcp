@@ -1,1 +1,1 @@
-"""Dashboard pages."""
+"""Dashboard 页面。"""

@@ -1,4 +1,4 @@
-"""Response assembly."""
+"""查询响应组装组件。"""
 
 from src.core.response.citation_generator import CitationGenerator
 from src.core.response.multimodal_assembler import MultimodalAssembler

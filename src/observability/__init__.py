@@ -1,1 +1,1 @@
-"""Observability and evaluation helpers."""
+"""可观测性与评估辅助组件。"""

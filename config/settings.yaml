@@ -1,6 +1,45 @@
+# Knowledge service runs in-process by default; HTTP mode can supply an endpoint later.
+knowledge_service:
+  mode: local
+  endpoint: null
+  timeout_seconds: 30
+
+# MiniMax exposes an OpenAI-compatible API. Values come from ~/.zshrc at runtime.
 llm:
   provider: openai
+  model: ${SGPT_MODEL}
+  base_url: ${OPENAI_BASE_URL}
+  api_key: ${MINIMAX_API_KEY}
+
+# Embeddings remain independent because MiniMax is configured only for generation here.
 embedding:
   provider: openai
+  model: text-embedding-3-small
+
+# Persistent local vector index.
 vector_store:
-  provider: chroma
+  backend: chroma
+  persist_path: ./data/db/chroma
+
+# Dense and sparse candidates are fused with reciprocal rank fusion.
+retrieval:
+  sparse_backend: bm25
+  fusion_algorithm: rrf
+  top_k_dense: 20
+  top_k_sparse: 20
+  top_k_final: 10
+
+# Disabled until a concrete reranker backend is configured.
+rerank:
+  backend: none
+  top_m: 30
+
+# Lightweight local metrics are the initial evaluation backend.
+evaluation:
+  backends: [custom]
+  golden_test_set: ./tests/fixtures/golden_test_set.json
+
+# Trace output is kept under the ignored runtime logs directory.
+observability:
+  enabled: true
+  log_file: ./logs/traces.jsonl

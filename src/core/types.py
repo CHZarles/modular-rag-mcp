@@ -1,8 +1,7 @@
-"""Stable domain contracts for the modular RAG system.
+"""模块化 RAG 系统使用的稳定领域契约。
 
-These types are intentionally small and provider-neutral. Concrete adapters
-can store extra details in ``metadata`` or ``debug`` without leaking backend
-objects across module boundaries.
+这些类型刻意保持精简且与供应商无关。具体适配器可把额外信息存入 ``metadata``
+或 ``debug``，避免后端对象跨越模块边界泄漏。
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ ProgressCallback = Callable[[str, int, int], None]
 
 
 class SerializableDataclass:
-    """Mixin for JSON-shaped dataclasses."""
+    """为可序列化领域对象提供统一字典转换的 Mixin。"""
 
     def to_dict(self) -> JsonDict:
         return asdict(self)
@@ -27,6 +26,8 @@ class SerializableDataclass:
 
 @dataclass(frozen=True)
 class ImageRef(SerializableDataclass):
+    """文档内图片的存储位置、来源及文本定位信息。"""
+
     image_id: str
     path: str
     collection: str
@@ -47,6 +48,8 @@ class ImageRef(SerializableDataclass):
 
 @dataclass(frozen=True)
 class Document(SerializableDataclass):
+    """Loader 产出的规范化文档。"""
+
     id: str
     text: str
     metadata: Metadata
@@ -58,6 +61,8 @@ class Document(SerializableDataclass):
 
 @dataclass(frozen=True)
 class Chunk(SerializableDataclass):
+    """带来源和原文偏移量的可检索文本块。"""
+
     id: str
     text: str
     metadata: Metadata
@@ -73,6 +78,8 @@ class Chunk(SerializableDataclass):
 
 @dataclass(frozen=True)
 class ChunkRecord(SerializableDataclass):
+    """准备写入索引的文本块及其稠密、稀疏向量。"""
+
     id: str
     text: str
     metadata: Metadata
@@ -104,6 +111,8 @@ class ChunkRecord(SerializableDataclass):
 
 @dataclass(frozen=True)
 class ProcessedQuery(SerializableDataclass):
+    """完成规范化、关键词提取和过滤解析后的查询。"""
+
     original_query: str
     standalone_query: str
     keywords: list[str]
@@ -116,6 +125,8 @@ class ProcessedQuery(SerializableDataclass):
 
 @dataclass(frozen=True)
 class SearchHit(SerializableDataclass):
+    """由底层检索后端返回的统一命中结果。"""
+
     id: str
     text: str
     metadata: Metadata
@@ -130,6 +141,8 @@ class SearchHit(SerializableDataclass):
 
 @dataclass(frozen=True)
 class RetrievalCandidate(SerializableDataclass):
+    """在召回、融合和重排阶段之间传递的候选项。"""
+
     chunk_id: str
     text: str
     metadata: Metadata
@@ -145,6 +158,8 @@ class RetrievalCandidate(SerializableDataclass):
 
 @dataclass(frozen=True)
 class Citation(SerializableDataclass):
+    """面向最终响应的可追溯引用。"""
+
     citation_id: str
     chunk_id: str
     source_path: str
@@ -160,6 +175,8 @@ class Citation(SerializableDataclass):
 
 @dataclass(frozen=True)
 class ImagePayload(SerializableDataclass):
+    """响应中的图片内容或资源地址。"""
+
     image_id: str
     mime_type: str
     data_base64: str | None = None
@@ -174,6 +191,8 @@ class ImagePayload(SerializableDataclass):
 
 @dataclass(frozen=True)
 class QueryRequest(SerializableDataclass):
+    """知识查询请求及其检索范围。"""
+
     query: str
     top_k: int = 5
     collection: str = "default"
@@ -192,6 +211,8 @@ class QueryRequest(SerializableDataclass):
 
 @dataclass(frozen=True)
 class QueryResponse(SerializableDataclass):
+    """包含答案、引用、候选项和图片的统一查询响应。"""
+
     answer: str
     citations: list[Citation]
     items: list[RetrievalCandidate]
@@ -201,6 +222,7 @@ class QueryResponse(SerializableDataclass):
 
     @classmethod
     def from_dict(cls, data: JsonDict) -> "QueryResponse":
+        # 嵌套对象可能来自 JSON，因此在构造响应前恢复为强类型领域对象。
         payload = dict(data)
         payload["citations"] = [
             item if isinstance(item, Citation) else Citation.from_dict(item)
@@ -219,6 +241,8 @@ class QueryResponse(SerializableDataclass):
 
 @dataclass(frozen=True)
 class IngestionRequest(SerializableDataclass):
+    """文档摄取请求。"""
+
     source_path: str
     collection: str = "default"
     force: bool = False
@@ -231,6 +255,8 @@ class IngestionRequest(SerializableDataclass):
 
 @dataclass(frozen=True)
 class IngestionResult(SerializableDataclass):
+    """文档摄取的成功、跳过或失败结果。"""
+
     source_path: str
     collection: str
     status: Literal["success", "skipped", "failed"]
@@ -248,6 +274,8 @@ class IngestionResult(SerializableDataclass):
 
 @dataclass(frozen=True)
 class CollectionInfo(SerializableDataclass):
+    """知识集合的文档、Chunk 与图片统计。"""
+
     name: str
     document_count: int
     chunk_count: int
@@ -261,6 +289,8 @@ class CollectionInfo(SerializableDataclass):
 
 @dataclass(frozen=True)
 class DocumentSummary(SerializableDataclass):
+    """用于列表和摘要 Tool 的轻量文档信息。"""
+
     doc_id: str
     source_path: str
     title: str | None = None
@@ -275,6 +305,8 @@ class DocumentSummary(SerializableDataclass):
 
 @dataclass(frozen=True)
 class DeleteResult(SerializableDataclass):
+    """跨向量库、BM25、图片与完整性记录的删除结果。"""
+
     source_path: str
     collection: str
     deleted_chunks: int
@@ -290,6 +322,8 @@ class DeleteResult(SerializableDataclass):
 
 @dataclass(frozen=True)
 class EvaluationCase(SerializableDataclass):
+    """单条评估问题及其期望命中或答案。"""
+
     case_id: str
     query: str
     expected_chunk_ids: list[str] = field(default_factory=list)
@@ -303,6 +337,8 @@ class EvaluationCase(SerializableDataclass):
 
 @dataclass(frozen=True)
 class EvaluationReport(SerializableDataclass):
+    """一次评估运行的汇总指标和逐用例明细。"""
+
     run_id: str
     metrics: dict[str, float]
     cases: list[JsonDict]

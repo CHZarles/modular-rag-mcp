@@ -1,4 +1,4 @@
-"""LLM and vision LLM ports kept separate from response contracts."""
+"""独立于响应契约的 LLM 与视觉 LLM 端口。"""
 
 from __future__ import annotations
 
@@ -9,12 +9,16 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 @dataclass(frozen=True)
 class Message:
+    """发送给 LLM 的单条角色消息。"""
+
     role: Literal["system", "user", "assistant"]
     content: str
 
 
 @dataclass(frozen=True)
 class ChatResponse:
+    """统一的文本模型响应及用量信息。"""
+
     content: str
     model: str
     usage: dict[str, int] | None = None
@@ -23,6 +27,8 @@ class ChatResponse:
 
 @runtime_checkable
 class BaseLLM(Protocol):
+    """文本对话模型的最小端口。"""
+
     def chat(
         self,
         messages: list[Message],
@@ -33,6 +39,8 @@ class BaseLLM(Protocol):
 
 @dataclass(frozen=True)
 class ImageInput:
+    """视觉模型输入；路径、字节或 Base64 三者必须且只能提供一种。"""
+
     path: str | Path | None = None
     data: bytes | None = None
     base64: str | None = None
@@ -46,6 +54,8 @@ class ImageInput:
 
 @runtime_checkable
 class BaseVisionLLM(Protocol):
+    """接受文本与单张图片的视觉模型端口。"""
+
     def chat_with_image(
         self,
         text: str,

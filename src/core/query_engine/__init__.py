@@ -1,4 +1,4 @@
-"""Query engine building blocks."""
+"""查询引擎的基础组件。"""
 
 from src.core.query_engine.dense_retriever import DenseRetriever
 from src.core.query_engine.filter import ExactMetadataFilter

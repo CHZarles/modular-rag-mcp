@@ -1,4 +1,4 @@
-"""Compatibility re-export for vision LLM ports."""
+"""为兼容旧导入路径而重新导出视觉 LLM 端口。"""
 
 from src.ports.llm import BaseVisionLLM, ImageInput
 

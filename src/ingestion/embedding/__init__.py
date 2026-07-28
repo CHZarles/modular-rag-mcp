@@ -1,1 +1,1 @@
-"""Ingestion embedding stages."""
+"""文档摄取中的向量化阶段。"""

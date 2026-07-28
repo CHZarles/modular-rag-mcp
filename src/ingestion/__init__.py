@@ -1,4 +1,4 @@
-"""Ingestion orchestration."""
+"""文档摄取流程编排。"""
 
 from src.ingestion.pipeline import IngestionPipeline
 

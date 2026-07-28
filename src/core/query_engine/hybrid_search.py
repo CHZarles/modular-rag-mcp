@@ -1,4 +1,4 @@
-"""Hybrid query engine orchestration."""
+"""混合检索引擎编排。"""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ from src.ports.query import (
 
 @dataclass(frozen=True)
 class HybridSearchConfig:
+    """控制各召回通道开关及每阶段候选数量。"""
+
     dense_top_k: int = 20
     sparse_top_k: int = 20
     fusion_top_k: int = 10
@@ -25,7 +27,7 @@ class HybridSearchConfig:
 
 
 class HybridQueryEngine:
-    """QueryRequest -> processed query -> dense/sparse -> fusion -> filter -> rerank."""
+    """依次执行查询预处理、双路召回、融合、过滤与重排序。"""
 
     def __init__(
         self,
@@ -56,6 +58,7 @@ class HybridQueryEngine:
         ranked_lists: list[list[RetrievalCandidate]] = []
         errors: JsonDict = {}
 
+        # 单路召回失败不应中断查询，另一条通道仍可提供降级结果。
         if self.config.enable_dense and self.dense_retriever is not None:
             try:
                 ranked_lists.append(
@@ -82,6 +85,7 @@ class HybridQueryEngine:
             except Exception as exc:
                 errors["sparse"] = str(exc)
 
+        # 融合阶段多保留一批候选，为后续元数据过滤与重排留出余量。
         fused = self.fusion.fuse(
             [ranked for ranked in ranked_lists if ranked],
             top_k=max(request.top_k, self.config.fusion_top_k),
@@ -89,6 +93,7 @@ class HybridQueryEngine:
         )
         filtered = self.metadata_filter.apply(fused, filters, trace=trace)
 
+        # 重排器属于可选增强，异常时回退到已经过滤的融合顺序。
         try:
             reranked = self.reranker.rerank(
                 processed.standalone_query,

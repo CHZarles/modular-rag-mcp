@@ -1,1 +1,1 @@
-"""Modular RAG MCP Server package."""
+"""Modular RAG MCP Server 顶层包。"""

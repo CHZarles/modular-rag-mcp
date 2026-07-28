@@ -1,1 +1,1 @@
-"""Ingestion storage stages."""
+"""文档摄取中的存储阶段。"""

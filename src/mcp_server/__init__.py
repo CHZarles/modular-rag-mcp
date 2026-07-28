@@ -1,1 +1,1 @@
-"""MCP adapter layer."""
+"""MCP 协议适配层。"""

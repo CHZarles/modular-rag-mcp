@@ -1,4 +1,4 @@
-"""Simple evaluation runner over the evaluation ports."""
+"""基于评估端口的轻量评估执行器。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from src.ports.evaluation import BaseEvaluator
 
 
 class EvalRunner:
+    """逐用例运行多个评估器，并计算每项指标的算术平均值。"""
+
     def __init__(
         self,
         responder: Callable[[EvaluationCase], QueryResponse] | None = None,
@@ -36,6 +38,7 @@ class EvalRunner:
                     counts[metric_name] = counts.get(metric_name, 0) + 1
             case_rows.append({"case_id": case.case_id, "metrics": metrics})
 
+        # 只聚合实际由评估器返回的指标，允许不同评估器覆盖不同用例。
         aggregate = {
             name: totals[name] / counts[name]
             for name in sorted(totals)
@@ -49,6 +52,7 @@ class EvalRunner:
 
 
 def _empty_response(case: EvaluationCase) -> QueryResponse:
+    """未提供响应生成器时使用的空响应，便于独立测试评估框架。"""
     return QueryResponse(
         answer="",
         citations=[],

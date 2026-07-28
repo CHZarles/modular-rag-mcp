@@ -9,6 +9,7 @@ description = "Interface-first modular RAG MCP server skeleton"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+dependencies = ["PyYAML>=6.0"]
 
 [project.optional-dependencies]
 dev = [
@@ -19,6 +20,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = [".", "src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

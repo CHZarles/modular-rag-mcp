@@ -1,4 +1,4 @@
-"""Reranker implementations."""
+"""重排序器实现。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from src.core.types import RetrievalCandidate
 
 
 class NoneReranker:
-    """No-op reranker that preserves the fusion order."""
+    """保持融合结果原顺序的空操作重排序器。"""
 
     def rerank(
         self,

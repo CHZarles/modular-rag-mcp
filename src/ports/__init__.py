@@ -1,1 +1,1 @@
-"""Provider-neutral ports for application services and adapters."""
+"""供应用服务和适配器使用、与供应商无关的端口契约。"""
