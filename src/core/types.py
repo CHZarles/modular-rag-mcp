@@ -21,7 +21,8 @@ class SerializableDataclass:
     """为可序列化领域对象提供统一字典转换的 Mixin。"""
 
     def to_dict(self) -> JsonDict:
-        return asdict(self)
+        # 所有实际子类都由 @dataclass 装饰，但 mypy 无法从 Mixin 类型推断这一点。
+        return asdict(self)  # type: ignore[call-overload]
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,7 @@ class ImageRef(SerializableDataclass):
     position: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "ImageRef":
+    def from_dict(cls, data: JsonDict) -> ImageRef:
         payload = dict(data)
         if "image_id" not in payload and "id" in payload:
             payload["image_id"] = payload.pop("id")
@@ -48,20 +49,24 @@ class ImageRef(SerializableDataclass):
 
 @dataclass(frozen=True)
 class Document(SerializableDataclass):
-    """Loader 产出的规范化文档。"""
+    """Loader 产出的规范化文档。
+
+    metadata 约定至少包含 ``source_path``；图片使用 ``images`` 列表记录，并在
+    text 的原始位置使用 ``[IMAGE: image_id]`` 占位符。
+    """
 
     id: str
     text: str
     metadata: Metadata
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "Document":
+    def from_dict(cls, data: JsonDict) -> Document:
         return cls(**data)
 
 
 @dataclass(frozen=True)
 class Chunk(SerializableDataclass):
-    """带来源和原文偏移量的可检索文本块。"""
+    """带来源和原文偏移量的可检索文本块，metadata 继承文档的 source_path。"""
 
     id: str
     text: str
@@ -72,13 +77,13 @@ class Chunk(SerializableDataclass):
     end_offset: int | None = None
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "Chunk":
+    def from_dict(cls, data: JsonDict) -> Chunk:
         return cls(**data)
 
 
 @dataclass(frozen=True)
 class ChunkRecord(SerializableDataclass):
-    """准备写入索引的文本块及其稠密、稀疏向量。"""
+    """准备写入索引的文本块及其稠密、稀疏向量，metadata 保留来源信息。"""
 
     id: str
     text: str
@@ -88,7 +93,7 @@ class ChunkRecord(SerializableDataclass):
     content_hash: str | None = None
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "ChunkRecord":
+    def from_dict(cls, data: JsonDict) -> ChunkRecord:
         return cls(**data)
 
     @classmethod
@@ -98,7 +103,7 @@ class ChunkRecord(SerializableDataclass):
         dense_vector: list[float] | None = None,
         sparse_vector: JsonDict | None = None,
         content_hash: str | None = None,
-    ) -> "ChunkRecord":
+    ) -> ChunkRecord:
         return cls(
             id=chunk.id,
             text=chunk.text,
@@ -119,7 +124,7 @@ class ProcessedQuery(SerializableDataclass):
     filters: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "ProcessedQuery":
+    def from_dict(cls, data: JsonDict) -> ProcessedQuery:
         return cls(**data)
 
 
@@ -135,7 +140,7 @@ class SearchHit(SerializableDataclass):
     raw: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "SearchHit":
+    def from_dict(cls, data: JsonDict) -> SearchHit:
         return cls(**data)
 
 
@@ -152,7 +157,7 @@ class RetrievalCandidate(SerializableDataclass):
     debug: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "RetrievalCandidate":
+    def from_dict(cls, data: JsonDict) -> RetrievalCandidate:
         return cls(**data)
 
 
@@ -169,7 +174,7 @@ class Citation(SerializableDataclass):
     metadata: Metadata = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "Citation":
+    def from_dict(cls, data: JsonDict) -> Citation:
         return cls(**data)
 
 
@@ -185,7 +190,7 @@ class ImagePayload(SerializableDataclass):
     metadata: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "ImagePayload":
+    def from_dict(cls, data: JsonDict) -> ImagePayload:
         return cls(**data)
 
 
@@ -205,7 +210,7 @@ class QueryRequest(SerializableDataclass):
             raise ValueError("top_k must be positive")
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "QueryRequest":
+    def from_dict(cls, data: JsonDict) -> QueryRequest:
         return cls(**data)
 
 
@@ -221,7 +226,7 @@ class QueryResponse(SerializableDataclass):
     metadata: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "QueryResponse":
+    def from_dict(cls, data: JsonDict) -> QueryResponse:
         # 嵌套对象可能来自 JSON，因此在构造响应前恢复为强类型领域对象。
         payload = dict(data)
         payload["citations"] = [
@@ -249,7 +254,7 @@ class IngestionRequest(SerializableDataclass):
     request_id: str | None = None
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "IngestionRequest":
+    def from_dict(cls, data: JsonDict) -> IngestionRequest:
         return cls(**data)
 
 
@@ -268,7 +273,7 @@ class IngestionResult(SerializableDataclass):
     metadata: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "IngestionResult":
+    def from_dict(cls, data: JsonDict) -> IngestionResult:
         return cls(**data)
 
 
@@ -283,7 +288,7 @@ class CollectionInfo(SerializableDataclass):
     metadata: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "CollectionInfo":
+    def from_dict(cls, data: JsonDict) -> CollectionInfo:
         return cls(**data)
 
 
@@ -299,7 +304,7 @@ class DocumentSummary(SerializableDataclass):
     metadata: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "DocumentSummary":
+    def from_dict(cls, data: JsonDict) -> DocumentSummary:
         return cls(**data)
 
 
@@ -316,7 +321,7 @@ class DeleteResult(SerializableDataclass):
     errors: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "DeleteResult":
+    def from_dict(cls, data: JsonDict) -> DeleteResult:
         return cls(**data)
 
 
@@ -331,7 +336,7 @@ class EvaluationCase(SerializableDataclass):
     metadata: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "EvaluationCase":
+    def from_dict(cls, data: JsonDict) -> EvaluationCase:
         return cls(**data)
 
 
@@ -345,5 +350,5 @@ class EvaluationReport(SerializableDataclass):
     metadata: JsonDict = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: JsonDict) -> "EvaluationReport":
+    def from_dict(cls, data: JsonDict) -> EvaluationReport:
         return cls(**data)
