@@ -26,6 +26,8 @@ splitter:
 vector_store:
   backend: chroma
   persist_path: ./data/db/chroma
+  collection_name: default
+  distance_metric: cosine
 
 # Dense and sparse candidates are fused with reciprocal rank fusion.
 retrieval:

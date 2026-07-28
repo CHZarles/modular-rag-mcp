@@ -11,7 +11,7 @@ VectorStoreBackendFactory = Callable[[Mapping[str, Any]], BaseVectorStore]
 
 
 class VectorStoreFactory:
-    """轻量 backend 注册表；真实存储实现由后续任务注册。"""
+    """轻量 backend 注册表；内置存储按需注册。"""
 
     _backends: dict[str, VectorStoreBackendFactory] = {}
 
@@ -31,6 +31,7 @@ class VectorStoreFactory:
     @classmethod
     def create(cls, settings: Any) -> BaseVectorStore:
         """从 Settings 或 vector_store 配置字典创建对应的向量存储。"""
+        _register_default_backends()
         config = _vector_store_config(settings)
         backend = str(config.get("backend", "")).strip().lower()
         if not backend:
@@ -59,6 +60,16 @@ def _vector_store_config(settings: Any) -> Mapping[str, Any]:
     if not isinstance(config, Mapping):
         raise ValueError("Missing required setting: vector_store.backend")
     return config
+
+
+def _register_default_backends() -> None:
+    """确保内置 Chroma 后端可用，同时不覆盖调用方注册的同名实现。"""
+    if "chroma" in VectorStoreFactory._backends:
+        return
+
+    from src.libs.vector_store.chroma_store import ChromaStore
+
+    VectorStoreFactory.register("chroma", lambda config: ChromaStore(config))
 
 
 __all__ = ["VectorStoreBackendFactory", "VectorStoreFactory", "create_vector_store"]

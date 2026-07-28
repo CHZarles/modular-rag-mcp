@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
+    "chromadb>=0.5,<2.0",
     "langchain-text-splitters>=0.3,<2.0",
     "PyYAML>=6.0",
 ]
@@ -46,6 +47,10 @@ ignore = ["E501"]
 python_version = "3.10"
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["chromadb", "pytest"]
+follow_imports = "skip"
 
 [tool.hatch.build.targets.wheel]
 packages = [
