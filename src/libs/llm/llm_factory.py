@@ -72,10 +72,12 @@ def _register_default_providers() -> None:
 
     from src.libs.llm.azure_llm import AzureOpenAILLM
     from src.libs.llm.deepseek_llm import DeepSeekLLM
+    from src.libs.llm.ollama_llm import OllamaLLM
     from src.libs.llm.openai_llm import OpenAICompatibleLLM
 
     LLMFactory.register("azure", lambda config: AzureOpenAILLM(config))
     LLMFactory.register("deepseek", lambda config: DeepSeekLLM(config))
+    LLMFactory.register("ollama", lambda config: OllamaLLM(config))
     LLMFactory.register("openai", lambda config: OpenAICompatibleLLM(config))
     _DEFAULT_PROVIDERS_REGISTERED = True
 
