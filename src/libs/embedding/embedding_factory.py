@@ -11,7 +11,7 @@ EmbeddingProviderFactory = Callable[[Mapping[str, Any]], BaseEmbedding]
 
 
 class EmbeddingFactory:
-    """轻量 provider 注册表；真实供应商实现由后续任务注册。"""
+    """轻量 provider 注册表；内置供应商按需延迟注册。"""
 
     _providers: dict[str, EmbeddingProviderFactory] = {}
 
@@ -31,6 +31,7 @@ class EmbeddingFactory:
     @classmethod
     def create(cls, settings: Any) -> BaseEmbedding:
         """从 Settings 或 embedding 配置字典创建对应的 Embedding 客户端。"""
+        _register_default_providers()
         config = _embedding_config(settings)
         provider = str(config.get("provider", "")).strip().lower()
         if not provider:
@@ -59,6 +60,22 @@ def _embedding_config(settings: Any) -> Mapping[str, Any]:
     if not isinstance(config, Mapping):
         raise ValueError("Missing required setting: embedding.provider")
     return config
+
+
+_DEFAULT_PROVIDERS_REGISTERED = False
+
+
+def _register_default_providers() -> None:
+    global _DEFAULT_PROVIDERS_REGISTERED
+    if _DEFAULT_PROVIDERS_REGISTERED:
+        return
+
+    from src.libs.embedding.azure_embedding import AzureOpenAIEmbedding
+    from src.libs.embedding.openai_embedding import OpenAIEmbedding
+
+    EmbeddingFactory.register("azure", lambda config: AzureOpenAIEmbedding(config))
+    EmbeddingFactory.register("openai", lambda config: OpenAIEmbedding(config))
+    _DEFAULT_PROVIDERS_REGISTERED = True
 
 
 __all__ = ["EmbeddingFactory", "EmbeddingProviderFactory", "create_embedding"]
