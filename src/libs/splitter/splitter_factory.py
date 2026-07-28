@@ -11,7 +11,7 @@ SplitterProviderFactory = Callable[[Mapping[str, Any]], BaseSplitter]
 
 
 class SplitterFactory:
-    """轻量 provider 注册表；真实切分器实现由后续任务注册。"""
+    """轻量 provider 注册表；内置切分器按需延迟注册。"""
 
     _providers: dict[str, SplitterProviderFactory] = {}
 
@@ -31,6 +31,7 @@ class SplitterFactory:
     @classmethod
     def create(cls, settings: Any) -> BaseSplitter:
         """从 Settings 或 splitter 配置字典创建对应的切分器。"""
+        _register_default_providers()
         config = _splitter_config(settings)
         provider = str(config.get("provider", "")).strip().lower()
         if not provider:
@@ -59,6 +60,18 @@ def _splitter_config(settings: Any) -> Mapping[str, Any]:
     if not isinstance(config, Mapping):
         raise ValueError("Missing required setting: splitter.provider")
     return config
+
+
+def _register_default_providers() -> None:
+    """确保内置 recursive 实现可用，同时不覆盖调用方注册的同名实现。"""
+    # create() 每次都会调用这里；已注册时直接返回，避免重复写入注册表。
+    if "recursive" in SplitterFactory._providers:
+        return
+
+    from src.libs.splitter.recursive_splitter import RecursiveSplitter
+
+    # 工厂只保存构造函数，真正创建实例时再把当前配置传给实现类。
+    SplitterFactory.register("recursive", lambda config: RecursiveSplitter(config))
 
 
 __all__ = ["SplitterFactory", "SplitterProviderFactory", "create_splitter"]

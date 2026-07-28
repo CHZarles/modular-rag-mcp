@@ -16,6 +16,12 @@ embedding:
   provider: openai
   model: text-embedding-3-small
 
+# Markdown-aware chunking for ingestion.
+splitter:
+  provider: recursive
+  chunk_size: 1000
+  chunk_overlap: 200
+
 # Persistent local vector index.
 vector_store:
   backend: chroma

@@ -29,6 +29,7 @@ def test_embedding_factory_routes_by_provider() -> None:
         knowledge_service={"mode": "local"},
         llm={"provider": "openai"},
         embedding={"provider": "fake", "dimension": 3},
+        splitter={"provider": "recursive"},
         vector_store={"backend": "chroma"},
         retrieval={"sparse_backend": "bm25"},
         rerank={"backend": "none"},

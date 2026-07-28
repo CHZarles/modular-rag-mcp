@@ -12,6 +12,8 @@ llm:
   provider: openai
 embedding:
   provider: openai
+splitter:
+  provider: recursive
 vector_store:
   backend: chroma
 retrieval:
@@ -41,7 +43,10 @@ def test_load_settings_returns_validated_dataclass(tmp_path: Path) -> None:
 
 
 def test_load_settings_names_missing_nested_field(tmp_path: Path) -> None:
-    path = write_settings(tmp_path / "settings.yaml", VALID_SETTINGS.replace("  provider: openai\nvector_store:", "vector_store:", 1))
+    path = write_settings(
+        tmp_path / "settings.yaml",
+        VALID_SETTINGS.replace("embedding:\n  provider: openai\n", "embedding:\n"),
+    )
 
     with pytest.raises(ValueError, match=r"embedding\.provider"):
         load_settings(str(path))

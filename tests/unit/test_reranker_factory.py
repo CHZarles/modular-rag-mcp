@@ -43,6 +43,7 @@ def test_reranker_factory_none_keeps_order_and_applies_top_k() -> None:
         knowledge_service={"mode": "local"},
         llm={"provider": "openai"},
         embedding={"provider": "openai"},
+        splitter={"provider": "recursive"},
         vector_store={"backend": "chroma"},
         retrieval={"sparse_backend": "bm25"},
         rerank={"backend": "none"},

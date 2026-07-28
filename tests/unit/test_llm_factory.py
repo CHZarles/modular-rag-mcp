@@ -34,6 +34,7 @@ def test_llm_factory_routes_by_provider() -> None:
         knowledge_service={"mode": "local"},
         llm={"provider": "fake", "model": "fake-chat"},
         embedding={"provider": "openai"},
+        splitter={"provider": "recursive"},
         vector_store={"backend": "chroma"},
         retrieval={"sparse_backend": "bm25"},
         rerank={"backend": "none"},

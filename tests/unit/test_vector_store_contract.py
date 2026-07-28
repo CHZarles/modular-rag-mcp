@@ -69,6 +69,7 @@ def test_vector_store_factory_routes_by_backend() -> None:
         knowledge_service={"mode": "local"},
         llm={"provider": "openai"},
         embedding={"provider": "openai"},
+        splitter={"provider": "recursive"},
         vector_store={"backend": "fake"},
         retrieval={"sparse_backend": "bm25"},
         rerank={"backend": "none"},

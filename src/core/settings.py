@@ -14,6 +14,7 @@ _REQUIRED_FIELDS = {
     "knowledge_service": ("mode",),
     "llm": ("provider",),
     "embedding": ("provider",),
+    "splitter": ("provider",),
     "vector_store": ("backend",),
     "retrieval": ("sparse_backend",),
     "rerank": ("backend",),
@@ -29,6 +30,7 @@ class Settings:
     knowledge_service: ConfigSection
     llm: ConfigSection
     embedding: ConfigSection
+    splitter: ConfigSection
     vector_store: ConfigSection
     retrieval: ConfigSection
     rerank: ConfigSection

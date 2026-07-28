@@ -9,7 +9,10 @@ description = "Interface-first modular RAG MCP server skeleton"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = ["PyYAML>=6.0"]
+dependencies = [
+    "langchain-text-splitters>=0.3,<2.0",
+    "PyYAML>=6.0",
+]
 
 [project.optional-dependencies]
 dev = [
