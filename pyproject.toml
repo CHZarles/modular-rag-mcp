@@ -43,4 +43,12 @@ warn_unused_configs = true
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = [
+    "src/application",
+    "src/core",
+    "src/ingestion",
+    "src/libs",
+    "src/mcp_server",
+    "src/observability",
+    "src/ports",
+]

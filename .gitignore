@@ -91,9 +91,15 @@ dmypy.json
 .ruff_cache/
 
 # Project-specific
-data/
-cache/
-logs/
+data/**
+!data/**/
+!data/**/.gitkeep
+cache/**
+!cache/**/
+!cache/**/.gitkeep
+logs/**
+!logs/**/
+!logs/**/.gitkeep
 *.log
 traces.jsonl
 

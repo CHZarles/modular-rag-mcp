@@ -16,15 +16,15 @@
 3. **阶段 C：Ingestion Pipeline（PDF→MD→Chunk→Embedding→Upsert）**
   - 目的：离线摄取链路跑通，能把样例文档写入向量库/BM25 索引并支持增量。
 4. **阶段 D：Retrieval（Dense + Sparse + RRF + 可选 Rerank）**
-  - 目的：在线查询链路跑通，得到 Top-K chunks（含引用信息），并具备稳定回退策略。
+  - 目的：在线查询链路跑通，得到 Top-K chunks（含引用信息），并通过 `KnowledgeService` 契约暴露给 MCP/CLI/Dashboard 复用。
 5. **阶段 E：MCP Server 层与 Tools 落地**
    - 目的：按 MCP 标准暴露 tools，让 Copilot/Claude 可直接调用查询能力。
 6. **阶段 F：Trace 基础设施与打点**
    - 目的：增强 TraceContext，实现结构化日志持久化，在 Ingestion + Query 双链路打点，添加 Pipeline 进度回调。
 7. **阶段 G：可视化管理平台 Dashboard**
-   - 目的：搭建 Streamlit 六页面管理平台（系统总览 / 数据浏览 / Ingestion 管理 / Ingestion 追踪 / Query 追踪 / 评估占位），实现 DocumentManager 跨存储协调。
+   - 目的：搭建仅供开发者本地使用的 Streamlit 六页面管理平台（系统总览 / 数据浏览 / Ingestion 管理 / Ingestion 追踪 / Query 追踪 / 评估占位），实现 DocumentManager 跨存储协调。
 8. **阶段 H：评估体系**
-   - 目的：实现 RagasEvaluator + CompositeEvaluator + EvalRunner，启用评估面板页面，建立 golden test set 回归基线。
+   - 目的：实现 RagasEvaluator + CompositeEvaluator + EvalRunner，在本地开发者 Dashboard 与 `scripts/evaluate.py` 中使用，建立 golden test set 回归基线。
 9. **阶段 I：端到端验收与文档收口**
    - 目的：补齐 E2E 测试（MCP Client 模拟 + Dashboard 冒烟），完善 README，全链路验收，确保“开箱即用 + 可复现”。
 
@@ -41,114 +41,115 @@
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| A1 | 初始化目录树与最小可运行入口 | [x] | 2026-01-26 | 目录结构、配置文件、main.py 已创建 |
-| A2 | 引入 pytest 并建立测试目录约定 | [x] | 2026-01-26 | pytest 配置、tests/ 目录结构、22 个冒烟测试 |
-| A3 | 配置加载与校验（Settings） | [x] | 2026-01-26 | 配置加载、校验与单元测试 |
+| A1 | 初始化目录树与最小可运行入口 | [x] | 2026-07-28 | |
+| A2 | 引入 pytest 并建立测试目录约定 | [ ] | | |
+| A3 | 配置加载与校验（Settings） | [ ] | | |
 
 #### 阶段 B：Libs 可插拔层
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| B1 | LLM 抽象接口与工厂 | [x] | 2026-01-27 | BaseLLM + LLMFactory + 16个单元测试 |
-| B2 | Embedding 抽象接口与工厂 | [x] | 2026-01-27 | BaseEmbedding + EmbeddingFactory + 22个单元测试 |
-| B3 | Splitter 抽象接口与工厂 | [x] | 2026-01-27 | BaseSplitter + SplitterFactory + 20个单元测试 |
-| B4 | VectorStore 抽象接口与工厂 | [x] | 2026-01-27 | BaseVectorStore + VectorStoreFactory + 34个单元测试 |
-| B5 | Reranker 抽象接口与工厂（含 None 回退） | [x] | 2026-01-27 | BaseReranker + RerankerFactory + NoneReranker + 单元测试 |
-| B6 | Evaluator 抽象接口与工厂 | [x] | 2026-01-27 | BaseEvaluator + EvaluatorFactory + CustomEvaluator + 单元测试 |
-| B7.1 | OpenAI-Compatible LLM 实现 | [x] | 2026-01-28 | OpenAILLM + AzureLLM + DeepSeekLLM + 33个单元测试 |
-| B7.2 | Ollama LLM 实现 | [x] | 2026-01-28 | OllamaLLM + 32个单元测试 |
-| B7.3 | OpenAI & Azure Embedding 实现 | [x] | 2026-01-28 | OpenAIEmbedding + AzureEmbedding + 27个单元测试 |
-| B7.4 | Ollama Embedding 实现 | [x] | 2026-01-28 | OllamaEmbedding + 20个单元测试 |
-| B7.5 | Recursive Splitter 默认实现 | [x] | 2026-01-28 | RecursiveSplitter + 24个单元测试 + langchain集成 |
-| B7.6 | ChromaStore 默认实现 | [x] | 2026-01-30 | ChromaStore + 20个集成测试 + roundtrip验证 |
-| B7.7 | LLM Reranker 实现 | [x] | 2026-01-30 | LLMReranker + 20个单元测试 + prompt模板支持 |
-| B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-01-30 | CrossEncoderReranker + 26个单元测试 + 工厂集成 |
-| B8 | Vision LLM 抽象接口与工厂集成 | [x] | 2026-01-31 | BaseVisionLLM + ImageInput + LLMFactory扩展 + 35个单元测试 |
-| B9 | Azure Vision LLM 实现 | [x] | 2026-01-31 | AzureVisionLLM + 22个单元测试 + mock测试 + 图片压缩 |
+| B1 | LLM 抽象接口与工厂 | [ ] | | |
+| B2 | Embedding 抽象接口与工厂 | [ ] | | |
+| B3 | Splitter 抽象接口与工厂 | [ ] | | |
+| B4 | VectorStore 抽象接口与工厂 | [ ] | | |
+| B5 | Reranker 抽象接口与工厂（含 None 回退） | [ ] | | |
+| B6 | Evaluator 抽象接口与工厂 | [ ] | | |
+| B7.1 | OpenAI-Compatible LLM 实现 | [ ] | | |
+| B7.2 | Ollama LLM 实现 | [ ] | | |
+| B7.3 | OpenAI & Azure Embedding 实现 | [ ] | | |
+| B7.4 | Ollama Embedding 实现 | [ ] | | |
+| B7.5 | Recursive Splitter 默认实现 | [ ] | | |
+| B7.6 | ChromaStore 默认实现 | [ ] | | |
+| B7.7 | LLM Reranker 实现 | [ ] | | |
+| B7.8 | Cross-Encoder Reranker 实现 | [ ] | | |
+| B8 | Vision LLM 抽象接口与工厂集成 | [ ] | | |
+| B9 | Azure Vision LLM 实现 | [ ] | | |
 
 #### 阶段 C：Ingestion Pipeline MVP
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| C1 | 定义核心数据类型/契约（Document/Chunk/ChunkRecord） | [x] | 2026-01-30 | Document/Chunk/ChunkRecord + 18个单元测试 |
-| C2 | 文件完整性检查（SHA256） | [x] | 2026-01-30 | FileIntegrityChecker + SQLiteIntegrityChecker + 25个单元测试 |
-| C3 | Loader 抽象基类与 PDF Loader | [x] | 2026-01-30 | BaseLoader + PdfLoader + PyMuPDF图片提取 + 21单元测试 + 9集成测试 |
-| C4 | Splitter 集成（调用 Libs） | [x] | 2026-01-31 | DocumentChunker + 19个单元测试 + 5个核心增值功能 |
-| C5 | Transform 基类 + ChunkRefiner | [x] | 2026-01-31 | BaseTransform + ChunkRefiner (Rule + LLM) + TraceContext + 25单元测试 + 5集成测试 |
-| C6 | MetadataEnricher | [x] | 2026-01-31 | MetadataEnricher (Rule + LLM) + 26单元测试 + 真实LLM集成测试 |
-| C7 | ImageCaptioner | [x] | 2026-02-01 | ImageCaptioner + Azure Vision LLM 实现 + 集成测试 |
-| C8 | DenseEncoder | [x] | 2026-02-01 | 批量编码+Azure集成测试 |
-| C9 | SparseEncoder | [x] | 2026-02-01 | 词频统计+语料库统计+26单元测试 |
-| C10 | BatchProcessor | [x] | 2026-02-01 | BatchProcessor + BatchResult + 20个单元测试 |
-| C11 | BM25Indexer（倒排索引+IDF计算） | [x] | 2026-02-01 | BM25索引器+IDF计算+持久化+26单元测试 |
-| C12 | VectorUpserter（幂等upsert） | [x] | 2026-02-01 | 稳定chunk_id生成+幂等upsert+21单元测试 |
-| C13 | ImageStorage（图片存储+SQLite索引） | [x] | 2026-02-01 | ImageStorage + SQLite索引 + 37个单元测试 + WAL并发支持 |
-| C14 | Pipeline 编排（MVP 串起来） | [x] | 2026-02-02 | 完整流程编排+Azure LLM/Embedding集成测试通过 |
-| C15 | 脚本入口 ingest.py | [x] | 2026-02-02 | CLI脚本+E2E测试+文件发现+skip功能 |
+| C1 | 定义核心数据类型/契约（Document/Chunk/ChunkRecord） | [ ] | | |
+| C2 | 文件完整性检查（SHA256） | [ ] | | |
+| C3 | Loader 抽象基类与 PDF Loader | [ ] | | |
+| C4 | Splitter 集成（调用 Libs） | [ ] | | |
+| C5 | Transform 基类 + ChunkRefiner | [ ] | | |
+| C6 | MetadataEnricher | [ ] | | |
+| C7 | ImageCaptioner | [ ] | | |
+| C8 | DenseEncoder | [ ] | | |
+| C9 | SparseEncoder | [ ] | | |
+| C10 | BatchProcessor | [ ] | | |
+| C11 | BM25Indexer（倒排索引+IDF计算） | [ ] | | |
+| C12 | VectorUpserter（幂等upsert） | [ ] | | |
+| C13 | ImageStorage（图片存储+SQLite索引） | [ ] | | |
+| C14 | Pipeline 编排（MVP 串起来） | [ ] | | |
+| C15 | 脚本入口 ingest.py | [ ] | | |
 
 #### 阶段 D：Retrieval MVP
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| D1 | QueryProcessor（关键词提取 + filters） | [x] | 2026-02-03 | ProcessedQuery类型+关键词提取+停用词过滤+filter语法+38单元测试 |
-| D2 | DenseRetriever（调用 VectorStore.query） | [x] | 2026-02-03 | RetrievalResult类型+依赖注入+ChromaStore.query修复+30单元测试 |
-| D3 | SparseRetriever（BM25 查询） | [x] | 2026-02-04 | BaseVectorStore.get_by_ids+ChromaStore实现+SparseRetriever+26单元测试 |
-| D4 | RRF Fusion | [x] | 2026-02-04 | RRFFusion类+k参数可配置+加权融合+确定性输出+34单元测试 |
-| D5 | HybridSearch 编排 | [x] | 2026-02-04 | HybridSearch类+并行检索+优雅降级+元数据过滤+29集成测试 |
-| D6 | Reranker（Core 层编排 + Fallback） | [x] | 2026-02-04 | CoreReranker+LLM Reranker集成+Fallback机制+27单元测试+7集成测试 |
-| D7 | 脚本入口 query.py（查询可用） | [x] | 2026-02-04 | CLI 查询入口 + verbose 输出 |
+| D1 | QueryProcessor（关键词提取 + filters） | [ ] | | |
+| D2 | DenseRetriever（调用 VectorStore.query） | [ ] | | |
+| D3 | SparseRetriever（BM25 查询） | [ ] | | |
+| D4 | RRF Fusion | [ ] | | |
+| D5 | HybridSearch 编排 | [ ] | | |
+| D6 | Reranker（Core 层编排 + Fallback） | [ ] | | |
+| D7 | 脚本入口 query.py（查询可用） | [ ] | | |
+| D8 | KnowledgeService 契约与本地实现 | [ ] | | |
 
 #### 阶段 E：MCP Server 层与 Tools
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| E1 | MCP Server 入口与 Stdio 约束 | [x] | 2026-02-04 | server.py 使用官方 MCP SDK + stdio + 2集成测试 |
-| E2 | Protocol Handler 协议解析与能力协商 | [x] | 2026-02-04 | ProtocolHandler类+tool注册+错误处理+20单元测试 |
-| E3 | query_knowledge_hub Tool | [x] | 2026-02-04 | ResponseBuilder+CitationGenerator+Tool注册+24单元测试+2集成测试 |
-| E4 | list_collections Tool | [x] | 2026-02-04 | ListCollectionsTool+CollectionInfo+ChromaDB集成+41单元测试+2集成测试 |
-| E5 | get_document_summary Tool | [x] | 2026-02-04 | GetDocumentSummaryTool+DocumentSummary+错误处理+71单元测试 |
-| E6 | 多模态返回组装（Text + Image） | [x] | 2026-02-04 | MultimodalAssembler+base64编码+MIME检测+ResponseBuilder集成+54单元测试+4集成测试 |
+| E1 | MCP Server 入口与 Stdio Transport | [ ] | | |
+| E2 | Protocol Handler 协议解析与能力协商 | [ ] | | |
+| E3 | query_knowledge_hub Tool | [ ] | | |
+| E4 | list_collections Tool | [ ] | | |
+| E5 | get_document_summary Tool | [ ] | | |
+| E6 | 多模态返回组装（Text + Image） | [ ] | | |
 
 #### 阶段 F：Trace 基础设施与打点
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [x] | 2026-02-08 | TraceContext增强(trace_type/finish/elapsed_ms/to_dict)+TraceCollector+28单元测试 |
-| F2 | 结构化日志 logger（JSON Lines） | [x] | 2026-02-08 | JSONFormatter+get_trace_logger+write_trace+16单元测试 |
-| F3 | 在 Query 链路打点 | [x] | 2026-02-08 | HybridSearch+CoreReranker trace注入(5阶段)+14集成测试 |
-| F4 | 在 Ingestion 链路打点 | [x] | 2026-02-08 | Pipeline五阶段trace注入(load/split/transform/embed/upsert)+11集成测试 |
-| F5 | Pipeline 进度回调 (on_progress) | [x] | 2026-02-08 | on_progress回调(6阶段通知)+6单元测试 |
+| F1 | TraceContext 增强（finish + 耗时统计 + trace_type） | [ ] | | |
+| F2 | 结构化日志 logger（JSON Lines） | [ ] | | |
+| F3 | 在 Query 链路打点 | [ ] | | |
+| F4 | 在 Ingestion 链路打点 | [ ] | | |
+| F5 | Pipeline 进度回调 (on_progress) | [ ] | | |
 
 #### 阶段 G：可视化管理平台 Dashboard
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| G1 | Dashboard 基础架构与系统总览页 | [x] | 2026-02-09 | app.py多页面导航+overview页+ConfigService+start_dashboard.py+11单元测试 |
-| G2 | DocumentManager 实现 | [x] | 2026-02-09 | DocumentManager跨存储协调(ChromaStore+BM25+ImageStorage+IntegrityChecker)+文档删除+21单元测试 |
-| G3 | 数据浏览器页面 | [x] | 2026-02-09 | DataService只读门面+文档列表+chunk内容展示+元数据JSON展开+collection切换 |
-| G4 | Ingestion 管理页面 | [x] | 2026-02-09 | 文件上传+IngestionPipeline集成+实时进度条+TraceContext自动记录 |
-| G5 | Ingestion 追踪页面 | [x] | 2026-02-09 | TraceService读取traces.jsonl+阶段时间线+耗时柱状图+stage详情展开 |
-| G6 | Query 追踪页面 | [x] | 2026-02-09 | Query trace过滤+检索结果展示+rerank对比+耗时分析 |
+| G1 | Dashboard 基础架构与系统总览页 | [ ] | | |
+| G2 | DocumentManager 实现 | [ ] | | |
+| G3 | 数据浏览器页面 | [ ] | | |
+| G4 | Ingestion 管理页面 | [ ] | | |
+| G5 | Ingestion 追踪页面 | [ ] | | |
+| G6 | Query 追踪页面 | [ ] | | |
 
 #### 阶段 H：评估体系
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| H1 | RagasEvaluator 实现 | [x] | 2026-02-09 | 19/19 tests passed |
-| H2 | CompositeEvaluator 实现 | [x] | 2026-02-09 | 11/11 tests passed |
-| H3 | EvalRunner + Golden Test Set | [x] | 2026-02-09 | 15/15 tests passed |
-| H4 | 评估面板页面 | [x] | 2026-02-09 | 6/6 tests passed, dashboard page with history tracking |
-| H5 | Recall 回归测试（E2E） | [x] | 2026-02-09 | 3 unit+4 e2e(skip without data), hit@k+MRR threshold gating |
+| H1 | RagasEvaluator 实现 | [ ] | | |
+| H2 | CompositeEvaluator 实现 | [ ] | | |
+| H3 | EvalRunner + Golden Test Set | [ ] | | |
+| H4 | 评估面板页面 | [ ] | | |
+| H5 | Recall 回归测试（E2E） | [ ] | | |
 
 #### 阶段 I：端到端验收与文档收口
 
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
-| I1 | E2E：MCP Client 侧调用模拟 | [x] | 2026-02-23 | 7个E2E测试+import死锁修复+非阻塞readline |
-| I2 | E2E：Dashboard 冒烟测试 | [x] | 2026-02-24 | 6个页面冒烟测试+AppTest框架+mock服务 |
-| I3 | 完善 README（运行说明 + MCP + Dashboard） | [x] | 2026-02-24 | 快速开始+配置说明+MCP配置+Dashboard指南+测试+FAQ |
-| I4 | 清理接口一致性（契约测试补齐） | [x] | 2026-02-24 | VectorStore+Reranker+Evaluator边界测试+83测试全绿 |
-| I5 | 全链路 E2E 验收 | [x] | 2026-02-24 | 1198单元+30e2e通过,ingest/query/evaluate脚本验证 |
+| I1 | E2E：MCP Client 侧调用模拟 | [ ] | | |
+| I2 | E2E：Dashboard 冒烟测试 | [ ] | | |
+| I3 | 完善 README（运行说明 + MCP + Dashboard） | [ ] | | |
+| I4 | 清理接口一致性（契约测试补齐） | [ ] | | |
+| I5 | 全链路 E2E 验收 | [ ] | | |
 
 ---
 
@@ -156,23 +157,23 @@
 
 | 阶段 | 总任务数 | 已完成 | 进度 |
 |------|---------|--------|------|
-| 阶段 A | 3 | 3 | 100% |
-| 阶段 B | 16 | 16 | 100% |
-| 阶段 C | 15 | 15 | 100% |
-| 阶段 D | 7 | 7 | 100% |
-| 阶段 E | 6 | 6 | 100% |
-| 阶段 F | 5 | 5 | 100% |
-| 阶段 G | 6 | 6 | 100% |
-| 阶段 H | 5 | 5 | 100% |
-| 阶段 I | 5 | 5 | 100% |
-| **总计** | **68** | **68** | **100%** |
+| 阶段 A | 3 | 0 | 0% |
+| 阶段 B | 16 | 0 | 0% |
+| 阶段 C | 15 | 0 | 0% |
+| 阶段 D | 8 | 0 | 0% |
+| 阶段 E | 6 | 0 | 0% |
+| 阶段 F | 5 | 0 | 0% |
+| 阶段 G | 6 | 0 | 0% |
+| 阶段 H | 5 | 0 | 0% |
+| 阶段 I | 5 | 0 | 0% |
+| **总计** | **69** | **0** | **0%** |
 
 
 ---
 
 ## 阶段 A：工程骨架与测试基座（目标：先可导入，再可测试）
 
-### A1：初始化目录树与最小可运行入口 ✅
+### A1：初始化目录树与最小可运行入口
 - **目标**：在 repo 根目录创建第 5.2 节所述目录骨架与空模块文件（可 import）。
 - **修改文件**：
   - `main.py`
@@ -214,7 +215,7 @@
   - `main.py`（启动时调用 `load_settings()`，缺字段直接 fail-fast 退出）
   - `src/observability/logger.py`（先占位：提供 get_logger，stderr 输出）
   - `src/core/settings.py`（新增：集中放 Settings 数据结构与加载/校验逻辑）
-  - `config/settings.yaml`（补齐字段：llm/embedding/vector_store/retrieval/rerank/evaluation/observability）
+  - `config/settings.yaml`（补齐字段：knowledge_service/llm/embedding/vector_store/retrieval/rerank/evaluation/observability）
   - `tests/unit/test_config_loading.py`
 - **实现类/函数**：
   - `Settings`（dataclass：只做结构与最小校验；不在这里做任何网络/IO 的“业务初始化”）
@@ -241,7 +242,7 @@
 - **验收标准**：在测试里用 Fake provider（测试内 stub）验证工厂路由逻辑。
 - **测试方法**：`pytest -q tests/unit/test_llm_factory.py`。
 
-### B2：Embedding 抽象接口与工厂 ✅
+### B2：Embedding 抽象接口与工厂
 - **目标**：定义 `BaseEmbedding` 与 `EmbeddingFactory`，支持批量 embed。
 - **修改文件**：
   - `src/libs/embedding/base_embedding.py`
@@ -505,12 +506,13 @@
   - **职责边界说明**：
     - `libs.splitter`：纯文本切分工具（`str → List[str]`），不涉及业务对象
     - `DocumentChunker`：业务适配器（`Document对象 → List[Chunk对象]`），添加业务逻辑
-  - **5 个增值功能**：
+  - **6 个增值功能**：
     1. **Chunk ID 生成**：为每个文本片段生成唯一且确定性的 ID（格式：`{doc_id}_{index:04d}_{hash_8chars}`）
     2. **元数据继承**：将 Document.metadata 复制到每个 Chunk.metadata（source_path, doc_type, title 等）
     3. **添加 chunk_index**：记录 chunk 在文档中的序号（从 0 开始），用于排序和定位
     4. **建立 source_ref**：记录 Chunk.source_ref 指向父 Document.id，支持溯源
-    5. **类型转换**：将 libs.splitter 的 `List[str]` 转换为符合 core.types 契约的 `List[Chunk]` 对象
+    5. **图片引用按需分发**：扫描每个 chunk 文本中的 `[IMAGE: {id}]` 占位符，从 `Document.metadata["images"]` 中提取该 chunk 实际引用的 ImageRef，写入 `chunk.metadata["images"]`（仅含该 chunk 引用的子集）和 `chunk.metadata["image_refs"]`（image_id 列表）。无占位符的 chunk 不含 `images` 字段。⚠️ 不可简单整体继承或丢弃文档级 `images`，否则下游 C7 ImageCaptioner 将无法定位图片路径。
+    6. **类型转换**：将 libs.splitter 的 `List[str]` 转换为符合 core.types 契约的 `List[Chunk]` 对象
 - **修改文件**：
   - `src/ingestion/chunking/document_chunker.py`
   - `src/ingestion/chunking/__init__.py`
@@ -519,13 +521,14 @@
   - `DocumentChunker` 类
   - `__init__(settings: Settings)`：通过 SplitterFactory 获取配置的 splitter 实例
   - `split_document(document: Document) -> List[Chunk]`：完整的转换流程
-  - `_generate_chunk_id(doc_id: str, index: int) -> str`：生成稳定 Chunk ID
-  - `_inherit_metadata(document: Document, chunk_index: int) -> dict`：元数据继承逻辑
+  - `_generate_chunk_id(doc_id: str, index: int, text: str) -> str`：生成稳定 Chunk ID
+  - `_inherit_metadata(document: Document, chunk_index: int, chunk_text: str) -> dict`：元数据继承 + 图片引用按需分发逻辑（需要 chunk_text 来扫描 `[IMAGE: id]` 占位符）
 - **验收标准**：
   - **配置驱动**：通过修改 settings.yaml 中的 splitter 配置（如 chunk_size），产出的 chunk 数量和长度发生相应变化
   - **ID 唯一性**：每个 Chunk 的 ID 在整个文档中唯一
   - **ID 确定性**：同一 Document 对象重复切分产生相同的 Chunk ID 序列
   - **元数据完整性**：Chunk.metadata 包含所有 Document.metadata 字段 + chunk_index 字段
+  - **图片分发正确性**：含 `[IMAGE: id]` 占位符的 chunk 其 `metadata["images"]` 仅包含该 chunk 引用的图片子集；不含占位符的 chunk 无 `images` 字段；`metadata["image_refs"]` 列表与占位符一致
   - **溯源链接**：所有 Chunk.source_ref 正确指向父 Document.id
   - **类型契约**：输出的 Chunk 对象符合 `core/types.py` 中的 Chunk 定义（可序列化、字段完整）
 - **测试方法**：`pytest -q tests/unit/test_document_chunker.py`（使用 FakeSplitter 隔离测试，无需真实 LLM/外部依赖）。
@@ -750,7 +753,7 @@
 
 ---
 
-## 阶段 D：Retrieval MVP（目标：能 query 并返回 Top-K chunks）
+## 阶段 D：Retrieval MVP（目标：能 query 并通过 KnowledgeService 返回 QueryResponse）
 
 ### D1：QueryProcessor（关键词提取 + filters 结构）
 - **目标**：实现 `query_processor.py`：关键词提取（先规则/分词），并解析通用 filters 结构（可空实现）。
@@ -874,12 +877,38 @@
   - `E3 query_knowledge_hub` 是生产环境的 MCP Tool
   - 两者共享 Core 层逻辑（HybridSearch + Reranker），但入口和输出格式不同
 
+### D8：KnowledgeService 契约与本地实现
+- **目标**：实现 `core/services/knowledge_service.py` 与 `LocalKnowledgeService`，把查询、集合列表、文档摘要封装成稳定应用层接口，供 MCP tools、CLI、Dashboard 复用。
+- **前置依赖**：D5（HybridSearch）、D6（Reranker）、E3 所需 ResponseBuilder 可先用最小实现或 Fake 注入
+- **修改文件**：
+  - `src/core/services/__init__.py`
+  - `src/core/services/knowledge_service.py`
+  - `src/core/services/local_knowledge_service.py`
+  - `src/core/services/knowledge_service_factory.py`
+  - `src/core/types.py`（如 QueryRequest/QueryResponse 放在统一 types 中）
+  - `tests/unit/test_knowledge_service_contract.py`
+  - `tests/integration/test_knowledge_service_local.py`
+- **实现类/函数**：
+  - `KnowledgeService` Protocol：`query()`、`list_collections()`、`get_document_summary()`
+  - `QueryRequest`：`query`、`top_k`、`collection`、`filters`、`include_images`
+  - `QueryResponse`：`answer`、`citations`、`items`、`images`、`request_id`、`metadata`
+  - `LocalKnowledgeService.query(request, trace?) -> QueryResponse`
+  - `build_knowledge_service(settings, deps?) -> KnowledgeService`
+- **验收标准**：
+  - MCP tool 测试可以注入 `FakeKnowledgeService`，不需要真实 Chroma/BM25/Embedding。
+  - `LocalKnowledgeService` 能把 HybridSearch + Reranker 的结果转换成统一 `QueryResponse`。
+  - `QueryResponse` 可 JSON 序列化，字段稳定，适合后续 HTTP 实现复用。
+  - `settings.knowledge_service.mode=local` 时工厂返回 `LocalKnowledgeService`。
+- **测试方法**：
+  - `pytest -q tests/unit/test_knowledge_service_contract.py`
+  - `pytest -q tests/integration/test_knowledge_service_local.py`
+
 ---
 
 ## 阶段 E：MCP Server 层与 Tools（目标：对外可用的 MCP tools）
 
-### E1：MCP Server 入口与 Stdio 约束
-- **目标**：实现 `mcp_server/server.py`：遵循"stdout 只输出 MCP 消息，日志到 stderr"。
+### E1：MCP Server 入口与 Stdio Transport
+- **目标**：实现 `mcp_server/server.py`：初期挂载 Stdio Transport，提供本地 MCP Client 接入；Server 入口只负责 MCP 协议生命周期、工具注册与 `KnowledgeService` 注入，具体知识库来源由应用服务层处理。Stdio 模式必须遵循"stdout 只输出 MCP 消息，日志到 stderr"。
 - **修改文件**：
   - `src/mcp_server/server.py`
   - `tests/integration/test_mcp_server.py`
@@ -906,34 +935,39 @@
 - **测试方法**：`pytest -q tests/unit/test_protocol_handler.py`。
 
 ### E3：实现 tool：query_knowledge_hub
-- **目标**：实现 `tools/query_knowledge_hub.py`：调用 HybridSearch + Reranker，构建带引用的响应，返回 Markdown + structured citations。
-- **前置依赖**：D5（HybridSearch）、D6（Reranker）、E1（Server）、E2（Protocol Handler）
+- **目标**：实现 `tools/query_knowledge_hub.py`：通过注入的 `KnowledgeService` 执行查询，构建带引用的 MCP 响应，返回 Markdown + structured citations。
+- **前置依赖**：D8（KnowledgeService）、E1（Server）、E2（Protocol Handler）
 - **修改文件**：
   - `src/mcp_server/tools/query_knowledge_hub.py`
+  - `src/core/services/knowledge_service.py`（复用 QueryRequest/QueryResponse）
   - `src/core/response/response_builder.py`（新增：构建 MCP 响应格式）
   - `src/core/response/citation_generator.py`（新增：生成引用信息）
+  - `tests/unit/test_query_knowledge_hub_tool.py`（新增：FakeKnowledgeService 注入）
   - `tests/unit/test_response_builder.py`（新增）
   - `tests/integration/test_mcp_server.py`（补用例）
 - **实现类/函数**：
-  - `ResponseBuilder.build(retrieval_results, query) -> MCPResponse`：构建 MCP 格式响应
-  - `CitationGenerator.generate(retrieval_results) -> List[Citation]`：生成引用列表
+  - `ResponseBuilder.build(query_response) -> MCPResponse`：构建 MCP 格式响应
+  - `CitationGenerator.generate(query_response.items) -> List[Citation]`：生成引用列表
   - `query_knowledge_hub(query, top_k?, collection?) -> MCPToolResult`：Tool 入口函数
 - **验收标准**：
+  - tool 内部只调用 `KnowledgeService.query()`，不直接访问 QueryEngine/VectorStore/BM25。
   - tool 返回 `content[0]` 为可读 Markdown（含 `[1]`、`[2]` 等引用标注）
   - `structuredContent.citations` 包含 `source`/`page`/`chunk_id`/`score` 字段
   - 无结果时返回友好提示而非空数组
-- **测试方法**：`pytest -q tests/integration/test_mcp_server.py -k query_knowledge_hub`。
+- **测试方法**：
+  - `pytest -q tests/unit/test_query_knowledge_hub_tool.py`
+  - `pytest -q tests/integration/test_mcp_server.py -k query_knowledge_hub`
 
 ### E4：实现 tool：list_collections
-- **目标**：实现 `tools/list_collections.py`：列出 `data/documents/` 下集合并附带统计（可延后到下一步）。
+- **目标**：实现 `tools/list_collections.py`：调用 `KnowledgeService.list_collections()`，返回可用集合及统计信息（统计可延后）。
 - **修改文件**：
   - `src/mcp_server/tools/list_collections.py`
   - `tests/unit/test_list_collections.py`
-- **验收标准**：对 fixtures 中的目录结构能返回集合名列表。
+- **验收标准**：可注入 `FakeKnowledgeService` 测试 tool 格式；默认本地实现能对 fixtures 中的目录结构返回集合名列表。
 - **测试方法**：`pytest -q tests/unit/test_list_collections.py`。
 
 ### E5：实现 tool：get_document_summary
-- **目标**：实现 `tools/get_document_summary.py`：按 doc_id 返回 title/summary/tags（可先从 metadata/缓存取）。
+- **目标**：实现 `tools/get_document_summary.py`：调用 `KnowledgeService.get_document_summary(doc_id)`，按 doc_id 返回 title/summary/tags（可先从 metadata/缓存取）。
 - **修改文件**：
   - `src/mcp_server/tools/get_document_summary.py`
   - `tests/unit/test_get_document_summary.py`
@@ -941,7 +975,7 @@
 - **测试方法**：`pytest -q tests/unit/test_get_document_summary.py`。
 
 ### E6：多模态返回组装（Text + Image）
-- **目标**：实现 `multimodal_assembler.py`：命中 chunk 含 image_refs 时读取图片并 base64 返回 ImageContent。
+- **目标**：实现 `multimodal_assembler.py`：本地模式下命中 chunk 含 image_refs 时读取图片并 base64 返回 ImageContent；HTTP 模式只消费 `QueryResponse.images` 中已经提供的 base64，不假设远端文件路径可读。
 - **修改文件**：
   - `src/core/response/multimodal_assembler.py`
   - `tests/integration/test_mcp_server.py`（补图像返回用例）

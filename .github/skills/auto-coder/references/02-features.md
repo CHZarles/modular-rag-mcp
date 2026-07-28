@@ -68,13 +68,14 @@
     - 记录并可视化 RAG 流水线的每一个中间状态：覆盖 Ingestion（加载→切分→增强→编码→存储）与 Query（查询预处理→Dense/Sparse 召回→融合→重排→响应构建）两条完整链路。
     - 开发者可以清晰看到“系统为什么选了这个文档”以及“Rerank 起了什么作用”，从而精准定位坏 Case。
 - **可视化管理平台 (Visual Management Dashboard)**：
-    - 基于 Streamlit 的本地 Web 管理面板，提供六大功能页面：
+    - 基于 Streamlit 的本地开发者 Web 面板，默认只面向项目维护者/开发者使用，不作为 MCP tool 或对外 API 暴露。
+    - 提供六大功能页面：
         - **系统总览**：展示当前可插拔组件配置（LLM/Embedding/Splitter/Reranker）与数据资产统计。
         - **数据浏览器**：查看已索引的文档列表、Chunk 详情（原文、metadata 各字段、关联图片），支持搜索过滤。
         - **Ingestion 管理**：通过界面选择文件触发摄取、实时展示各阶段进度、支持删除已摄入文档（跨 4 个存储的协调删除）。
         - **Query 追踪**：查询历史列表，耗时瀑布图，Dense/Sparse 召回对比，Rerank 前后排名变化。
         - **Ingestion 追踪**：摄取历史列表，各阶段耗时与处理详情。
-        - **评估面板**：运行评估任务、查看各项指标、历史趋势对比。
+        - **评估面板**：本地手动运行评估、查看各项指标、历史趋势对比；用于开发调试和质量复盘，不对普通 MCP Client 暴露。
     - 所有页面基于 Trace 中的 `method`/`provider` 字段**动态渲染**，更换可插拔组件后 Dashboard 自动适配，无需修改代码。
 - **自动化评估闭环 (Automated Evaluation)**：
     - 集成 Ragas 等评估框架（可插拔），为每一次检索和生成计算“体检报告”（如召回率 Hit Rate、准确性 Faithfulness 等指标）。

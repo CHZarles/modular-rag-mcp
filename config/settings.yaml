@@ -1,0 +1,6 @@
+llm:
+  provider: openai
+embedding:
+  provider: openai
+vector_store:
+  provider: chroma
