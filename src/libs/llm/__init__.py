@@ -2,5 +2,14 @@
 
 from src.libs.llm.base_llm import BaseLLM, ChatResponse, Message
 from src.libs.llm.base_vision_llm import BaseVisionLLM, ImageInput
+from src.libs.llm.llm_factory import LLMFactory, create_llm
 
-__all__ = ["BaseLLM", "BaseVisionLLM", "ChatResponse", "ImageInput", "Message"]
+__all__ = [
+    "BaseLLM",
+    "BaseVisionLLM",
+    "ChatResponse",
+    "ImageInput",
+    "LLMFactory",
+    "Message",
+    "create_llm",
+]
