@@ -40,6 +40,18 @@ def test_load_settings_returns_validated_dataclass(tmp_path: Path) -> None:
     assert isinstance(settings, Settings)
     assert settings.knowledge_service["mode"] == "local"
     assert settings.embedding["provider"] == "openai"
+    assert settings.ingestion == {}
+
+
+def test_load_settings_reads_optional_ingestion_section(tmp_path: Path) -> None:
+    path = write_settings(
+        tmp_path / "settings.yaml",
+        VALID_SETTINGS + "ingestion:\n  chunk_refiner:\n    use_llm: true\n",
+    )
+
+    settings = load_settings(str(path))
+
+    assert settings.ingestion["chunk_refiner"]["use_llm"] is True
 
 
 def test_load_settings_names_missing_nested_field(tmp_path: Path) -> None:

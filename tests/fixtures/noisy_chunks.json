@@ -1,0 +1,42 @@
+[
+  {
+    "name": "typical_noise_scenario",
+    "input": "[页眉] RAG Guide\n\n# Retrieval\n\n\nRAG combines search and generation.  \n\nPage 1 of 3\n[页脚] Internal",
+    "expected": "# Retrieval\n\nRAG combines search and generation."
+  },
+  {
+    "name": "ocr_errors",
+    "input": "Page 2 of 9\n\n0CR text keeps m1stakes for the LLM.\n\n<!-- scan artifact -->",
+    "expected": "0CR text keeps m1stakes for the LLM."
+  },
+  {
+    "name": "page_header_footer",
+    "input": "Company Confidential\n\n## API\nUse the stable interface.\n\n页码 3 / 8",
+    "expected": "## API\nUse the stable interface."
+  },
+  {
+    "name": "excessive_whitespace",
+    "input": "Alpha    beta\t\tgamma.\n\n\n\nDelta.",
+    "expected": "Alpha beta gamma.\n\nDelta."
+  },
+  {
+    "name": "format_markers",
+    "input": "<!-- exported by tool -->\n\n---\n\n## Kept heading\n\nContent.\n\n***",
+    "expected": "## Kept heading\n\nContent."
+  },
+  {
+    "name": "clean_text",
+    "input": "## Clean heading\n\nA clean paragraph remains unchanged.",
+    "expected": "## Clean heading\n\nA clean paragraph remains unchanged."
+  },
+  {
+    "name": "code_blocks",
+    "input": "Before.\n\n```python\ndef add(a,  b):\n    return a + b\n```\n\nAfter.",
+    "expected": "Before.\n\n```python\ndef add(a,  b):\n    return a + b\n```\n\nAfter."
+  },
+  {
+    "name": "mixed_noise",
+    "input": "[HEADER] Export\n\n# Mixed\n\nText   with noise.\n\n___\n\n[FOOTER] 4",
+    "expected": "# Mixed\n\nText with noise."
+  }
+]

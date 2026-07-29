@@ -1,6 +1,6 @@
 """配置文件加载与校验。"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from os.path import expandvars
 from pathlib import Path
 from typing import Any
@@ -36,6 +36,7 @@ class Settings:
     rerank: ConfigSection
     evaluation: ConfigSection
     observability: ConfigSection
+    ingestion: ConfigSection = field(default_factory=dict)
 
 
 def validate_settings(settings: Settings) -> None:
@@ -66,6 +67,10 @@ def load_settings(path: str) -> Settings:
             raise ValueError(f"Setting {section_name} must be a mapping")
         sections[section_name] = section
 
-    settings = Settings(**sections)
+    # ingestion 目前是可选区段，保持旧配置和直接构造 Settings 的调用兼容。
+    ingestion = raw.get("ingestion", {})
+    if not isinstance(ingestion, dict):
+        raise ValueError("Setting ingestion must be a mapping")
+    settings = Settings(**sections, ingestion=ingestion)
     validate_settings(settings)
     return settings

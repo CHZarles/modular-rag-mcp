@@ -22,6 +22,11 @@ splitter:
   chunk_size: 1000
   chunk_overlap: 200
 
+# 规则去噪始终执行；启用后再通过当前 OpenAI-compatible 模型精炼文本。
+ingestion:
+  chunk_refiner:
+    use_llm: true
+
 # Persistent local vector index.
 vector_store:
   backend: chroma
