@@ -2073,7 +2073,7 @@ dashboard:
 | C7 | ImageCaptioner | [x] | 2026-07-29 | |
 | C8 | DenseEncoder | [x] | 2026-07-29 | |
 | C9 | SparseEncoder | [x] | 2026-07-29 | |
-| C10 | BatchProcessor | [ ] | | |
+| C10 | BatchProcessor | [x] | 2026-07-29 | |
 | C11 | BM25Indexer（倒排索引+IDF计算） | [ ] | | |
 | C12 | VectorUpserter（幂等upsert） | [ ] | | |
 | C13 | ImageStorage（图片存储+SQLite索引） | [ ] | | |
@@ -2153,14 +2153,14 @@ dashboard:
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 10 | 63% |
-| 阶段 C | 15 | 9 | 60% |
+| 阶段 C | 15 | 10 | 67% |
 | 阶段 D | 8 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **69** | **22** | **32%** |
+| **总计** | **69** | **23** | **33%** |
 
 
 ---
@@ -2648,6 +2648,41 @@ dashboard:
   - `tests/unit/test_batch_processor.py`
 - **验收标准**：batch_size=2 时对 5 chunks 分成 3 批，且顺序稳定。
 - **测试方法**：`pytest -q tests/unit/test_batch_processor.py`。
+
+#### C10 与前后组件的关系
+
+`BatchProcessor` 不实现新的编码算法，而是位于 C8、C9 两个编码器之外的批次调度层：
+
+- **C8 DenseEncoder** 负责把一批 Chunk 转成稠密语义向量，并封装具体 Embedding 调用。
+- **C9 SparseEncoder** 负责把一批 Chunk 转成 BM25 所需的词频和文档长度统计。
+- **C10 BatchProcessor** 负责按 `batch_size` 切分输入，同一批依次调用 DenseEncoder 和 SparseEncoder，再按原始 Chunk 顺序合并两路结果；它还校验每批输出数量，防止 Chunk、稠密向量和稀疏统计错位。
+- **C11 BM25Indexer / C12 VectorUpserter** 分别消费 C10 产生的稀疏、稠密结果并完成持久化；存储不属于 C10 的职责。
+- **C14 Pipeline 编排** 才负责把 C10 正式接入完整摄取主线。C10 当前保持为可独立测试的组件，避免提前修改尚未收敛的存储流程。
+
+```text
+有序 Chunk 列表
+      │
+      ▼
+C10 BatchProcessor ── 按 batch_size 分批、保序合并、校验数量
+      │
+      ├──► C8 DenseEncoder  ──► 稠密向量 ──► C12 VectorUpserter
+      │
+      └──► C9 SparseEncoder ──► 词频统计 ──► C11 BM25Indexer
+```
+
+例如输入 `[c0, c1, c2, c3, c4]` 且 `batch_size=2`，C10 会依次处理
+`[c0, c1]`、`[c2, c3]`、`[c4]`，最终仍按 `c0` 到 `c4` 的顺序返回
+`(dense_vectors, sparse_vectors)`。因此同一索引位置始终表示同一个 Chunk：
+
+```text
+chunks[2]         = c2
+dense_vectors[2]  = c2 的稠密向量
+sparse_vectors[2] = c2 的稀疏统计
+```
+
+分批主要用于限制单次远程 Embedding 请求规模，降低请求体过大、Provider 限制、
+超时和失败后大批量重算的风险。SparseEncoder 虽然当前在本地计算，仍沿用同一批次
+边界，以保证 Dense/Sparse 两路结果稳定对齐。C10 不提供并发、重试或存储能力。
 
 ---
 
