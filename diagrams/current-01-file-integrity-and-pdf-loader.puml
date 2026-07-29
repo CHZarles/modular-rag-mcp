@@ -1,0 +1,98 @@
+@startuml
+title 当前实现 UML：文件完整性与 PDF Loader（2026-07-29）
+
+allowmixing
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+package "src.ports.ingestion" {
+  interface FileIntegrityStore {
+    + compute_sha256(source_path: str): str
+    + should_skip(file_hash: str, collection: str): bool
+    + mark_processing(file_hash, source_path, collection): None
+    + mark_success(file_hash, source_path, collection, chunk_count): None
+    + mark_failed(file_hash, source_path, collection, error): None
+    + remove_record(file_hash, collection): None
+    + list_processed(collection?): list
+  }
+
+  interface BaseLoader {
+    + supported_extensions: tuple[str]
+    + load(source_path: str, collection: str, trace?): Document
+  }
+}
+
+package "src.libs.loader（当前代码）" {
+  class SQLiteIntegrityStore {
+    + db_path: Path
+    + timeout_seconds: float
+    + compute_sha256(source_path: str): str
+    + should_skip(file_hash: str, collection: str): bool
+    + mark_processing(...): None
+    + mark_success(...): None
+    + mark_failed(...): None
+    + remove_record(...): None
+    + list_processed(collection?): list
+    - _initialize(): None
+    - _connect(): Connection
+    - _write_status(...): None
+  }
+
+  class PdfLoader {
+    + supported_extensions = (".pdf",)
+    + image_root: Path
+    + load(source_path: str, collection: str, trace?): Document
+    - _extract_images(path, collection, file_hash): list
+  }
+
+  class "compute_sha256()" as ComputeSHA256 <<function>>
+  class "_insert_image_placeholders()" as InsertPlaceholders <<function>>
+}
+
+package "src.core.types" {
+  class Document {
+    + id: str
+    + text: str
+    + metadata: dict
+  }
+}
+
+package "外部依赖" {
+  class MarkItDown <<library>>
+  class PyMuPDF <<library>>
+  database "SQLite ingestion_history" as IngestionHistoryDb
+  folder "data/images/{collection}" as Images
+}
+
+FileIntegrityStore <|.. SQLiteIntegrityStore
+BaseLoader <|.. PdfLoader : Protocol 结构匹配
+
+SQLiteIntegrityStore ..> ComputeSHA256 : 委托计算
+SQLiteIntegrityStore --> IngestionHistoryDb : 状态 UPSERT / 查询
+
+PdfLoader ..> ComputeSHA256 : Document ID
+PdfLoader ..> InsertPlaceholders : 文本锚点映射
+PdfLoader --> MarkItDown : PDF -> Markdown
+PdfLoader --> PyMuPDF : 图片 / 页码 / 坐标
+PdfLoader --> Images : 写入 PNG
+PdfLoader --> Document : 返回
+
+note bottom of SQLiteIntegrityStore
+  联合主键：(file_hash, collection)
+  仅 success 状态触发跳过
+  WAL + busy_timeout 支持本地并发
+end note
+
+note bottom of PdfLoader
+  正文转换失败：加载失败
+  图片提取失败：降级为空 images
+  每次图片出现都生成独立引用
+  根据相邻文本锚点插入占位符
+  锚点无法匹配时才降级追加到正文末尾
+end note
+
+legend bottom
+  本图只描述当前已落地代码，不修改或混入 reference-* / review-* 设计图。
+endlegend
+
+@enduml

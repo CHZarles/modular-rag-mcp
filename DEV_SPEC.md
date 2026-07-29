@@ -2066,7 +2066,7 @@ dashboard:
 |---------|---------|------|---------|------|
 | C1 | 定义核心数据类型/契约（Document/Chunk/ChunkRecord） | [x] | 2026-07-29 | |
 | C2 | 文件完整性检查（SHA256） | [x] | 2026-07-29 | |
-| C3 | Loader 抽象基类与 PDF Loader | [ ] | | |
+| C3 | Loader 抽象基类与 PDF Loader | [x] | 2026-07-29 | |
 | C4 | Splitter 集成（调用 Libs） | [ ] | | |
 | C5 | Transform 基类 + ChunkRefiner | [ ] | | |
 | C6 | MetadataEnricher | [ ] | | |
@@ -2153,14 +2153,14 @@ dashboard:
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 10 | 63% |
-| 阶段 C | 15 | 2 | 13% |
+| 阶段 C | 15 | 3 | 20% |
 | 阶段 D | 8 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **69** | **15** | **22%** |
+| **总计** | **69** | **16** | **23%** |
 
 
 ---
@@ -2484,7 +2484,7 @@ dashboard:
 - **验收标准**：
   - **基础要求**：对 sample PDF（fixtures）能产出 Document，metadata 至少含 `source_path`。
   - **图片处理要求**（遵循 C1 定义的契约）：
-    - 若 PDF 包含图片，应提取图片并保存到 `data/images/{doc_hash}/` 目录
+    - 若 PDF 包含图片，应提取图片并保存到 `data/images/{collection}/{image_id}.png`（与 C1 契约一致）
     - 在 `Document.text` 中，图片位置插入占位符：`[IMAGE: {image_id}]`
     - 在 `metadata.images` 中记录图片信息（格式见 C1 规范）
     - 若 PDF 无图片，`metadata.images` 可为空列表或省略该字段

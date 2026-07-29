@@ -12,6 +12,8 @@ license = { text = "MIT" }
 dependencies = [
     "chromadb>=0.5,<2.0",
     "langchain-text-splitters>=0.3,<2.0",
+    "markitdown[pdf]>=0.1,<1.0",
+    "pymupdf>=1.24,<2.0",
     "PyYAML>=6.0",
 ]
 
@@ -49,7 +51,7 @@ warn_unused_configs = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["chromadb", "pytest"]
+module = ["chromadb", "markitdown", "pymupdf", "pytest"]
 follow_imports = "skip"
 
 [tool.hatch.build.targets.wheel]
