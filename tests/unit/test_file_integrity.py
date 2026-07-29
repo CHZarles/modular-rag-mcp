@@ -5,17 +5,17 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from libs.loader import FileIntegrityChecker, SQLiteIntegrityChecker
+from libs.loader import FileIntegrityStore, SQLiteIntegrityStore
 
 
 def test_compute_sha256_is_stable(tmp_path: Path) -> None:
     source = tmp_path / "document.pdf"
     content = b"stable document content"
     source.write_bytes(content)
-    checker = SQLiteIntegrityChecker(tmp_path / "history.db")
+    store = SQLiteIntegrityStore(tmp_path / "history.db")
 
-    first = checker.compute_sha256(str(source))
-    second = checker.compute_sha256(str(source))
+    first = store.compute_sha256(str(source))
+    second = store.compute_sha256(str(source))
 
     assert first == second == hashlib.sha256(content).hexdigest()
 
@@ -25,11 +25,11 @@ def test_default_database_is_created_with_wal(
 ) -> None:
     monkeypatch.chdir(tmp_path)  # type: ignore[attr-defined]
 
-    checker = SQLiteIntegrityChecker()
+    store = SQLiteIntegrityStore()
 
-    assert checker.db_path == Path("data/db/ingestion_history.db")
-    assert checker.db_path.exists()
-    with sqlite3.connect(checker.db_path) as connection:
+    assert store.db_path == Path("data/db/ingestion_history.db")
+    assert store.db_path.exists()
+    with sqlite3.connect(store.db_path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
@@ -37,14 +37,14 @@ def test_success_skip_is_scoped_by_collection_and_persists(tmp_path: Path) -> No
     source = tmp_path / "document.pdf"
     source.write_text("content", encoding="utf-8")
     db_path = tmp_path / "history.db"
-    checker = SQLiteIntegrityChecker(db_path)
-    file_hash = checker.compute_sha256(str(source))
+    store = SQLiteIntegrityStore(db_path)
+    file_hash = store.compute_sha256(str(source))
 
-    checker.mark_processing(file_hash, str(source), "docs")
-    assert checker.should_skip(file_hash, "docs") is False
+    store.mark_processing(file_hash, str(source), "docs")
+    assert store.should_skip(file_hash, "docs") is False
 
-    checker.mark_success(file_hash, str(source), "docs", chunk_count=3)
-    reopened = SQLiteIntegrityChecker(db_path)
+    store.mark_success(file_hash, str(source), "docs", chunk_count=3)
+    reopened = SQLiteIntegrityStore(db_path)
 
     assert reopened.should_skip(file_hash, "docs") is True
     assert reopened.should_skip(file_hash, "notes") is False
@@ -55,19 +55,19 @@ def test_success_skip_is_scoped_by_collection_and_persists(tmp_path: Path) -> No
 
 
 def test_failed_file_is_not_skipped(tmp_path: Path) -> None:
-    checker = SQLiteIntegrityChecker(tmp_path / "history.db")
+    store = SQLiteIntegrityStore(tmp_path / "history.db")
 
-    checker.mark_failed("hash-1", "missing.pdf", "docs", "parse failed")
+    store.mark_failed("hash-1", "missing.pdf", "docs", "parse failed")
 
-    assert checker.should_skip("hash-1", "docs") is False
-    assert checker.list_processed()[0]["error_msg"] == "parse failed"
+    assert store.should_skip("hash-1", "docs") is False
+    assert store.list_processed()[0]["error_msg"] == "parse failed"
 
 
 def test_concurrent_writes_keep_all_records(tmp_path: Path) -> None:
-    checker = SQLiteIntegrityChecker(tmp_path / "history.db")
+    store = SQLiteIntegrityStore(tmp_path / "history.db")
 
     def write(index: int) -> None:
-        checker.mark_success(
+        store.mark_success(
             f"hash-{index}",
             f"document-{index}.pdf",
             "docs",
@@ -77,5 +77,5 @@ def test_concurrent_writes_keep_all_records(tmp_path: Path) -> None:
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(write, range(12)))
 
-    assert len(checker.list_processed("docs")) == 12
-    assert isinstance(checker, FileIntegrityChecker)
+    assert len(store.list_processed("docs")) == 12
+    assert isinstance(store, FileIntegrityStore)

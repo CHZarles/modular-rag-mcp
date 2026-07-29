@@ -133,7 +133,7 @@ sequenceDiagram
   autonumber
   participant User as User / CLI / Dashboard
   participant Pipeline as IngestionPipeline
-  participant Integrity as FileIntegrityChecker
+  participant Integrity as FileIntegrityStore
   participant Loader as PDFLoader
   participant Splitter as Splitter
   participant Transform as TransformChain
@@ -472,7 +472,7 @@ sequenceDiagram
   participant Chroma as ChromaStore
   participant BM25 as BM25Indexer
   participant Images as ImageStorage
-  participant Integrity as FileIntegrityChecker
+  participant Integrity as FileIntegrityStore
 
   User->>UI: delete_document(source_path, collection)
   UI->>Manager: delete_document(source_path, collection)

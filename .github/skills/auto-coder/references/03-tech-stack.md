@@ -139,7 +139,7 @@
 	- **存储层接口扩展**：为支持 DocumentManager 的删除操作，需扩展以下存储接口：
 		- `BaseVectorStore` 新增 `delete_by_metadata(filter: dict) -> int` — 按 metadata 条件批量删除
 		- `BM25Indexer` 新增 `remove_document(source: str) -> None` — 移除指定文档的索引条目
-		- `FileIntegrityChecker` 新增 `remove_record(file_hash: str) -> None` 和 `list_processed() -> List[dict]`
+		- `FileIntegrityStore` 新增 `remove_record(file_hash: str) -> None` 和 `list_processed() -> List[dict]`
 
 #### 3.1.2 检索流水线
 

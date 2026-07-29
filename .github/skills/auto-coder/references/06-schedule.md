@@ -464,8 +464,8 @@
   - `tests/unit/test_file_integrity.py`
   - 数据库文件：`data/db/ingestion_history.db`（自动创建）
 - **实现类/函数**：
-  - `FileIntegrityChecker` 类（抽象接口）
-  - `SQLiteIntegrityChecker(FileIntegrityChecker)` 类（默认实现）
+  - `FileIntegrityStore` Protocol（摄取流水线依赖的抽象接口）
+  - `SQLiteIntegrityStore(FileIntegrityStore)` 类（默认持久化实现）
     - `compute_sha256(path: str) -> str`
     - `should_skip(file_hash: str) -> bool`
     - `mark_success(file_hash: str, file_path: str, ...)`
@@ -475,6 +475,7 @@
   - 标记 success 后，`should_skip` 返回 `True`
   - 数据库文件正确创建在 `data/db/ingestion_history.db`
   - 支持并发写入（SQLite WAL模式）
+- **并发边界**：C2 仅保证 SQLite 并发读写安全，不保证同一文件只被一个任务处理；原子任务领取与崩溃恢复在 C14 实现。
 - **测试方法**：`pytest -q tests/unit/test_file_integrity.py`。
 
 ### C3：Loader 抽象基类与 PDF Loader 壳子
@@ -704,7 +705,7 @@
   - `tests/unit/test_image_storage.py`
 - **验收标准**：保存后文件存在；查找 image_id 返回正确路径；映射关系持久化在 `data/db/image_index.db`。
 - **技术方案**：
-  - 复用项目已有的 SQLite 架构模式（参考 `file_integrity.py` 的 `SQLiteIntegrityChecker`）
+  - 复用项目已有的 SQLite 架构模式（参考 `file_integrity.py` 的 `SQLiteIntegrityStore`）
   - 数据库表结构：
     ```sql
     CREATE TABLE image_index (
@@ -741,6 +742,10 @@
     - 提取的图片到 `data/images/` (SHA256命名)
   - Pipeline 日志清晰展示各阶段进度
   - 失败步骤抛出明确异常信息
+  - **同文件并发互斥**：将 `should_skip()` + `mark_processing()` 两步检查改为 `try_claim()` 原子领取；返回 `acquired`、`already_succeeded`、`in_progress` 三种结果。
+  - **崩溃恢复**：领取记录包含 `lease_owner` 和 `lease_expires_at`；有效租约不可重复领取，过期租约允许接管，旧 owner 不得提交新 owner 的最终状态。
+  - **SQLite 实现约束**：领取使用短写事务（如 `BEGIN IMMEDIATE` + 条件 UPSERT），不得在 PDF 解析或模型调用期间持有数据库事务锁。
+  - **并发测试**：覆盖双线程仅一个任务领取成功、有效租约拒绝、过期租约接管、旧 owner 提交失败。
 - **测试方法**：`pytest -v tests/integration/test_ingestion_pipeline.py`。
 
 ### C15：脚本入口 ingest.py（离线可用）
@@ -1287,5 +1292,3 @@
 - **M4（完成阶段 F）**：Ingestion + Query 双链路可追踪，JSON Lines 持久化。
 - **M5（完成阶段 G）**：六页面可视化管理平台就绪（评估面板为占位），数据可浏览、可管理、链路可追踪。
 - **M6（完成阶段 H+I）**：评估体系完整 + E2E 验收通过 + 文档完善，形成"面试/教学/演示"可复现项目。
-
-
