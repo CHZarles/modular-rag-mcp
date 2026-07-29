@@ -1,90 +1,102 @@
-"""文档到文本块的适配器。
-
-Splitter 只负责纯文本切分；本模块负责生成稳定的 Chunk ID，并继承文档元数据。
-"""
+"""把纯文本 Splitter 的结果转换为摄取链路使用的 Chunk。"""
 
 from __future__ import annotations
 
 import hashlib
+import re
+from typing import Any
 
 from src.core.types import Chunk, Document, JsonDict
+from src.libs.splitter import SplitterFactory
 from src.ports.ingestion import BaseSplitter
+
+_IMAGE_PLACEHOLDER = re.compile(r"\[IMAGE:\s*([^\]]+?)\s*\]")
 
 
 class DocumentChunker:
-    """将纯文本切分结果补全为带稳定定位信息的 Chunk。"""
+    """为切分结果补充稳定 ID、来源、偏移量和按块分发的图片引用。"""
 
-    def __init__(self, splitter: BaseSplitter) -> None:
-        self.splitter = splitter
+    def __init__(
+        self,
+        settings: Any | None = None,
+        *,
+        splitter: BaseSplitter | None = None,
+    ) -> None:
+        """从配置创建 Splitter；测试和上层装配也可直接注入实现。
 
-    def split_document(self, document: Document, trace: object | None = None) -> list[Chunk]:
+        ``DocumentChunker(FakeSplitter())`` 是早期装配代码使用的形式，因此仍按
+        BaseSplitter Protocol 识别该位置参数，避免破坏现有调用方。
+        """
+        if splitter is None and isinstance(settings, BaseSplitter):
+            splitter = settings
+        self.splitter = splitter if splitter is not None else SplitterFactory.create(settings)
+
+    def split_document(self, document: Document, trace: Any | None = None) -> list[Chunk]:
+        """切分文档，并把纯字符串结果转换成可追溯的 Chunk。"""
         texts = self.splitter.split_text(document.text, trace=trace)
         chunks: list[Chunk] = []
         search_from = 0
 
         for index, text in enumerate(texts):
-            # 从上一个块的结束位置继续查找，正确定位正文中的重复片段。
-            start = document.text.find(text, search_from)
-            if start < 0:
-                start = None
-                end = None
+            # 从上一块起点之后继续查找，兼容 Splitter 产生的重叠文本块。
+            found_start = document.text.find(text, search_from)
+            if found_start < 0:
+                start_offset = None
+                end_offset = None
             else:
-                end = start + len(text)
-                search_from = end
+                start_offset = found_start
+                end_offset = found_start + len(text)
+                search_from = found_start + 1
 
-            metadata = self._metadata_for_chunk(document, index, start, end)
+            metadata = self._inherit_metadata(document, index, text)
             chunk = Chunk(
-                id=self._chunk_id(document.id, index, text),
+                id=self._generate_chunk_id(document.id, index, text),
                 text=text,
                 metadata=metadata,
                 source_ref=document.id,
                 chunk_index=index,
-                start_offset=start,
-                end_offset=end,
+                start_offset=start_offset,
+                end_offset=end_offset,
             )
             chunks.append(chunk)
 
         return chunks
 
-    def _metadata_for_chunk(
-        self,
+    @staticmethod
+    def _inherit_metadata(
         document: Document,
-        index: int,
-        start: int | None,
-        end: int | None,
+        chunk_index: int,
+        chunk_text: str,
     ) -> JsonDict:
+        """复制文档元数据，并只保留当前文本实际引用的图片。"""
         metadata = dict(document.metadata)
-        metadata["chunk_index"] = index
-        metadata["source_ref"] = document.id
-        if start is not None:
-            metadata["start_offset"] = start
-        if end is not None:
-            metadata["end_offset"] = end
+        metadata["chunk_index"] = chunk_index
 
-        images = metadata.get("images")
-        if isinstance(images, list) and start is not None and end is not None:
-            metadata["images"] = [
-                image
-                for image in images
-                if _image_overlaps_chunk(image, start, end)
-            ]
+        # 文档级 images 不能整体继承，否则下游会为每个 Chunk 重复处理全部图片。
+        document_images = metadata.pop("images", [])
+        metadata.pop("image_refs", None)
+        image_ids = [match.group(1).strip() for match in _IMAGE_PLACEHOLDER.finditer(chunk_text)]
+        if not image_ids:
+            return metadata
+
+        metadata["image_refs"] = image_ids
+        images_by_id: JsonDict = {}
+        if isinstance(document_images, list):
+            for image in document_images:
+                if not isinstance(image, dict):
+                    continue
+                image_id = image.get("image_id", image.get("id"))
+                if image_id:
+                    images_by_id[str(image_id)] = image
+
+        matched_images = [images_by_id[image_id] for image_id in image_ids if image_id in images_by_id]
+        if matched_images:
+            metadata["images"] = matched_images
 
         return metadata
 
     @staticmethod
-    def _chunk_id(document_id: str, index: int, text: str) -> str:
+    def _generate_chunk_id(document_id: str, index: int, text: str) -> str:
         """使用文档、顺序和内容生成可复现的 Chunk ID。"""
-        digest = hashlib.sha256(f"{document_id}\0{index}\0{text}".encode("utf-8")).hexdigest()
-        return f"{document_id}:chunk:{index}:{digest[:12]}"
-
-
-def _image_overlaps_chunk(image: object, start: int, end: int) -> bool:
-    """判断图片占位符的文本区间是否与当前 Chunk 相交。"""
-    if not isinstance(image, dict):
-        return False
-    offset = image.get("text_offset")
-    length = image.get("text_length", 0)
-    if not isinstance(offset, int):
-        return False
-    image_end = offset + (length if isinstance(length, int) else 0)
-    return offset < end and image_end >= start
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return f"{document_id}_{index:04d}_{digest[:8]}"

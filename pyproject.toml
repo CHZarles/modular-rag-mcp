@@ -51,7 +51,7 @@ warn_unused_configs = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["chromadb", "markitdown", "pymupdf", "pytest"]
+module = ["chromadb", "langchain_text_splitters", "markitdown", "pymupdf", "pytest"]
 follow_imports = "skip"
 
 [tool.hatch.build.targets.wheel]
