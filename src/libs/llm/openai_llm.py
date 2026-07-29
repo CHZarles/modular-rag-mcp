@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from src.ports.llm import ChatResponse, Message
+from src.ports.llm import ChatResponse, ImageInput, Message
 
 JsonObject = dict[str, Any]
 
 
 class OpenAICompatibleLLM:
-    """通过 OpenAI-compatible HTTP API 调用文本模型。"""
+    """通过 OpenAI-compatible HTTP API 调用文本及多模态模型。"""
 
     provider = "openai"
     default_base_url = "https://api.openai.com/v1"
@@ -34,6 +36,48 @@ class OpenAICompatibleLLM:
     ) -> ChatResponse:
         """发送 Chat Completions 请求并返回统一响应对象。"""
         payload = self._payload(messages, kwargs)
+        raw = self._post_json(self._chat_url(), payload)
+        content = _read_content(raw, self.provider)
+        usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else None
+        return ChatResponse(
+            content=content,
+            model=str(raw.get("model") or payload.get("model") or self.model),
+            usage=usage,
+            raw_response=raw,
+        )
+
+    def chat_with_image(
+        self,
+        text: str,
+        image: ImageInput,
+        messages: list[Message] | None = None,
+        trace: Any | None = None,
+        **kwargs: Any,
+    ) -> ChatResponse:
+        """按 OpenAI-compatible ``image_url`` 格式发送文本和单张图片。"""
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(f"{self.provider} input error: text must not be empty")
+
+        serialized: list[JsonObject] = (
+            list(_serialize_messages(messages, self.provider)) if messages else []
+        )
+        serialized.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": _image_data_url(image)},
+                    },
+                ],
+            }
+        )
+        payload: JsonObject = {
+            "model": self.model,
+            "messages": serialized,
+            **dict(kwargs),
+        }
         raw = self._post_json(self._chat_url(), payload)
         content = _read_content(raw, self.provider)
         usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else None
@@ -98,6 +142,18 @@ def _serialize_messages(messages: list[Message], provider: str) -> list[dict[str
             raise ValueError(f"{provider} input error: messages[{index}] must be Message")
         serialized.append({"role": message.role, "content": message.content})
     return serialized
+
+
+def _image_data_url(image: ImageInput) -> str:
+    """把统一图片输入编码为 OpenAI-compatible API 接受的 Data URL。"""
+    if image.path is not None:
+        data = Path(image.path).read_bytes()
+        encoded = base64.b64encode(data).decode("ascii")
+    elif image.data is not None:
+        encoded = base64.b64encode(image.data).decode("ascii")
+    else:
+        encoded = str(image.base64).strip()
+    return f"data:{image.mime_type};base64,{encoded}"
 
 
 def _read_content(raw: Mapping[str, Any], provider: str) -> str:

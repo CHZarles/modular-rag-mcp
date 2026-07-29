@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, cast
 from urllib.error import URLError
 from urllib.request import Request
@@ -9,8 +10,10 @@ import pytest
 
 from libs.llm import (
     AzureOpenAILLM,
+    BaseVisionLLM,
     ChatResponse,
     DeepSeekLLM,
+    ImageInput,
     LLMFactory,
     Message,
     OpenAICompatibleLLM,
@@ -74,6 +77,54 @@ def test_openai_compatible_provider_posts_chat_completion(monkeypatch: pytest.Mo
         "model": "MiniMax-M3",
         "messages": [{"role": "user", "content": "ping"}],
         "temperature": 0,
+    }
+
+
+def test_openai_compatible_provider_posts_multimodal_message(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: list[Request] = []
+
+    def fake_urlopen(request: Request, timeout: float) -> FakeHTTPResponse:
+        captured.append(request)
+        return FakeHTTPResponse(response_payload(content="A flow diagram.", model="MiniMax-M3"))
+
+    monkeypatch.setattr("src.libs.llm.openai_llm.urlopen", fake_urlopen)
+    image_path = tmp_path / "diagram.png"
+    image_path.write_bytes(b"image")
+    llm = OpenAICompatibleLLM(
+        {
+            "model": "MiniMax-M3",
+            "base_url": "https://api.minimaxi.com/v1",
+            "api_key": "secret",
+        }
+    )
+
+    result = llm.chat_with_image(
+        "Describe this image.",
+        ImageInput(path=image_path, mime_type="image/png"),
+        messages=[Message(role="system", content="Be precise.")],
+    )
+
+    assert isinstance(llm, BaseVisionLLM)
+    assert result.content == "A flow diagram."
+    payload = json.loads(cast(bytes, captured[0].data).decode("utf-8"))
+    assert payload == {
+        "model": "MiniMax-M3",
+        "messages": [
+            {"role": "system", "content": "Be precise."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this image."},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,aW1hZ2U="},
+                    },
+                ],
+            },
+        ],
     }
 
 

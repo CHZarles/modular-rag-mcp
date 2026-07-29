@@ -29,6 +29,9 @@ ingestion:
   # 为每个 Chunk 生成语义 title、summary 和 tags；失败时自动使用规则结果。
   metadata_enricher:
     use_llm: true
+  # MiniMax M3 通过现有 OpenAI-compatible 接口接收图片，无需独立 Vision Provider。
+  image_captioner:
+    enabled: true
 
 # Persistent local vector index.
 vector_store:
