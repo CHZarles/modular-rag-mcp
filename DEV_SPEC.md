@@ -2075,7 +2075,7 @@ dashboard:
 | C9 | SparseEncoder | [x] | 2026-07-29 | |
 | C10 | BatchProcessor | [x] | 2026-07-29 | |
 | C11 | BM25Indexer（倒排索引+IDF计算） | [x] | 2026-07-29 | |
-| C12 | VectorUpserter（幂等upsert） | [ ] | | |
+| C12 | VectorUpserter（幂等upsert） | [x] | 2026-07-30 | |
 | C13 | ImageStorage（图片存储+SQLite索引） | [ ] | | |
 | C14 | Pipeline 编排（MVP 串起来） | [ ] | | |
 | C15 | 脚本入口 ingest.py | [ ] | | |
@@ -2153,14 +2153,14 @@ dashboard:
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 10 | 63% |
-| 阶段 C | 15 | 11 | 73% |
+| 阶段 C | 15 | 12 | 80% |
 | 阶段 D | 8 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **69** | **24** | **35%** |
+| **总计** | **69** | **25** | **36%** |
 
 
 ---
@@ -2761,6 +2761,19 @@ sparse_vectors[2] = c2 的稀疏统计
   - 支持批量 upsert 且保持顺序
 - **测试方法**：`pytest -q tests/unit/test_vector_upserter_idempotency.py`。
 - **备注**：本任务完成Dense路径的最后一环，为D2 (DenseRetriever) 提供可查询的向量数据库。
+
+#### C12 的最终存储 ID 边界
+
+- C4 `DocumentChunker` 生成的是**切分阶段 ID**，用于标识刚切分出的文本；后续 C5
+  `ChunkRefiner` 和 C7 `ImageCaptioner` 可能修改正文，因此该 ID 不一定反映最终内容。
+- C12 根据 `source_path + chunk_index + final_content_hash[:8]` 生成**最终存储 ID**，
+  并把完整 `content_hash` 写入 `ChunkRecord`。同一最终内容重复处理得到同一 ID，正文
+  变化则得到新 ID。
+- `VectorUpserter.upsert()` 返回与输入顺序一致的 `ChunkRecord`。C14 必须使用这些
+  record ID 同步替换交给 C11 BM25Indexer 的 Chunk ID，确保 Dense/Sparse 检索命中
+  同一个 Chunk。
+- 内容变化产生新 ID 后，旧记录不会由单个 batch 自动删除；C14 应在文档更新流程中
+  按 `source_path + collection` 协调清理旧的 Vector/BM25 记录，避免误删同文档的其他批次。
 
 ### C13：ImageStorage（图片文件存储与索引表契约）
 - **目标**：实现 `image_storage.py`：保存图片到 `data/images/{collection}/`，并使用 **SQLite** 记录 image_id→path 映射。
