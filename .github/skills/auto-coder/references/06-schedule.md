@@ -80,7 +80,7 @@
 | C8 | DenseEncoder | [x] | 2026-07-29 | |
 | C9 | SparseEncoder | [x] | 2026-07-29 | |
 | C10 | BatchProcessor | [x] | 2026-07-29 | |
-| C11 | BM25Indexer（倒排索引+IDF计算） | [ ] | | |
+| C11 | BM25Indexer（倒排索引+IDF计算） | [x] | 2026-07-29 | |
 | C12 | VectorUpserter（幂等upsert） | [ ] | | |
 | C13 | ImageStorage（图片存储+SQLite索引） | [ ] | | |
 | C14 | Pipeline 编排（MVP 串起来） | [ ] | | |
@@ -159,14 +159,14 @@
 |------|---------|--------|------|
 | 阶段 A | 3 | 3 | 100% |
 | 阶段 B | 16 | 10 | 63% |
-| 阶段 C | 15 | 10 | 67% |
+| 阶段 C | 15 | 11 | 73% |
 | 阶段 D | 8 | 0 | 0% |
 | 阶段 E | 6 | 0 | 0% |
 | 阶段 F | 5 | 0 | 0% |
 | 阶段 G | 6 | 0 | 0% |
 | 阶段 H | 5 | 0 | 0% |
 | 阶段 I | 5 | 0 | 0% |
-| **总计** | **69** | **23** | **33%** |
+| **总计** | **69** | **24** | **35%** |
 
 
 ---
@@ -646,6 +646,41 @@
   - `tests/unit/test_sparse_encoder.py`
 - **验收标准**：输出结构可用于 bm25_indexer；对空文本有明确行为。
 - **测试方法**：`pytest -q tests/unit/test_sparse_encoder.py`。
+
+#### C9 与 C11 的关键词统计职责边界
+
+“关键词统计”分为局部统计和全局统计，不能笼统地归给同一个模块：
+
+| 模块 | 统计范围 | 负责内容 | 不负责内容 |
+|------|---------|---------|-----------|
+| **C9 SparseEncoder** | 单个 Chunk | `tokenize()` 分词、词频 TF、`doc_length` | 跨 Chunk 的 DF、IDF 和检索评分 |
+| **C11 BM25Indexer** | 整个语料库 | 文档频率 DF、全局 IDF、倒排索引、BM25 score | PDF 加载、Chunk 切分和局部分词 |
+
+例如 Chunk 文本 `RAG rag combines BM25` 经 C9 处理后得到：
+
+```python
+{
+    "terms": {"rag": 2, "combines": 1, "bm25": 1},
+    "doc_length": 4,
+}
+```
+
+这里的 `rag: 2` 是 TF，只回答“`rag` 在当前 Chunk 中出现几次”。C11 收集所有
+Chunk 的上述结果后，继续计算“`rag` 出现在多少个 Chunk”得到 DF，再结合总 Chunk
+数计算 IDF，最后建立可查询的倒排索引并计算 BM25 分数。
+
+```text
+Chunk 文本
+   │
+   ▼
+C9 SparseEncoder ──► tokenize + TF + doc_length（局部统计）
+   │
+   ▼
+C11 BM25Indexer  ──► DF + IDF + 倒排索引 + BM25 score（全局统计与检索）
+```
+
+因此，提到“关键词统计”时必须说明范围：**单个 Chunk 的词频由 C9 负责；整个语料库
+的关键词分布、稀有度和检索评分由 C11 负责。**
 
 ### C10：BatchProcessor（批处理编排）
 - **目标**：实现 `batch_processor.py`：将 chunks 分 batch，驱动 dense/sparse 编码，记录批次耗时（为 trace 预留）。
