@@ -1,0 +1,90 @@
+@startuml
+title 当前实现 UML：DocumentChunker 切分适配流程（2026-07-29）
+
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam ArrowColor #334155
+skinparam activity {
+  BackgroundColor #FFFFFF
+  BorderColor #64748B
+  DiamondBackgroundColor #F8FAFC
+  DiamondBorderColor #64748B
+}
+
+start
+
+partition "装配阶段" {
+  if (调用方已注入 BaseSplitter？) then (是)
+    :直接使用注入的 Splitter;
+  else (否)
+    :SplitterFactory.create(settings);
+    :按 splitter.provider 创建实现;
+  endif
+}
+
+partition "纯文本 Splitter" {
+  :接收 Document.text;
+  :split_text(text, trace);
+  :返回有序 list[str];
+}
+
+partition "DocumentChunker" {
+  :初始化 chunks = []\nsearch_from = 0;
+
+  while (还有待转换的文本块？) is (是)
+    :取得 index 和 chunk_text;
+    :从 search_from 开始\n在 Document.text 中查找 chunk_text;
+
+    if (能够精确定位？) then (是)
+      :start_offset = found_start\nend_offset = found_start + len(chunk_text);
+      :search_from = found_start + 1;
+      note right
+        从“上一块起点 + 1”继续查找，
+        而不是从上一块末尾查找，
+        因此支持 chunk_overlap。
+      end note
+    else (否)
+      :start_offset = None\nend_offset = None;
+      note right
+        Splitter 若规范化了空白或正文，
+        偏移量降级为空，不阻断摄取。
+      end note
+    endif
+
+    :浅拷贝 Document.metadata;
+    :写入 chunk_index\n移除文档级 images / image_refs;
+    :扫描 chunk_text 中的\n[IMAGE: image_id] 占位符;
+
+    if (存在图片占位符？) then (是)
+      :按 image_id 建立图片索引;
+      :仅写入当前块的 image_refs 和 images;
+    else (否)
+      :不写入 images / image_refs;
+    endif
+
+    :text_hash = SHA256(chunk_text)[:8];
+    :chunk_id = document_id_index_text_hash;
+    note right
+      实际格式：
+      {document_id}_{index:04d}_{text_hash}
+
+      同一 Document 重复切分时，
+      Chunk ID 保持稳定。
+    end note
+
+    :构造 Chunk\n(id, text, metadata, source_ref,\nchunk_index, start_offset, end_offset);
+    :追加到 chunks;
+  endwhile (否)
+
+  :返回 list[Chunk];
+}
+
+stop
+
+legend bottom
+  BaseSplitter 只负责 str -> list[str]。
+  DocumentChunker 只负责领域适配，不解析 PDF、不调用 AI、不写入索引。
+  本图只描述当前已落地代码，不混入 reference-* / review-* 设计图。
+endlegend
+
+@enduml
