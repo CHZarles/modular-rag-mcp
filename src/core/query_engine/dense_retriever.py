@@ -35,12 +35,17 @@ class DenseRetriever:
         filters: JsonDict | None = None,
         trace: object | None = None,
     ) -> list[RetrievalCandidate]:
+        """把完整查询编码一次，并将底层命中规范化为有序 Dense 候选。"""
+        if top_k <= 0:
+            raise ValueError("dense retriever top_k must be positive")
         if not query.strip():
             return []
         # 查询只生成一个向量；批量接口由摄取和其他调用方共同复用。
         vectors = self.embedding.embed([query], trace=trace)
-        if not vectors:
-            return []
+        if len(vectors) != 1:
+            raise ValueError("dense retriever embedding count must equal one")
+        if not vectors[0]:
+            raise ValueError("dense retriever query embedding must not be empty")
         requested_top_k = top_k * self.overfetch_factor if self.generation_store else top_k
         hits = self.vector_store.query(
             vectors[0], top_k=requested_top_k, filters=filters, trace=trace
@@ -50,22 +55,27 @@ class DenseRetriever:
             active = self.generation_store.get_active_generations(
                 collection if isinstance(collection, str) else None
             )
-            hits = [hit for hit in hits if _is_active(hit, active)][:top_k]
-        candidates = [_candidate_from_hit(hit, "dense", rank) for rank, hit in enumerate(hits, start=1)]
+            hits = [hit for hit in hits if _is_active(hit, active)]
+        # 即使某个自定义 VectorStore 返回了过多命中，也不能突破调用方声明的 top_k。
+        hits = hits[:top_k]
+        candidates = [
+            _candidate_from_hit(hit, rank) for rank, hit in enumerate(hits, start=1)
+        ]
         if trace is not None and hasattr(trace, "record_stage"):
             trace.record_stage("dense_retrieval", {"count": len(candidates)})
         return candidates
 
 
-def _candidate_from_hit(hit: SearchHit, source: str, rank: int) -> RetrievalCandidate:
+def _candidate_from_hit(hit: SearchHit, rank: int) -> RetrievalCandidate:
+    """保留正文、元数据和原始分数语义，并补充 Dense 来源与稳定排名。"""
     return RetrievalCandidate(
         chunk_id=hit.id,
         text=hit.text,
         metadata=dict(hit.metadata),
         score=hit.score,
-        source=source,  # type: ignore[arg-type]
+        source="dense",
         rank=rank,
-        debug={"score_kind": hit.score_kind, "raw": hit.raw},
+        debug={"score_kind": hit.score_kind, "raw": dict(hit.raw)},
     )
 
 

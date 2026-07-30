@@ -174,13 +174,23 @@ class SearchHit(SerializableDataclass):
 
 
 @dataclass(frozen=True)
-class RetrievalCandidate(SerializableDataclass):
-    """在召回、融合和重排阶段之间传递的候选项。"""
+class RetrievalResult(SerializableDataclass):
+    """一次检索命中的稳定公共字段。"""
 
     chunk_id: str
     text: str
     metadata: Metadata
     score: float
+
+    @classmethod
+    def from_dict(cls, data: JsonDict) -> RetrievalResult:
+        return cls(**data)
+
+
+@dataclass(frozen=True)
+class RetrievalCandidate(RetrievalResult):
+    """在召回、融合和重排阶段之间传递的扩展候选项。"""
+
     source: Literal["dense", "sparse", "fusion", "rerank"]
     rank: int
     debug: JsonDict = field(default_factory=dict)
