@@ -93,7 +93,7 @@
 | D1 | QueryProcessor（关键词提取 + filters） | [x] | 2026-07-30 | |
 | D2 | DenseRetriever（调用 VectorStore.query） | [x] | 2026-07-30 | |
 | D3 | SparseRetriever（BM25 查询） | [x] | 2026-07-30 | |
-| D4 | RRF Fusion | [ ] | | |
+| D4 | RRF Fusion | [x] | 2026-07-30 | |
 | D5 | HybridSearch 编排 | [ ] | | |
 | D6 | Reranker（Core 层编排 + Fallback） | [ ] | | |
 | D7 | 脚本入口 query.py（查询可用） | [ ] | | |
