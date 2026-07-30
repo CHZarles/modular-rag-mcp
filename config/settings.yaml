@@ -26,6 +26,14 @@ splitter:
 ingestion:
   # 同一文件任务的领取租约；worker 崩溃后可由后续任务接管。
   claim_lease_seconds: 900
+  # Embedding 按批发送，避免大文档一次请求过多文本。
+  batch_size: 32
+  # 摄取控制面、稀疏索引和图片引用都由 CLI 从这里装配，运行时不硬编码路径。
+  storage:
+    integrity_db_path: ./data/db/ingestion_history.db
+    bm25_path: ./data/db/bm25
+    image_db_path: ./data/db/image_index.db
+    image_root: ./data/images
   chunk_refiner:
     use_llm: true
   # 为每个 Chunk 生成语义 title、summary 和 tags；失败时自动使用规则结果。

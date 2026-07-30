@@ -33,7 +33,7 @@ class PdfLoader:
     来自统一 Loader Protocol，当前阶段尚未在此处记录可观测事件。
     """
 
-    supported_extensions = (".pdf",)
+    supported_extensions: tuple[str, ...] = (".pdf",)
 
     def __init__(
         self,

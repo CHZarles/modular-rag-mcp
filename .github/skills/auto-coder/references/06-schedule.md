@@ -84,7 +84,7 @@
 | C12 | VectorUpserter（幂等upsert） | [x] | 2026-07-30 | |
 | C13 | ImageStorage（图片存储+SQLite索引） | [x] | 2026-07-30 | |
 | C14 | Pipeline 编排（MVP 串起来） | [x] | 2026-07-30 | |
-| C15 | 脚本入口 ingest.py | [ ] | | |
+| C15 | 脚本入口 ingest.py | [x] | 2026-07-30 | |
 
 #### 阶段 D：Retrieval MVP
 
