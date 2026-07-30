@@ -1,0 +1,102 @@
+@startuml
+title 当前实现 UML：一次分代摄取尝试的状态机（2026-07-30）
+
+hide empty description
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam state {
+  BackgroundColor #FFFFFF
+  BorderColor #64748B
+  ArrowColor #334155
+  FontColor #0F172A
+  StartColor #475569
+  EndColor #475569
+}
+skinparam note {
+  BackgroundColor #F8FAFC
+  BorderColor #94A3B8
+  FontColor #334155
+}
+
+state "已领取\nClaimed" as Claimed
+Claimed : entry / 分配单调 generation 和唯一 claim_token
+Claimed : entry / 写入 claimed_revision 与 lease_expires_at
+Claimed : do / active_generation 保持不变
+
+state "构建分代结果\nBuilding" as Building
+Building : do / 从不可变源文件快照加载、切分、转换和编码
+Building : do / 按 doc_key + generation 写入不可变 staging 数据
+Building : renew [当前 generation/claim_token 匹配且租约未过期] / 延长租约
+Building : stale_publish [generation/claim_token 不匹配] / 拒绝发布
+
+state "等待发布\nStaged" as Staged
+Staged : entry / Chroma、BM25 和图片分代结果已全部持久化
+Staged : do / 结果仍不可见，查询继续读取 active_generation
+Staged : stale_publish [generation/claim_token 不匹配] / 拒绝发布
+
+state "租约已过期\nLeaseExpired" as LeaseExpired
+LeaseExpired : do / 当前 generation 尚未被接管，但其他 worker 可以领取下一代
+LeaseExpired : renew / 拒绝过期续租
+
+state "已发布\nPublished" as Published
+Published : entry / CAS 设置 active_generation = generation
+Published : entry / 记录 attempt=published 并清空当前领取字段
+Published : do / Retrieval 只允许该 active_generation 可见
+
+state "已失败\nFailed" as Failed
+Failed : entry / CAS 记录 attempt=failed
+Failed : entry / 不改变 active_generation
+Failed : do / 部分 staging 数据保持不可见
+
+state "已被围栏\nFenced" as Fenced
+Fenced : entry / 新领取递增 generation 并替换当前 claim_token
+Fenced : do / 旧 worker 只能写自己的旧 generation
+Fenced : stale_write / 允许物理写入旧 generation，但保持不可见
+Fenced : stale_publish / CAS 影响 0 行并返回 LostLeaseError
+
+state "可回收\nGarbageCollectable" as GarbageCollectable
+GarbageCollectable : do / 确认不是 active 或 claimed generation
+GarbageCollectable : do / 发布后同步尽力清理，失败留给未来周期性 GC
+
+[*] --> Claimed : try_claim [无有效领取且需要处理] / 创建本次 attempt
+Claimed --> Building : start_processing
+Claimed --> LeaseExpired : lease_timeout
+Claimed --> Failed : abort [generation/claim_token 仍匹配] / 记录失败
+
+Building --> Staged : stage_complete [所有存储写入成功] / 保存结果清单
+Building --> Failed : stage_error [generation/claim_token 仍匹配] / 记录阶段错误
+Building --> LeaseExpired : lease_timeout
+
+Staged --> Published : publish [CAS 匹配 generation + claim_token] / 原子切换发布指针
+Staged --> Failed : abort [generation/claim_token 仍匹配] / 放弃本代结果
+Staged --> Failed : publish_error [非围栏错误] / Pipeline 记录失败
+Staged --> LeaseExpired : lease_timeout
+
+LeaseExpired --> Published : publish [所有 staging 已持久化、尚未接管且 CAS 先成功] / 原子切换发布指针
+LeaseExpired --> Failed : abort [尚未发生接管且 CAS 先成功] / 记录失败
+LeaseExpired --> Fenced : takeover [新 try_claim 先成功] / 创建 generation + 1 与新 claim_token
+
+Published --> GarbageCollectable : superseded [更新一代已经发布]
+Failed --> GarbageCollectable : released
+Fenced --> GarbageCollectable : takeover_complete [不再是 claimed generation]
+GarbageCollectable --> [*] : gc / 精确删除该 generation 的 Chroma、BM25 和图片
+
+note right of Claimed
+  try_claim 的另外两条返回路径不会创建 attempt：
+  1. active_revision 相同且非 force：already_succeeded
+  2. 当前租约有效：in_progress
+end note
+
+note bottom of Fenced
+  围栏正确性不依赖旧 worker 主动停止。
+  generation 进入所有存储 ID，旧结果不能覆盖新结果；
+  active_generation 是唯一查询可见性依据。
+end note
+
+legend bottom
+  状态机主体：一个 (doc_key, generation) 摄取尝试，而不是整个 Pipeline。
+  doc_key 标识 normalized_source_path + collection；source_revision 标识快照内容哈希。
+  本图只描述当前已落地的分代控制，不与 current-03 的历史 C14 时序图混用。
+endlegend
+
+@enduml

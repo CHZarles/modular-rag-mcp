@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -146,3 +148,26 @@ def test_corrupt_snapshot_fails_with_context(tmp_path) -> None:
 
 def test_bm25_indexer_matches_ingestion_protocol(tmp_path) -> None:
     assert isinstance(BM25Indexer(tmp_path / "bm25"), BM25IndexStore)
+
+
+def test_two_indexer_instances_do_not_lose_concurrent_updates(tmp_path) -> None:
+    directory = tmp_path / "bm25"
+    first_indexer = BM25Indexer(directory)
+    second_indexer = BM25Indexer(directory)
+    barrier = Barrier(2)
+
+    def write(indexer: BM25Indexer, chunk: Chunk) -> None:
+        barrier.wait()
+        indexer.upsert([chunk], statistics([chunk]))
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(write, first_indexer, make_chunk("chunk-0", "alpha")),
+            pool.submit(write, second_indexer, make_chunk("chunk-1", "beta")),
+        ]
+        for future in futures:
+            future.result()
+
+    reloaded = BM25Indexer(directory)
+    assert [hit.id for hit in reloaded.query(["alpha"], top_k=5)] == ["chunk-0"]
+    assert [hit.id for hit in reloaded.query(["beta"], top_k=5)] == ["chunk-1"]

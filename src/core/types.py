@@ -15,6 +15,7 @@ Metadata = dict[str, Any]
 Vector = list[float]
 SparseVector = JsonDict
 ProgressCallback = Callable[[str, int, int], None]
+ClaimStatus = Literal["acquired", "already_succeeded", "in_progress"]
 
 
 class SerializableDataclass:
@@ -23,6 +24,34 @@ class SerializableDataclass:
     def to_dict(self) -> JsonDict:
         # 所有实际子类都由 @dataclass 装饰，但 mypy 无法从 Mixin 类型推断这一点。
         return asdict(self)  # type: ignore[call-overload]
+
+
+@dataclass(frozen=True)
+class ClaimHandle(SerializableDataclass):
+    """一次分代摄取领取的完整凭证。
+
+    ``generation`` 隔离不同尝试写入的物理数据，``claim_token`` 则授权本次尝试续租、失败或
+    发布。二者必须同时匹配，不能再用可重复的 worker 名称单独代表所有权。
+    """
+
+    doc_key: str
+    generation: int
+    source_revision: str
+    claim_token: str
+    lease_owner: str
+    lease_expires_at: float
+
+
+@dataclass(frozen=True)
+class ClaimResult(SerializableDataclass):
+    """任务领取结果；只有 ``acquired`` 会携带后续操作所需的凭证。"""
+
+    status: ClaimStatus
+    handle: ClaimHandle | None = None
+
+    def __post_init__(self) -> None:
+        if (self.status == "acquired") != (self.handle is not None):
+            raise ValueError("claim result must include a handle exactly when acquired")
 
 
 @dataclass(frozen=True)

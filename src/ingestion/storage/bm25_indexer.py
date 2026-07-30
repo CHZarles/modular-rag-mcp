@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import fcntl
 import math
 import os
 import pickle
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Lock, RLock
 from typing import Any, TypedDict
 
 from src.core.types import Chunk, JsonDict, SearchHit
 from src.ingestion.embedding import tokenize
+from src.ports.ingestion import GenerationStateStore
 
 _SNAPSHOT_VERSION = 1
+_PATH_LOCKS: dict[str, RLock] = {}
+_PATH_LOCKS_GUARD = Lock()
 
 
 class _StoredDocument(TypedDict):
@@ -33,7 +40,11 @@ class _TermEntry(TypedDict):
 
 
 class BM25Indexer:
-    """以 Chunk ID 幂等维护可持久化的本地 BM25 索引。"""
+    """以 Chunk ID 幂等维护可持久化的本地 BM25 索引。
+
+    ``generation_store=None`` 是旧索引兼容模式；正式分代查询必须注入控制面，才能只用
+    active generation 重算统计并过滤命中。
+    """
 
     def __init__(
         self,
@@ -41,6 +52,7 @@ class BM25Indexer:
         *,
         k1: float = 1.5,
         b: float = 0.75,
+        generation_store: GenerationStateStore | None = None,
     ) -> None:
         if k1 <= 0:
             raise ValueError("bm25 configuration error: k1 must be positive")
@@ -49,8 +61,12 @@ class BM25Indexer:
 
         self.persist_path = Path(persist_path).expanduser()
         self.index_path = self.persist_path / "index.pkl"
+        self.lock_path = self.persist_path / "index.lock"
+        self._thread_lock = _path_lock(self.lock_path)
+        self._loaded_mtime_ns: int | None = None
         self.k1 = float(k1)
         self.b = float(b)
+        self.generation_store = generation_store
         self._documents: dict[str, _StoredDocument] = {}
         self.inverted_index: dict[str, _TermEntry] = {}
         self.document_count = 0
@@ -66,7 +82,8 @@ class BM25Indexer:
     ) -> None:
         """使用给定语料重建索引，替换已有全部内容。"""
         documents = _prepare_documents(chunks, sparse_vectors)
-        self._replace_state(documents)
+        with self._file_lock(exclusive=True):
+            self._replace_state(documents)
 
     def upsert(
         self,
@@ -78,9 +95,12 @@ class BM25Indexer:
         updates = _prepare_documents(chunks, sparse_vectors)
         if not updates:
             return
-        documents = dict(self._documents)
-        documents.update(updates)
-        self._replace_state(documents)
+        # 写锁内先重载最新快照再修改，避免两个 BM25Indexer 实例各自基于旧内存状态写回。
+        with self._file_lock(exclusive=True):
+            self._load_unlocked()
+            documents = dict(self._documents)
+            documents.update(updates)
+            self._replace_state(documents)
 
     def query(
         self,
@@ -99,23 +119,24 @@ class BM25Indexer:
         query_terms = list(
             dict.fromkeys(term for keyword in keywords for term in tokenize(keyword))
         )
-        if not query_terms or not self._documents:
+        documents = self._queryable_documents(filters, self._snapshot_documents())
+        if not query_terms or not documents:
             return []
+
+        # 非 active generation 不能参与 N、df、IDF 或平均长度，否则即使最后过滤命中，
+        # BM25 分数仍会被旧版本污染。查询时从可见文档重新计算统计以保证正确性。
+        inverted_index, average_document_length = _build_inverted_index(documents)
 
         scores: dict[str, float] = {}
         matched_terms: dict[str, list[str]] = {}
         for term in query_terms:
-            term_entry = self.inverted_index.get(term)
+            term_entry = inverted_index.get(term)
             if term_entry is None:
                 continue
             for posting in term_entry["postings"]:
                 chunk_id = posting["chunk_id"]
-                document = self._documents[chunk_id]
-                if filters and not _matches_filters(document["metadata"], filters):
-                    continue
-
                 tf = posting["tf"]
-                length_ratio = posting["doc_length"] / self.average_document_length
+                length_ratio = posting["doc_length"] / average_document_length
                 denominator = tf + self.k1 * (1 - self.b + self.b * length_ratio)
                 score = term_entry["idf"] * (tf * (self.k1 + 1)) / denominator
                 scores[chunk_id] = scores.get(chunk_id, 0.0) + score
@@ -126,13 +147,13 @@ class BM25Indexer:
         return [
             SearchHit(
                 id=chunk_id,
-                text=self._documents[chunk_id]["text"],
-                metadata=dict(self._documents[chunk_id]["metadata"]),
+                text=documents[chunk_id]["text"],
+                metadata=dict(documents[chunk_id]["metadata"]),
                 score=scores[chunk_id],
                 score_kind="bm25",
                 raw={
                     "matched_terms": matched_terms[chunk_id],
-                    "doc_length": self._documents[chunk_id]["doc_length"],
+                    "doc_length": documents[chunk_id]["doc_length"],
                 },
             )
             for chunk_id in ranked_ids
@@ -140,21 +161,69 @@ class BM25Indexer:
 
     def remove_document(self, source_path: str, collection: str) -> None:
         """删除指定 collection 中属于同一源文件的全部 Chunk。"""
+        with self._file_lock(exclusive=True):
+            self._load_unlocked()
+            documents = {
+                chunk_id: document
+                for chunk_id, document in self._documents.items()
+                if not (
+                    document["metadata"].get("source_path") == source_path
+                    and document["metadata"].get("collection") == collection
+                )
+            }
+            if len(documents) != len(self._documents):
+                self._replace_state(documents)
+
+    def remove_generation(self, doc_key: str, generation: int) -> int:
+        """精确删除一个不可见 generation，绝不按路径清空其他版本。"""
+        with self._file_lock(exclusive=True):
+            self._load_unlocked()
+            documents = {
+                chunk_id: document
+                for chunk_id, document in self._documents.items()
+                if not (
+                    document["metadata"].get("doc_key") == doc_key
+                    and document["metadata"].get("generation") == generation
+                )
+            }
+            removed = len(self._documents) - len(documents)
+            if removed:
+                self._replace_state(documents)
+            return removed
+
+    def _queryable_documents(
+        self,
+        filters: JsonDict | None,
+        source_documents: dict[str, _StoredDocument],
+    ) -> dict[str, _StoredDocument]:
         documents = {
             chunk_id: document
-            for chunk_id, document in self._documents.items()
-            if not (
-                document["metadata"].get("source_path") == source_path
-                and document["metadata"].get("collection") == collection
-            )
+            for chunk_id, document in source_documents.items()
+            if not filters or _matches_filters(document["metadata"], filters)
         }
-        if len(documents) != len(self._documents):
-            self._replace_state(documents)
+        if self.generation_store is None:
+            return documents
+
+        collection = filters.get("collection") if filters else None
+        active = self.generation_store.get_active_generations(
+            collection if isinstance(collection, str) else None
+        )
+        return {
+            chunk_id: document
+            for chunk_id, document in documents.items()
+            if _metadata_is_active(document["metadata"], active)
+        }
 
     def load(self) -> None:
         """从磁盘重新加载快照；缺少快照时恢复为空索引。"""
+        with self._file_lock(exclusive=False):
+            self._load_unlocked()
+
+    def _load_unlocked(self) -> None:
+        """调用方持有文件锁时重载快照。"""
         if not self.index_path.exists():
             self._set_state({}, {}, 0.0)
+            self._loaded_mtime_ns = None
             return
         try:
             with self.index_path.open("rb") as handle:
@@ -166,6 +235,26 @@ class BM25Indexer:
         except Exception as exc:
             raise ValueError(f"bm25 index load error: {self.index_path}") from exc
         self._set_state(documents, stored_index, stored_average)
+        self._loaded_mtime_ns = self.index_path.stat().st_mtime_ns
+
+    def _snapshot_documents(self) -> dict[str, _StoredDocument]:
+        """在共享锁内按需刷新，并返回本次查询使用的稳定文档快照。"""
+        with self._file_lock(exclusive=False):
+            current_mtime = self.index_path.stat().st_mtime_ns if self.index_path.exists() else None
+            if current_mtime != self._loaded_mtime_ns:
+                self._load_unlocked()
+            return dict(self._documents)
+
+    @contextmanager
+    def _file_lock(self, *, exclusive: bool):
+        """组合进程内路径锁和 ``flock``，保护整次重载、修改与原子换档。"""
+        self.persist_path.mkdir(parents=True, exist_ok=True)
+        with self._thread_lock, self.lock_path.open("a+b") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     def _replace_state(self, documents: dict[str, _StoredDocument]) -> None:
         """先生成并持久化完整候选状态，成功后再替换内存状态。"""
@@ -201,12 +290,19 @@ class BM25Indexer:
             "average_document_length": average_length,
         }
         try:
-            with temporary_path.open("wb") as handle:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=self.persist_path,
+                prefix="index.pkl.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                temporary_path = Path(handle.name)
                 pickle.dump(snapshot, handle, protocol=pickle.HIGHEST_PROTOCOL)
                 handle.flush()
                 os.fsync(handle.fileno())
-            # ponytail: 当前按单写者整库换档；出现并发摄取时升级为文件锁或 SQLite。
             os.replace(temporary_path, self.index_path)
+            self._loaded_mtime_ns = self.index_path.stat().st_mtime_ns
         finally:
             temporary_path.unlink(missing_ok=True)
 
@@ -294,6 +390,24 @@ def _build_inverted_index(
 
 def _matches_filters(metadata: JsonDict, filters: JsonDict) -> bool:
     return all(metadata.get(key) == value for key, value in filters.items())
+
+
+def _metadata_is_active(metadata: JsonDict, active: dict[str, int]) -> bool:
+    doc_key = metadata.get("doc_key")
+    generation = metadata.get("generation")
+    return (
+        isinstance(doc_key, str)
+        and isinstance(generation, int)
+        and not isinstance(generation, bool)
+        and active.get(doc_key) == generation
+    )
+
+
+def _path_lock(path: Path) -> RLock:
+    """让同一进程内指向同一索引文件的实例复用一把可重入锁。"""
+    key = str(path.resolve(strict=False))
+    with _PATH_LOCKS_GUARD:
+        return _PATH_LOCKS.setdefault(key, RLock())
 
 
 def _validate_snapshot(

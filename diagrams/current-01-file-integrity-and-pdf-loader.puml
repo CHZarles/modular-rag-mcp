@@ -1,5 +1,5 @@
 @startuml
-title 当前实现 UML：文件完整性与 PDF Loader（2026-07-29）
+title C14 历史实现 UML：文件完整性与 PDF Loader（已由 ADR-0005 升级）
 
 allowmixing
 skinparam classAttributeIconSize 0
@@ -8,10 +8,9 @@ skinparam packageStyle rectangle
 package "src.ports.ingestion" {
   interface FileIntegrityStore {
     + compute_sha256(source_path: str): str
-    + should_skip(file_hash: str, collection: str): bool
-    + mark_processing(file_hash, source_path, collection): None
-    + mark_success(file_hash, source_path, collection, chunk_count): None
-    + mark_failed(file_hash, source_path, collection, error): None
+    + try_claim(file_hash, source_path, collection, owner, lease, force): ClaimStatus
+    + mark_success(file_hash, source_path, collection, chunk_count, owner): None
+    + mark_failed(file_hash, source_path, collection, error, owner): None
     + remove_record(file_hash, collection): None
     + list_processed(collection?): list
   }
@@ -22,20 +21,20 @@ package "src.ports.ingestion" {
   }
 }
 
-package "src.libs.loader（当前代码）" {
+package "src.libs.loader（C14 历史基线）" {
   class SQLiteIntegrityStore {
     + db_path: Path
     + timeout_seconds: float
     + compute_sha256(source_path: str): str
-    + should_skip(file_hash: str, collection: str): bool
-    + mark_processing(...): None
-    + mark_success(...): None
-    + mark_failed(...): None
+    + try_claim(...): ClaimStatus
+    + mark_success(..., lease_owner): None
+    + mark_failed(..., lease_owner): None
     + remove_record(...): None
     + list_processed(collection?): list
     - _initialize(): None
     - _connect(): Connection
-    - _write_status(...): None
+    - _migrate_lease_columns(connection): None
+    - _finish_status(..., lease_owner): None
   }
 
   class PdfLoader {
@@ -68,7 +67,7 @@ FileIntegrityStore <|.. SQLiteIntegrityStore
 BaseLoader <|.. PdfLoader : Protocol 结构匹配
 
 SQLiteIntegrityStore ..> ComputeSHA256 : 委托计算
-SQLiteIntegrityStore --> IngestionHistoryDb : 状态 UPSERT / 查询
+SQLiteIntegrityStore --> IngestionHistoryDb : BEGIN IMMEDIATE 领取\nowner 条件提交最终状态
 
 PdfLoader ..> ComputeSHA256 : Document ID
 PdfLoader ..> InsertPlaceholders : 文本锚点映射
@@ -79,8 +78,10 @@ PdfLoader --> Document : 返回
 
 note bottom of SQLiteIntegrityStore
   联合主键：(file_hash, collection)
-  仅 success 状态触发跳过
-  WAL + busy_timeout 支持本地并发
+  try_claim 原子返回三种 ClaimStatus
+  有效租约拒绝重复领取，过期可接管
+  旧 owner 不能提交新 owner 的状态
+  WAL + busy_timeout 支持本地并发读写
 end note
 
 note bottom of PdfLoader
@@ -92,7 +93,7 @@ note bottom of PdfLoader
 end note
 
 legend bottom
-  本图只描述当前已落地代码，不修改或混入 reference-* / review-* 设计图。
+  本图保留 C14 历史基线；当前分代控制见 current-04，不混入 reference-* / review-* 设计图。
 endlegend
 
 @enduml

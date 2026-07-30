@@ -71,6 +71,12 @@ def _validate_chunk(chunk: Chunk) -> None:
     source_path = chunk.metadata.get("source_path")
     if not isinstance(source_path, str) or not source_path.strip():
         raise ValueError("vector upsert error: source_path must be non-empty")
+    doc_key = chunk.metadata.get("doc_key")
+    if not isinstance(doc_key, str) or not doc_key.strip():
+        raise ValueError("vector upsert error: doc_key must be non-empty")
+    generation = chunk.metadata.get("generation")
+    if not isinstance(generation, int) or isinstance(generation, bool) or generation <= 0:
+        raise ValueError("vector upsert error: generation must be a positive integer")
     if chunk.chunk_index < 0:
         raise ValueError("vector upsert error: chunk_index must be non-negative")
 
@@ -88,9 +94,10 @@ def _validate_vector(vector: list[float], chunk_id: str) -> None:
 
 
 def _storage_id(chunk: Chunk, content_hash: str) -> str:
-    source_path = str(chunk.metadata["source_path"])
-    identity = f"{source_path}\0{chunk.chunk_index}\0{content_hash[:8]}"
-    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    # generation 进入物理 ID 后，过期 worker 只能覆盖自己的旧代，不能与接管者共用 ID。
+    identity = f"{chunk.chunk_index}\0{content_hash}"
+    suffix = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
+    return f"{chunk.metadata['doc_key']}:{chunk.metadata['generation']}:{suffix}"
 
 
 __all__ = ["VectorUpserter"]

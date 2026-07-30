@@ -1,6 +1,6 @@
 # ADR-0002：ChunkRecord 逻辑聚合与稀疏表示边界
 
-- **状态**：当前采用（C12 已落地，C14 待集成）
+- **状态**：当前采用（C12、C14、ADR-0005 分代身份已落地）
 - **日期**：2026-07-30
 - **决策范围**：`Chunk`、`ChunkRecord`、Dense/Sparse 表示以及 Vector/BM25 跨索引身份
 
@@ -136,8 +136,9 @@ tokens = [rag, rag, bm25, retrieval, retrieval]
    泄漏到上层 Pipeline。
 2. Dense 和 Sparse 字段继续保持可选，因为同一个领域对象还要支持端口传输和按 ID
    读取；具体适配器在自己的写入边界校验必需字段。
-3. C12 生成的最终存储 ID 作为跨索引身份来源；C14 必须把该 ID 同步给
-   `BM25Indexer`，不能继续使用转换前的 C4 Chunk ID。
+3. C12 生成的最终存储 ID 作为跨索引身份来源；Pipeline 使用返回的
+   `ChunkRecord.id` 替换 BM25 输入 Chunk 的 C4 ID。ADR-0005 进一步把 `doc_key` 和
+   `generation` 写入该 ID，隔离并发 worker 的物理记录。
 4. 保持 Vector 和 BM25 物理存储分离。当前规模下不为了跨存储事务提前引入新的
    数据库或分布式事务组件。
 
@@ -145,16 +146,15 @@ tokens = [rag, rag, bm25, retrieval, retrieval]
 
 | 顾虑 | 可能后果 | 当前控制 | 后续处理 |
 |------|----------|----------|----------|
-| C14 尚未把 `VectorUpserter` 接入现有 Pipeline | Vector 使用最终 ID、BM25 仍使用 C4 ID，混合检索无法可靠合并同一 Chunk | C12 返回有序 `ChunkRecord`，本 ADR 明确最终 ID 所有权 | C14 编排时以返回的 record ID 重建或替换 BM25 输入 Chunk ID，并增加跨索引一致性测试 |
-| Vector 与 BM25 分两次写入 | 一路成功、另一路失败时出现部分更新 | BM25 是可重建的派生索引；两边按相同 ID 幂等写入 | C14 定义失败恢复和按源文档重新摄取策略；详见 ADR-0001 |
-| 正文变化会生成新 ID | 新记录写入后，旧 Vector/BM25 记录可能继续被检索到 | metadata 保留 `source_path` 和 `collection` | C14 在文档更新流程中按 `source_path + collection` 协调清理两边旧记录 |
+| Vector 与 BM25 分两次写入 | 一路成功、另一路失败时出现部分分代数据 | 未完成 generation 不会发布，查询继续读取旧 active；失败代可精确回收 | 详见 ADR-0005；不把分代发布描述成跨存储联合事务 |
+| 正文变化会生成新 ID | 磁盘短期同时存在新旧记录 | ID 含 `doc_key + generation`，查询只接受 active generation | 发布后尽力清理，后续补周期性 GC |
 | Sparse 数据同时存在于 Chroma metadata 和 BM25 快照 | 占用额外空间，并存在副本不一致的可能 | Chroma 副本只用于领域对象还原，BM25 快照才负责稀疏检索 | 先保留便于调试；实测存储压力明显时再评估不保存 Chroma Sparse 副本 |
-| 最终 ID 只使用 `content_hash` 前 8 个十六进制字符 | 理论上不同正文可能发生前缀碰撞并得到相同 ID | 完整 `content_hash` 随记录保存，`source_path + chunk_index` 也参与 ID | 出现大规模版本历史或碰撞风险要求时，改用完整内容哈希并制定 ID 迁移策略 |
+| 最终 ID 的内容派生后缀截取 32 个十六进制字符 | 理论上仍存在极低概率前缀碰撞 | `doc_key + generation + chunk_index + 完整正文哈希` 共同参与身份，完整 `content_hash` 随记录保存 | 只有实测规模或合规要求需要时再扩大后缀，不提前增加 ID 长度 |
 | 中文仅使用重叠二元词组 | 可能把词切得过碎，无法达到专业分词器的召回和精度 | 无额外依赖、规则确定且可复现 | 用真实中文语料评估；指标不足时再替换可插拔 tokenizer |
 | `sparse_vector` 的静态类型是宽松的 `JsonDict` | 非法 `terms` 或 `doc_length` 可能流到较晚阶段才失败 | `BM25Indexer` 写入时校验映射、正整数词频和长度总和 | 若多种 Sparse 实现增加，再考虑专用强类型数据类；当前不提前增加抽象 |
 
 这些顾虑说明 `ChunkRecord` 解决的是“统一描述和身份对齐”，不是“跨存储一致性已经
-自动解决”。C14 完成前，不应把现有 Pipeline 视为最终的 Dense/Sparse 闭环。
+自动解决”。ADR-0005 用分代写入和 active 指针保证可见性，但仍不提供跨存储联合事务。
 
 ## 验证证据
 
@@ -164,6 +164,8 @@ tokens = [rag, rag, bm25, retrieval, retrieval]
   查询和快照恢复。
 - `tests/unit/test_vector_upserter_idempotency.py` 覆盖最终 ID、Dense/Sparse 顺序对齐、
   向量校验和幂等写入。
+- `tests/integration/test_ingestion_pipeline.py` 覆盖最终 ID 跨 Chroma/BM25 对齐、分代
+  发布以及过期 worker 的旧代结果不可见。
 
 ## 关联实现与决策
 
@@ -173,3 +175,5 @@ tokens = [rag, rag, bm25, retrieval, retrieval]
 - `src/ingestion/storage/bm25_indexer.py`
 - `src/libs/vector_store/chroma_store.py`
 - `docs/decisions/0001-bm25-index-persistence.md`
+- `docs/decisions/0004-ingestion-pipeline-orchestration-and-lease.md`
+- `docs/decisions/0005-ingestion-generation-state-machine.md`

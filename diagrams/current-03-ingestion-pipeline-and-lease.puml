@@ -1,0 +1,123 @@
+@startuml
+title C14 历史实现 UML：摄取 Pipeline、租约与跨索引身份（已由 ADR-0005 升级）
+
+hide footbox
+autonumber
+skinparam shadowing false
+skinparam defaultFontName "Arial"
+skinparam sequence {
+  ArrowColor #334155
+  LifeLineBorderColor #64748B
+  LifeLineBackgroundColor #FFFFFF
+  ParticipantBorderColor #64748B
+  ParticipantBackgroundColor #FFFFFF
+  ActorBorderColor #64748B
+  ActorBackgroundColor #FFFFFF
+  GroupBorderColor #94A3B8
+  GroupBackgroundColor #F8FAFC
+}
+
+actor "调用方" as Caller
+participant "IngestionPipeline" as Pipeline
+participant "SQLiteIntegrityStore" as Integrity
+database "ingestion_history" as History
+participant "Loader" as Loader
+participant "DocumentChunker" as Chunker
+participant "Transform[]" as Transforms
+participant "BatchProcessor" as Batch
+participant "VectorUpserter" as Upserter
+database "ChromaStore" as Chroma
+database "BM25Indexer" as BM25
+database "ImageStorage" as Images
+
+Caller -> Pipeline : run(IngestionRequest)
+activate Pipeline
+Pipeline -> Integrity : compute_sha256(source_path)
+Integrity --> Pipeline : file_hash
+
+group try_claim：短写事务内完成检查与领取
+  Pipeline -> Integrity : try_claim(hash, path, collection, owner, lease, force)
+  activate Integrity
+  Integrity -> History : BEGIN IMMEDIATE
+  Integrity -> History : SELECT status, lease_expires_at
+  History --> Integrity : 当前记录或空
+
+  alt status == success and not force
+    Integrity -> History : COMMIT
+    Integrity --> Pipeline : already_succeeded
+  else status == processing and lease_expires_at > now
+    Integrity -> History : COMMIT
+    Integrity --> Pipeline : in_progress
+  else 无记录 / failed / 租约过期 / success + force
+    Integrity -> History : UPSERT processing\nlease_owner, lease_expires_at
+    Integrity -> History : COMMIT
+    Integrity --> Pipeline : acquired
+  end
+  deactivate Integrity
+end
+
+alt claim_status != acquired
+  Pipeline --> Caller : IngestionResult(status=skipped, reason=claim_status)
+else claim_status == acquired
+  alt 摄取主线成功
+    group 文档处理与双路编码（不持有 SQLite 领取事务）
+      Pipeline -> Loader : load(source_path, collection)
+      Loader --> Pipeline : Document + ImageRef[]
+      Pipeline -> Chunker : split_document(document)
+      Chunker --> Pipeline : Chunk[]（切分阶段 ID）
+      loop 按注册顺序
+        Pipeline -> Transforms : transform(chunks)
+        Transforms --> Pipeline : 最终 Chunk[]
+      end
+      Pipeline -> Batch : process(chunks)
+      Batch --> Pipeline : Dense[] + Sparse[]（保序且等长）
+    end
+
+    group 替换文档旧索引并统一最终身份
+      Pipeline -> Chroma : delete_by_metadata(source_path + collection)
+      Pipeline -> BM25 : remove_document(source_path, collection)
+      Pipeline -> Upserter : upsert(chunks, Dense[], Sparse[])
+      activate Upserter
+      Upserter -> Upserter : 按最终正文生成 content_hash 和 storage ID
+      Upserter -> Chroma : upsert(ChunkRecord[])
+      Chroma --> Upserter : ok
+      Upserter --> Pipeline : ChunkRecord[]（最终 ID）
+      deactivate Upserter
+      Pipeline -> Pipeline : replace(chunk, id=record.id)
+      Pipeline -> BM25 : upsert(chunks_with_final_id, Sparse[])
+      Pipeline -> Images : save_refs(ImageRef[])
+    end
+
+    Pipeline -> Integrity : mark_success(hash, path, collection, count, owner)
+    Integrity -> History : UPDATE status=success\nWHERE status=processing AND lease_owner=owner
+    alt rowcount == 1
+      Integrity --> Pipeline : ok
+      Pipeline --> Caller : IngestionResult(status=success)
+    else owner 已被接管
+      Integrity --> Pipeline : RuntimeError
+      Pipeline --> Caller : IngestionResult(status=failed, stage=mark_success)
+    end
+  else 任一阶段抛出异常
+    note over Pipeline
+      错误格式：{current_stage} stage failed: {original_error}
+    end note
+    Pipeline -> Integrity : mark_failed(hash, path, collection, error, owner)
+    Integrity -> History : UPDATE status=failed\nWHERE status=processing AND lease_owner=owner
+    alt owner 仍有效
+      Integrity --> Pipeline : ok
+    else 租约已被其他 worker 接管
+      Integrity --> Pipeline : 拒绝旧 owner\n状态错误写入 result.metadata
+    end
+    Pipeline --> Caller : IngestionResult(status=failed, error=stage_error)
+  end
+end
+
+deactivate Pipeline
+
+legend bottom
+  BEGIN IMMEDIATE 只覆盖状态检查与领取，不覆盖 PDF、AI 或索引写入。
+  Chroma 与 BM25 使用同一个最终 ChunkRecord.id，但各存储之间没有联合事务。
+  本图保留 C14 历史基线；当前分代控制见 current-04，不混入 reference-* / review-* 设计图。
+endlegend
+
+@enduml

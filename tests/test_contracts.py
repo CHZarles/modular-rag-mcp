@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from src.core.query_engine import (
     DenseRetriever,
@@ -16,6 +18,8 @@ from src.core.response import ResponseBuilder
 from src.core.trace import TraceContext
 from src.core.types import (
     Chunk,
+    ClaimHandle,
+    ClaimResult,
     Document,
     ImagePayload,
     IngestionRequest,
@@ -27,9 +31,9 @@ from src.core.types import (
 from src.ingestion.chunking import DocumentChunker
 from src.ingestion.pipeline import IngestionPipeline
 from src.libs.embedding.base_embedding import BaseEmbedding
-from src.libs.loader.base_loader import BaseLoader
 from src.libs.llm.base_llm import BaseLLM, ChatResponse, Message
 from src.libs.llm.base_vision_llm import ImageInput
+from src.libs.loader.base_loader import BaseLoader
 from src.libs.reranker.base_reranker import BaseReranker
 from src.libs.vector_store.base_vector_store import BaseVectorStore
 from src.mcp_server.tools import ToolHandler
@@ -85,27 +89,49 @@ class FakeIntegrity:
         self.events.append("compute")
         return "hash-1"
 
-    def should_skip(self, file_hash: str, collection: str) -> bool:
-        self.events.append("skip")
-        return self.skip
+    def compute_doc_key(self, source_path: str, collection: str) -> str:
+        self.events.append("doc_key")
+        return "doc-key-1"
 
-    def mark_processing(self, file_hash: str, source_path: str, collection: str) -> None:
-        self.events.append("processing")
-
-    def mark_success(
+    def try_claim(
         self,
-        file_hash: str,
+        source_revision: str,
         source_path: str,
         collection: str,
-        chunk_count: int,
-    ) -> None:
-        self.events.append(f"success:{chunk_count}")
+        lease_owner: str,
+        lease_seconds: float,
+        *,
+        force: bool = False,
+    ) -> ClaimResult:
+        self.events.append("claim")
+        if self.skip and not force:
+            return ClaimResult(status="already_succeeded")
+        return ClaimResult(
+            status="acquired",
+            handle=ClaimHandle(
+                doc_key="doc-key-1",
+                generation=1,
+                source_revision=source_revision,
+                claim_token="claim-token-1",
+                lease_owner=lease_owner,
+                lease_expires_at=1_000_000_000_000,
+            ),
+        )
 
-    def mark_failed(self, file_hash: str, source_path: str, collection: str, error: str) -> None:
+    def mark_staged(self, claim: ClaimHandle) -> None:
+        self.events.append(f"staged:{claim.generation}")
+
+    def publish(self, claim: ClaimHandle, chunk_count: int) -> None:
+        self.events.append(f"published:{chunk_count}")
+
+    def mark_failed(self, claim: ClaimHandle, error: str) -> None:
         self.events.append(f"failed:{error}")
 
-    def remove_record(self, file_hash: str, collection: str) -> None:
-        self.events.append("remove")
+    def get_active_generations(self, collection: str | None = None) -> dict[str, int]:
+        return {"doc-key-1": 1}
+
+    def list_garbage_generations(self, doc_key: str) -> list[int]:
+        return []
 
     def list_processed(self, collection: str | None = None) -> list[dict]:
         return []
@@ -148,6 +174,22 @@ class FakeEmbedding:
 class FakeSparseEncoder:
     def encode(self, chunks: list[Chunk], trace: object | None = None) -> list[dict]:
         return [{"terms": chunk.text.split()} for chunk in chunks]
+
+
+class FakeBatchProcessor:
+    def __init__(self) -> None:
+        self.embedding = FakeEmbedding()
+        self.sparse_encoder = FakeSparseEncoder()
+
+    def process(
+        self,
+        chunks: list[Chunk],
+        trace: object | None = None,
+    ) -> tuple[list[list[float]], list[dict]]:
+        return (
+            self.embedding.embed([chunk.text for chunk in chunks], trace=trace),
+            self.sparse_encoder.encode(chunks, trace=trace),
+        )
 
 
 class FakeVectorStore:
@@ -215,12 +257,21 @@ class FakeBM25Store:
     def remove_document(self, source_path: str, collection: str) -> None:
         return None
 
+    def remove_generation(self, doc_key: str, generation: int) -> int:
+        return 0
+
 
 class FakeImageStore:
     def __init__(self) -> None:
         self.images = []
 
-    def save_refs(self, images: list, trace: object | None = None) -> None:
+    def save_refs(
+        self,
+        images: list,
+        doc_key: str,
+        generation: int,
+        trace: object | None = None,
+    ) -> None:
         self.images = list(images)
 
     def get(self, image_id: str):
@@ -230,6 +281,9 @@ class FakeImageStore:
         return []
 
     def delete_by_document(self, source_path: str, collection: str) -> int:
+        return 0
+
+    def delete_generation(self, doc_key: str, generation: int) -> int:
         return 0
 
 
@@ -247,18 +301,20 @@ class TestIngestionPipeline(unittest.TestCase):
             loader=FakeLoader(),
             chunker=DocumentChunker(FakeSplitter()),
             transforms=[NoopTransform()],
-            embedding=FakeEmbedding(),
-            sparse_encoder=FakeSparseEncoder(),
+            batch_processor=FakeBatchProcessor(),  # type: ignore[arg-type]
             vector_store=vector_store,
             bm25_store=bm25_store,
             image_store=image_store,
         )
 
-        result = pipeline.run(
-            IngestionRequest(source_path="doc.pdf", collection="docs"),
-            on_progress=lambda stage, step, total: progress.append((stage, step, total)),
-            trace=trace,
-        )
+        with TemporaryDirectory() as temporary_dir:
+            source = Path(temporary_dir) / "doc.pdf"
+            source.write_text("fixture", encoding="utf-8")
+            result = pipeline.run(
+                IngestionRequest(source_path=str(source), collection="docs"),
+                on_progress=lambda stage, step, total: progress.append((stage, step, total)),
+                trace=trace,
+            )
 
         self.assertEqual(result.status, "success")
         self.assertEqual(result.chunk_count, 2)
@@ -267,8 +323,13 @@ class TestIngestionPipeline(unittest.TestCase):
         self.assertEqual(progress[-1], ("complete", 7, 7))
         self.assertTrue(vector_store.records[0].content_hash)
         self.assertEqual(len(bm25_store.chunks), 2)
+        self.assertEqual(
+            [record.id for record in vector_store.records],
+            [chunk.id for chunk in bm25_store.chunks],
+        )
         self.assertEqual(image_store.images[0].image_id, "img-1")
-        self.assertIn("success:2", integrity.events)
+        self.assertIn("published:2", integrity.events)
+        self.assertEqual(result.metadata["generation"], 1)
 
     def test_pipeline_skip_is_successful_control_flow(self) -> None:
         integrity = FakeIntegrity(skip=True)
@@ -277,17 +338,21 @@ class TestIngestionPipeline(unittest.TestCase):
             loader=FakeLoader(),
             chunker=DocumentChunker(FakeSplitter()),
             transforms=[],
-            embedding=FakeEmbedding(),
-            sparse_encoder=FakeSparseEncoder(),
+            batch_processor=FakeBatchProcessor(),  # type: ignore[arg-type]
             vector_store=FakeVectorStore(),
             bm25_store=FakeBM25Store(),
             image_store=FakeImageStore(),
         )
 
-        result = pipeline.run(IngestionRequest(source_path="doc.pdf", collection="docs"))
+        with TemporaryDirectory() as temporary_dir:
+            source = Path(temporary_dir) / "doc.pdf"
+            source.write_text("fixture", encoding="utf-8")
+            result = pipeline.run(
+                IngestionRequest(source_path=str(source), collection="docs")
+            )
 
         self.assertEqual(result.status, "skipped")
-        self.assertEqual(integrity.events, ["compute", "skip"])
+        self.assertEqual(integrity.events, ["doc_key", "compute", "claim"])
 
 
 class TestQueryAndResponse(unittest.TestCase):

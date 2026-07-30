@@ -36,11 +36,23 @@ class RecordingVectorStore:
         return 0
 
 
-def make_chunk(index: int, text: str, source_path: str = "docs/guide.pdf") -> Chunk:
+def make_chunk(
+    index: int,
+    text: str,
+    source_path: str = "docs/guide.pdf",
+    *,
+    generation: int = 1,
+) -> Chunk:
     return Chunk(
         id=f"split-id-{index}",
         text=text,
-        metadata={"source_path": source_path, "collection": "docs"},
+        metadata={
+            "source_path": source_path,
+            "collection": "docs",
+            "doc_key": "d" * 64,
+            "generation": generation,
+            "source_revision": "r" * 64,
+        },
         source_ref="document",
         chunk_index=index,
     )
@@ -48,8 +60,9 @@ def make_chunk(index: int, text: str, source_path: str = "docs/guide.pdf") -> Ch
 
 def expected_storage_id(chunk: Chunk) -> str:
     content_hash = hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
-    identity = f"{chunk.metadata['source_path']}\0{chunk.chunk_index}\0{content_hash[:8]}"
-    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    identity = f"{chunk.chunk_index}\0{content_hash}"
+    suffix = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]
+    return f"{chunk.metadata['doc_key']}:{chunk.metadata['generation']}:{suffix}"
 
 
 def test_same_chunk_upserts_with_the_same_id_without_duplicate_records() -> None:
@@ -78,6 +91,20 @@ def test_content_change_produces_new_id_and_full_content_hash() -> None:
     assert changed_record.id == expected_storage_id(changed)
     assert changed_record.content_hash == hashlib.sha256(changed.text.encode("utf-8")).hexdigest()
     assert changed.id == original.id
+
+
+def test_same_content_in_different_generations_never_reuses_storage_id() -> None:
+    store = RecordingVectorStore()
+    upserter = VectorUpserter(store)
+    first = make_chunk(0, "Stable content", generation=8)
+    second = make_chunk(0, "Stable content", generation=9)
+
+    first_record = upserter.upsert([first], [[0.1]])[0]
+    second_record = upserter.upsert([second], [[0.1]])[0]
+
+    assert first_record.id != second_record.id
+    assert first_record.id.startswith(f"{'d' * 64}:8:")
+    assert second_record.id.startswith(f"{'d' * 64}:9:")
 
 
 def test_batch_upsert_preserves_order_alignment_metadata_and_trace() -> None:
@@ -135,6 +162,11 @@ def test_rejects_misaligned_outputs_before_writing() -> None:
     ("chunk", "vector", "message"),
     [
         (make_chunk(0, "Alpha", source_path=""), [0.1], "source_path must be non-empty"),
+        (
+            replace(make_chunk(0, "Alpha"), metadata={"source_path": "docs/guide.pdf"}),
+            [0.1],
+            "doc_key must be non-empty",
+        ),
         (make_chunk(-1, "Alpha"), [0.1], "chunk_index must be non-negative"),
         (make_chunk(0, "Alpha"), [], "dense vector must be non-empty"),
         (make_chunk(0, "Alpha"), [0.1, float("nan")], "dense vector must be finite"),

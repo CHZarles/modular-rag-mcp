@@ -95,8 +95,9 @@ class ChromaStore:
     ) -> list[SearchHit]:
         """按稠密向量检索，并返回统一的 ``SearchHit``。
 
-        ``filters`` 会直接作为 Chroma ``where`` 条件，只能过滤写入时展开的标量
-        metadata。返回的 ``score`` 是 distance，值越小表示越相似。
+        ``filters`` 会转换为 Chroma ``where`` 条件，只能过滤写入时展开的标量
+        metadata。多个字段使用显式 ``$and``；返回的 ``score`` 是 distance，值越小
+        表示越相似。
         """
         if not vector:
             raise ValueError("chroma query error: vector must not be empty")
@@ -112,7 +113,7 @@ class ChromaStore:
         result = self._collection.query(
             query_embeddings=[vector],
             n_results=min(top_k, count),
-            where=dict(filters) if filters else None,
+            where=_to_where(filters) if filters else None,
             include=["documents", "metadatas", "distances"],
         )
 
@@ -174,11 +175,18 @@ class ChromaStore:
         """
         if not filters:
             raise ValueError("chroma delete error: filters must not be empty")
-        result = self._collection.get(where=dict(filters), include=[])
+        result = self._collection.get(where=_to_where(filters), include=[])
         ids = list(result.get("ids") or [])
         if ids:
             self._collection.delete(ids=ids)
         return len(ids)
+
+
+def _to_where(filters: JsonDict) -> JsonDict:
+    """把通用的字段等值过滤转换为 Chroma 接受的显式 AND 条件。"""
+    if len(filters) == 1:
+        return dict(filters)
+    return {"$and": [{key: value} for key, value in filters.items()]}
 
 
 def _encode_metadata(record: ChunkRecord) -> JsonDict:

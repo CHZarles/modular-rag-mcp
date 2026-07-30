@@ -2,29 +2,37 @@
 
 from __future__ import annotations
 
-import hashlib
+import shutil
+import tempfile
 from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
+from uuid import uuid4
 
 from src.core.trace import TraceContext
 from src.core.types import (
     Chunk,
-    ChunkRecord,
+    ClaimHandle,
+    Document,
     ImageRef,
     IngestionRequest,
     IngestionResult,
     JsonDict,
 )
+from src.ingestion.embedding import BatchProcessor
+from src.ingestion.storage import VectorUpserter
+from src.observability.logger import get_logger
 from src.ports.ingestion import (
-    BM25IndexStore,
-    BaseEmbedding,
     BaseLoader,
     BaseTransform,
     BaseVectorStore,
+    BM25IndexStore,
     DocumentChunker,
     FileIntegrityStore,
     ImageStore,
-    SparseEncoder,
 )
+
+logger = get_logger(__name__)
 
 
 class IngestionPipeline:
@@ -42,21 +50,24 @@ class IngestionPipeline:
         loader: BaseLoader,
         chunker: DocumentChunker,
         transforms: list[BaseTransform],
-        embedding: BaseEmbedding,
-        sparse_encoder: SparseEncoder,
+        batch_processor: BatchProcessor,
         vector_store: BaseVectorStore,
         bm25_store: BM25IndexStore,
         image_store: ImageStore,
+        claim_lease_seconds: float = 900,
     ) -> None:
+        if claim_lease_seconds <= 0:
+            raise ValueError("ingestion pipeline configuration error: claim lease must be positive")
         self.integrity = integrity
         self.loader = loader
         self.chunker = chunker
         self.transforms = list(transforms)
-        self.embedding = embedding
-        self.sparse_encoder = sparse_encoder
+        self.batch_processor = batch_processor
         self.vector_store = vector_store
+        self.vector_upserter = VectorUpserter(vector_store)
         self.bm25_store = bm25_store
         self.image_store = image_store
+        self.claim_lease_seconds = claim_lease_seconds
 
     def ingest(
         self,
@@ -72,85 +83,207 @@ class IngestionPipeline:
         on_progress: Callable[[str, int, int], None] | None = None,
         trace: TraceContext | None = None,
     ) -> IngestionResult:
-        file_hash = ""
+        source_revision = ""
+        normalized_source_path = ""
+        doc_key = ""
+        current_stage = "integrity"
+        lease_owner = f"{request.request_id or 'ingestion'}:{uuid4().hex}"
+        claim: ClaimHandle | None = None
 
         try:
             self._notify("integrity", 1, on_progress, trace)
-            file_hash = self.integrity.compute_sha256(request.source_path)
-            # 文件内容未变化时尽早返回，避免 PDF 解析和模型调用成本。
-            if not request.force and self.integrity.should_skip(file_hash, request.collection):
-                result = IngestionResult(
-                    source_path=request.source_path,
-                    collection=request.collection,
-                    status="skipped",
-                    file_hash=file_hash,
-                    metadata={"reason": "file already ingested"},
-                )
-                self._record(trace, "skipped", result.to_dict())
-                return result
-
-            self.integrity.mark_processing(file_hash, request.source_path, request.collection)
-
-            self._notify("load", 2, on_progress, trace)
-            document = self.loader.load(request.source_path, request.collection, trace=trace)
-
-            self._notify("split", 3, on_progress, trace)
-            chunks = self.chunker.split_document(document, trace=trace)
-
-            self._notify("transform", 4, on_progress, trace)
-            # 转换器按注册顺序串行执行，后一个转换器接收前一个的输出。
-            for transform in self.transforms:
-                chunks = transform.transform(chunks, trace=trace)
-
-            self._notify("encode", 5, on_progress, trace)
-            dense_vectors = self.embedding.embed([chunk.text for chunk in chunks], trace=trace) if chunks else []
-            sparse_vectors = self.sparse_encoder.encode(chunks, trace=trace) if chunks else []
-            # 写入前验证三组数据严格对齐，防止向量与 Chunk 错位。
-            self._validate_vector_counts(chunks, dense_vectors, sparse_vectors)
-            records = self._build_records(chunks, dense_vectors, sparse_vectors)
-
-            self._notify("upsert", 6, on_progress, trace)
-            # Dense 与 BM25 两套索引使用同一批 Chunk，保持跨检索通道 ID 一致。
-            self.vector_store.upsert(records, trace=trace)
-            self.bm25_store.upsert(chunks, sparse_vectors, trace=trace)
-            images = _coerce_image_refs(
-                document.metadata.get("images", []),
-                collection=request.collection,
-                source_path=request.source_path,
+            normalized_source_path = str(
+                Path(request.source_path).expanduser().resolve(strict=True)
             )
-            self.image_store.save_refs(images, trace=trace)
-
-            self.integrity.mark_success(
-                file_hash,
-                request.source_path,
+            doc_key = self.integrity.compute_doc_key(
+                normalized_source_path,
                 request.collection,
-                len(chunks),
             )
-            self._notify("complete", 7, on_progress, trace)
+
+            # 哈希和 Loader 必须读取同一份不可变副本。否则源文件在两次读取之间变化时，
+            # 数据库记录的 source_revision 可能属于 V1，实际索引却来自 V2。
+            with tempfile.TemporaryDirectory(prefix="rag-ingestion-") as temporary_dir:
+                snapshot_path = _create_source_snapshot(
+                    normalized_source_path,
+                    Path(temporary_dir),
+                )
+                source_revision = self.integrity.compute_sha256(str(snapshot_path))
+                claim_result = self.integrity.try_claim(
+                    source_revision,
+                    normalized_source_path,
+                    request.collection,
+                    lease_owner,
+                    self.claim_lease_seconds,
+                    force=request.force,
+                )
+                # 已发布相同内容和其他任务的有效租约都属于正常控制流，不是摄取失败。
+                if claim_result.status != "acquired":
+                    result = IngestionResult(
+                        source_path=normalized_source_path,
+                        collection=request.collection,
+                        status="skipped",
+                        file_hash=source_revision,
+                        metadata={"reason": claim_result.status, "doc_key": doc_key},
+                    )
+                    self._record(trace, "skipped", result.to_dict())
+                    return result
+                if claim_result.handle is None:  # ClaimResult 自身也校验此不变量。
+                    raise RuntimeError("integrity store returned an acquired claim without handle")
+                claim = claim_result.handle
+
+                current_stage = "load"
+                self._notify("load", 2, on_progress, trace)
+                loaded = self.loader.load(str(snapshot_path), request.collection, trace=trace)
+                document = _restore_document_identity(
+                    loaded,
+                    source_revision=source_revision,
+                    source_path=normalized_source_path,
+                    collection=request.collection,
+                )
+
+                current_stage = "split"
+                self._notify("split", 3, on_progress, trace)
+                chunks = self.chunker.split_document(document, trace=trace)
+
+                current_stage = "transform"
+                self._notify("transform", 4, on_progress, trace)
+                # 转换器按注册顺序串行执行，后一个转换器接收前一个的输出。
+                for transform in self.transforms:
+                    chunks = transform.transform(chunks, trace=trace)
+                chunks = _stamp_generation(
+                    chunks,
+                    claim,
+                    normalized_source_path,
+                    request.collection,
+                )
+
+                current_stage = "encode"
+                self._notify("encode", 5, on_progress, trace)
+                dense_vectors, sparse_vectors = self.batch_processor.process(chunks, trace=trace)
+
+                current_stage = "store"
+                self._notify("store", 6, on_progress, trace)
+                # 新 generation 只能追加自己的不可见数据，不能先删除仍在对外服务的旧代。
+                records = self.vector_upserter.upsert(
+                    chunks,
+                    dense_vectors,
+                    sparse_vectors,
+                    trace=trace,
+                )
+                # 最终正文 ID 是 Dense/BM25 的共同身份；generation 已包含在该 ID 中。
+                indexed_chunks = [
+                    replace(chunk, id=record.id)
+                    for chunk, record in zip(chunks, records, strict=True)
+                ]
+                self.bm25_store.upsert(indexed_chunks, sparse_vectors, trace=trace)
+                images = _coerce_image_refs(
+                    document.metadata.get("images", []),
+                    collection=request.collection,
+                    source_path=normalized_source_path,
+                )
+                self.image_store.save_refs(
+                    images,
+                    claim.doc_key,
+                    claim.generation,
+                    trace=trace,
+                )
+
+            # 快照已完成使命，先成功清理临时目录，再切换公开指针。这样即使临时目录清理
+            # 异常，也只会让本代失败，不会出现“已经 Published 却返回 failed”。
+            if claim is None:
+                raise RuntimeError("ingestion pipeline lost its current claim handle")
+            # 三个外部存储都完成后先进入 staged，再用 generation + claim_token CAS 发布。
+            # 旧 worker 即使写完自己的旧代，也会在这里被控制面拒绝。
+            current_stage = "publish"
+            self.integrity.mark_staged(claim)
+            self.integrity.publish(claim, len(chunks))
+            published_claim = claim
+            claim = None
             result = IngestionResult(
-                source_path=request.source_path,
+                source_path=normalized_source_path,
                 collection=request.collection,
                 status="success",
-                file_hash=file_hash,
+                file_hash=source_revision,
                 document_id=document.id,
                 chunk_count=len(chunks),
                 image_count=len(images),
+                metadata={
+                    "doc_key": published_claim.doc_key,
+                    "generation": published_claim.generation,
+                },
             )
-            self._record(trace, "result", result.to_dict())
+            # 发布已经成功后，GC、进度回调或 Trace 失败都不能把业务结果改写成 failed。
+            self._cleanup_garbage_generations(published_claim)
+            self._notify_after_publish(on_progress, trace)
+            self._record_after_publish(trace, result)
             return result
         except Exception as exc:
-            # 统一记录失败状态并返回领域结果，调用方无需理解底层异常类型。
-            if file_hash:
-                self.integrity.mark_failed(file_hash, request.source_path, request.collection, str(exc))
+            error = f"{current_stage} stage failed: {exc}"
+            metadata: JsonDict = {
+                key: value
+                for key, value in (
+                    ("doc_key", doc_key),
+                    ("generation", claim.generation if claim else None),
+                )
+                if value not in ("", None)
+            }
+            # 只有真正领取到任务且 generation/claim_token 仍匹配的 worker 才能提交失败状态。
+            if claim is not None:
+                try:
+                    self.integrity.mark_failed(claim, error)
+                except Exception as state_error:
+                    metadata["status_record_error"] = str(state_error)
             result = IngestionResult(
-                source_path=request.source_path,
+                source_path=normalized_source_path or request.source_path,
                 collection=request.collection,
                 status="failed",
-                file_hash=file_hash,
-                error=str(exc),
+                file_hash=source_revision,
+                error=error,
+                metadata=metadata,
             )
             self._record(trace, "failed", result.to_dict())
             return result
+
+    def _cleanup_garbage_generations(self, claim: ClaimHandle) -> None:
+        """发布后尽力精确回收旧代；清理失败不回滚已经公开的新版本。"""
+        try:
+            generations = self.integrity.list_garbage_generations(claim.doc_key)
+        except Exception as exc:
+            logger.warning("Unable to list garbage generations for %s: %s", claim.doc_key, exc)
+            return
+
+        for generation in generations:
+            try:
+                filters = {"doc_key": claim.doc_key, "generation": generation}
+                self.vector_store.delete_by_metadata(filters)
+                self.bm25_store.remove_generation(claim.doc_key, generation)
+                self.image_store.delete_generation(claim.doc_key, generation)
+            except Exception as exc:
+                # 同步 GC 只负责减少垃圾。旧 worker 仍可能随后补写旧代，因此生产环境
+                # 还需要周期性 GC；无论哪种清理失败，都不能撤销 active_generation。
+                logger.warning(
+                    "Unable to delete garbage generation %s/%s: %s",
+                    claim.doc_key,
+                    generation,
+                    exc,
+                )
+
+    def _notify_after_publish(
+        self,
+        on_progress: Callable[[str, int, int], None] | None,
+        trace: TraceContext | None,
+    ) -> None:
+        try:
+            self._notify("complete", 7, on_progress, trace)
+        except Exception as exc:
+            logger.warning("Ingestion completion callback failed after publish: %s", exc)
+
+    @staticmethod
+    def _record_after_publish(trace: TraceContext | None, result: IngestionResult) -> None:
+        try:
+            IngestionPipeline._record(trace, "result", result.to_dict())
+        except Exception as exc:
+            logger.warning("Ingestion result trace failed after publish: %s", exc)
 
     def _notify(
         self,
@@ -168,38 +301,6 @@ class IngestionPipeline:
         if trace is not None:
             trace.record_stage(stage, data)
 
-    @staticmethod
-    def _validate_vector_counts(
-        chunks: list[Chunk],
-        dense_vectors: list[list[float]],
-        sparse_vectors: list[JsonDict],
-    ) -> None:
-        if len(dense_vectors) != len(chunks):
-            raise ValueError("embedding output count must match chunk count")
-        if len(sparse_vectors) != len(chunks):
-            raise ValueError("sparse output count must match chunk count")
-
-    @staticmethod
-    def _build_records(
-        chunks: list[Chunk],
-        dense_vectors: list[list[float]],
-        sparse_vectors: list[JsonDict],
-    ) -> list[ChunkRecord]:
-        return [
-            ChunkRecord.from_chunk(
-                chunk,
-                dense_vector=dense_vectors[index],
-                sparse_vector=sparse_vectors[index],
-                content_hash=_content_hash(chunk.text),
-            )
-            for index, chunk in enumerate(chunks)
-        ]
-
-
-def _content_hash(text: str) -> str:
-    """生成用于增量向量化与幂等写入的内容指纹。"""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
 
 def _coerce_image_refs(
     raw_images: object,
@@ -213,7 +314,7 @@ def _coerce_image_refs(
     refs: list[ImageRef] = []
     for raw in raw_images:
         if isinstance(raw, ImageRef):
-            refs.append(raw)
+            refs.append(replace(raw, collection=collection, source_path=source_path))
             continue
         if not isinstance(raw, dict):
             continue
@@ -221,12 +322,13 @@ def _coerce_image_refs(
         image_id = payload.get("image_id", payload.get("id"))
         if not image_id:
             continue
+        position = payload.get("position")
         refs.append(
             ImageRef(
                 image_id=str(image_id),
                 path=str(payload.get("path", "")),
-                collection=str(payload.get("collection", collection)),
-                source_path=str(payload.get("source_path", source_path)),
+                collection=collection,
+                source_path=source_path,
                 page=payload.get("page") if isinstance(payload.get("page"), int) else None,
                 mime_type=str(payload.get("mime_type", "image/png")),
                 text_offset=payload.get("text_offset")
@@ -235,7 +337,58 @@ def _coerce_image_refs(
                 text_length=payload.get("text_length")
                 if isinstance(payload.get("text_length"), int)
                 else None,
-                position=payload.get("position") if isinstance(payload.get("position"), dict) else {},
+                position=dict(position) if isinstance(position, dict) else {},
             )
         )
     return refs
+
+
+def _create_source_snapshot(source_path: str, temporary_dir: Path) -> Path:
+    """复制源文件并保留扩展名，让 Loader 读取与哈希完全相同的不可变字节。"""
+    source = Path(source_path)
+    snapshot = temporary_dir / f"source{source.suffix}"
+    shutil.copy2(source, snapshot)
+    return snapshot
+
+
+def _restore_document_identity(
+    document: Document,
+    *,
+    source_revision: str,
+    source_path: str,
+    collection: str,
+) -> Document:
+    """移除临时快照路径对领域身份的影响，并恢复用户文件名。"""
+    metadata = dict(document.metadata)
+    metadata.update(
+        {
+            "source_path": source_path,
+            "collection": collection,
+            "title": Path(source_path).stem,
+            "source_revision": source_revision,
+        }
+    )
+    return replace(document, id=source_revision, metadata=metadata)
+
+
+def _stamp_generation(
+    chunks: list[Chunk],
+    claim: ClaimHandle,
+    source_path: str,
+    collection: str,
+) -> list[Chunk]:
+    """在所有 Transform 之后写回控制面身份，防止适配器写入错误 generation。"""
+    stamped: list[Chunk] = []
+    for chunk in chunks:
+        metadata = dict(chunk.metadata)
+        metadata.update(
+            {
+                "source_path": source_path,
+                "collection": collection,
+                "doc_key": claim.doc_key,
+                "generation": claim.generation,
+                "source_revision": claim.source_revision,
+            }
+        )
+        stamped.append(replace(chunk, metadata=metadata, source_ref=claim.source_revision))
+    return stamped
