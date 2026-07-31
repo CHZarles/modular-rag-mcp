@@ -6,6 +6,8 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 from mcp import types
 from mcp.server.context import ServerRequestContext
@@ -15,10 +17,12 @@ from mcp.shared.exceptions import MCPError
 
 from src.core.services.knowledge_service import KnowledgeService
 from src.mcp_server.protocol_handler import ProtocolHandler
+from src.mcp_server.tools.query_knowledge_hub import QueryKnowledgeHubTool
 from src.observability.logger import get_logger
 
 SERVER_NAME = "modular-rag-mcp"
 SERVER_VERSION = "0.1.0"
+DEFAULT_SETTINGS_PATH = Path(__file__).resolve().parents[2] / "config/settings.yaml"
 
 logger = get_logger(__name__)
 
@@ -34,9 +38,8 @@ def create_mcp_server(
     knowledge_service: KnowledgeService | None = None,
     protocol_handler: ProtocolHandler | None = None,
 ) -> Server[ServerContext]:
-    """创建只负责协议生命周期的 MCP Server。
+    """创建负责协议生命周期、Tool 注册和应用依赖注入的 MCP Server。
 
-    E1 暂不注册业务 Tool；E2/E3 会在这个 Server 上增加协议处理和 Tool Handler。
     KnowledgeService 通过 lifespan 注入，避免 MCP 层自行构造检索和存储组件。
     """
 
@@ -45,6 +48,13 @@ def create_mcp_server(
         yield ServerContext(knowledge_service=knowledge_service)
 
     handler = protocol_handler or ProtocolHandler(SERVER_NAME, SERVER_VERSION)
+    if QueryKnowledgeHubTool.name not in handler.tools:
+        get_service = (
+            (lambda: knowledge_service)
+            if knowledge_service is not None
+            else _build_default_knowledge_service
+        )
+        handler.register_tool(QueryKnowledgeHubTool(get_service))
 
     async def on_list_tools(
         context: ServerRequestContext[ServerContext],
@@ -70,6 +80,16 @@ def create_mcp_server(
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
     )
+
+
+@lru_cache(maxsize=1)
+def _build_default_knowledge_service() -> KnowledgeService:
+    """首次 Tool 调用时才装配本地检索，保证 initialize 不依赖外部模型服务。"""
+    from src.core.services import build_knowledge_service
+    from src.core.settings import load_settings
+
+    settings = load_settings(str(DEFAULT_SETTINGS_PATH))
+    return build_knowledge_service(settings)
 
 
 async def run_stdio_server(

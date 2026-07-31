@@ -12,7 +12,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+import anyio
 from mcp import types
+from mcp.client.session import ClientSession
 from mcp_types.version import LATEST_HANDSHAKE_VERSION
 
 from src.core.types import CollectionInfo, DocumentSummary, QueryRequest, QueryResponse
@@ -22,7 +24,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class FakeKnowledgeService:
+    def __init__(self) -> None:
+        self.requests: list[QueryRequest] = []
+
     def query(self, request: QueryRequest, trace: object | None = None) -> QueryResponse:
+        self.requests.append(request)
         return QueryResponse(answer="fake", citations=[], items=[])
 
     def list_collections(self) -> list[CollectionInfo]:
@@ -168,7 +174,57 @@ def test_stdio_routes_tools_list_and_returns_standard_protocol_errors() -> None:
         message["id"]: message
         for message in received
     }
-    assert responses[2]["result"]["tools"] == []
+    assert [tool["name"] for tool in responses[2]["result"]["tools"]] == [
+        "query_knowledge_hub"
+    ]
     assert responses[3]["error"]["code"] == types.METHOD_NOT_FOUND
     assert responses[4]["error"]["code"] == types.METHOD_NOT_FOUND
     assert responses[5]["error"]["code"] == types.INVALID_PARAMS
+
+
+def test_query_knowledge_hub_runs_through_official_mcp_session() -> None:
+    service = FakeKnowledgeService()
+
+    async def scenario() -> types.CallToolResult:
+        server = create_mcp_server(service)
+        client_send, server_receive = anyio.create_memory_object_stream[Any](10)
+        server_send, client_receive = anyio.create_memory_object_stream[Any](10)
+        result: types.CallToolResult | None = None
+
+        async with client_send, server_receive, server_send, client_receive:
+            async with anyio.create_task_group() as task_group:
+                async def run_server() -> None:
+                    await server.run(
+                        server_receive,
+                        server_send,
+                        server.create_initialization_options(),
+                    )
+
+                task_group.start_soon(run_server)
+                async with ClientSession(client_receive, client_send) as session:
+                    await session.initialize()
+                    listed = await session.list_tools()
+                    assert [tool.name for tool in listed.tools] == ["query_knowledge_hub"]
+                    result = await session.call_tool(
+                        "query_knowledge_hub",
+                        {"query": "generation fence", "top_k": 2, "collection": "docs"},
+                    )
+                task_group.cancel_scope.cancel()
+        if result is None:
+            raise AssertionError("query_knowledge_hub did not return a result")
+        return result
+
+    result = anyio.run(scenario)
+
+    assert result.is_error is False
+    assert isinstance(result.content[0], types.TextContent)
+    assert result.content[0].text == "未找到相关知识库内容。"
+    assert result.structured_content == {
+        "answer": "未找到相关知识库内容。",
+        "citations": [],
+        "request_id": None,
+        "metadata": {},
+    }
+    assert service.requests == [
+        QueryRequest(query="generation fence", top_k=2, collection="docs")
+    ]
