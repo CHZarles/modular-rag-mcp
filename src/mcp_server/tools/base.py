@@ -10,11 +10,16 @@ from typing import Protocol, runtime_checkable
 from src.core.types import JsonDict
 
 
+class ToolArgumentError(ValueError):
+    """Tool 在应用参数校验失败时抛出的公开边界错误。"""
+
+
 @runtime_checkable
 class ToolHandler(Protocol):
     """MCP Tool 的名称、输入 Schema 与调用契约。"""
 
     name: str
+    description: str
     input_schema: JsonDict
 
     def call(self, arguments: JsonDict) -> JsonDict: ...

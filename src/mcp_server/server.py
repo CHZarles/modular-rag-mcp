@@ -7,10 +7,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
+from mcp import types
+from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
+from mcp.shared.exceptions import MCPError
 
 from src.core.services.knowledge_service import KnowledgeService
+from src.mcp_server.protocol_handler import ProtocolHandler
 from src.observability.logger import get_logger
 
 SERVER_NAME = "modular-rag-mcp"
@@ -28,6 +32,7 @@ class ServerContext:
 
 def create_mcp_server(
     knowledge_service: KnowledgeService | None = None,
+    protocol_handler: ProtocolHandler | None = None,
 ) -> Server[ServerContext]:
     """创建只负责协议生命周期的 MCP Server。
 
@@ -39,11 +44,31 @@ def create_mcp_server(
     async def lifespan(_: Server[ServerContext]) -> AsyncIterator[ServerContext]:
         yield ServerContext(knowledge_service=knowledge_service)
 
+    handler = protocol_handler or ProtocolHandler(SERVER_NAME, SERVER_VERSION)
+
+    async def on_list_tools(
+        context: ServerRequestContext[ServerContext],
+        params: types.PaginatedRequestParams | None,
+    ) -> types.ListToolsResult:
+        return handler.handle_tools_list()
+
+    async def on_call_tool(
+        context: ServerRequestContext[ServerContext],
+        params: types.CallToolRequestParams,
+    ) -> types.CallToolResult:
+        result = await handler.handle_tools_call(params.name, params.arguments)
+        if isinstance(result, types.ErrorData):
+            # 抛出 SDK 识别的异常后，transport 才会生成标准 JSON-RPC error envelope。
+            raise MCPError.from_error_data(result)
+        return result
+
     return Server(
         SERVER_NAME,
         version=SERVER_VERSION,
         instructions="Query the local modular RAG knowledge base through MCP tools.",
         lifespan=lifespan,
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
     )
 
 

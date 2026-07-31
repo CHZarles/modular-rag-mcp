@@ -104,7 +104,7 @@
 | 任务编号 | 任务名称 | 状态 | 完成日期 | 备注 |
 |---------|---------|------|---------|------|
 | E1 | MCP Server 入口与 Stdio Transport | [x] | 2026-07-31 | |
-| E2 | Protocol Handler 协议解析与能力协商 | [ ] | | |
+| E2 | Protocol Handler 协议解析与能力协商 | [x] | 2026-07-31 | |
 | E3 | query_knowledge_hub Tool | [ ] | | |
 | E4 | list_collections Tool | [ ] | | |
 | E5 | get_document_summary Tool | [ ] | | |
