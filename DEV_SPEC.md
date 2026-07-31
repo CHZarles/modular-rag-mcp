@@ -2091,7 +2091,7 @@ dashboard:
 | D5 | HybridSearch 编排 | [x] | 2026-07-30 | |
 | D6 | Reranker（Core 层编排 + Fallback） | [x] | 2026-07-30 | |
 | D7 | 脚本入口 query.py（查询可用） | [x] | 2026-07-31 | |
-| D8 | KnowledgeService 契约与本地实现 | [ ] | | |
+| D8 | KnowledgeService 契约与本地实现 | [x] | 2026-07-31 | |
 
 #### 阶段 E：MCP Server 层与 Tools
 

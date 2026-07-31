@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
+from src.core.services import KnowledgeService, LocalKnowledgeService
 from src.core.trace import TraceContext
 from src.core.types import (
     CollectionInfo,
@@ -19,21 +20,9 @@ from src.core.types import (
     IngestionRequest,
     IngestionResult,
     JsonDict,
-    QueryRequest,
-    QueryResponse,
 )
 from src.ports.observability import BaseTracer
 from src.ports.query import QueryEngine
-from src.ports.response import ResponseBuilder
-
-
-@runtime_checkable
-class KnowledgeService(Protocol):
-    """向入口层提供查询与知识库读取能力。"""
-
-    def query(self, request: QueryRequest, trace: TraceContext | None = None) -> QueryResponse: ...
-    def list_collections(self) -> list[CollectionInfo]: ...
-    def get_document_summary(self, doc_id: str) -> DocumentSummary: ...
 
 
 @runtime_checkable
@@ -81,42 +70,6 @@ class ComponentRegistry(Protocol):
     def build_tracer(self) -> BaseTracer: ...
 
 
-class LocalKnowledgeService:
-    """供入口适配器调用的进程内知识服务。
-
-    本类只组合高层查询与响应服务；存储细节继续封装在 ``DocumentService`` 和
-    Retriever 端口之后。
-    """
-
-    def __init__(
-        self,
-        query_engine: QueryEngine,
-        response_builder: ResponseBuilder,
-        document_service: DocumentService,
-    ) -> None:
-        self.query_engine = query_engine
-        self.response_builder = response_builder
-        self.document_service = document_service
-
-    def query(self, request: QueryRequest, trace: TraceContext | None = None) -> QueryResponse:
-        candidates = self.query_engine.search(request, trace=trace)
-        return self.response_builder.build(request, candidates, trace=trace)
-
-    def list_collections(self) -> list[CollectionInfo]:
-        return [self.document_service.get_collection_stats(None)]
-
-    def get_document_summary(self, doc_id: str) -> DocumentSummary:
-        detail = self.document_service.get_document_detail(doc_id)
-        return DocumentSummary(
-            doc_id=doc_id,
-            source_path=str(detail.get("source_path", "")),
-            title=detail.get("title"),
-            summary=detail.get("summary"),
-            tags=list(detail.get("tags", [])),
-            metadata=dict(detail.get("metadata", {})),
-        )
-
-
 class LocalIngestionService:
     """隔离 CLI、Dashboard 与摄取流水线内部细节的轻量封装。"""
 
@@ -130,3 +83,14 @@ class LocalIngestionService:
         trace: TraceContext | None = None,
     ) -> IngestionResult:
         return self.pipeline.ingest(request, on_progress=on_progress, trace=trace)
+
+
+__all__ = [
+    "ComponentRegistry",
+    "DocumentService",
+    "EvaluationService",
+    "IngestionService",
+    "KnowledgeService",
+    "LocalIngestionService",
+    "LocalKnowledgeService",
+]

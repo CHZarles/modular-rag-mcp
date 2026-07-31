@@ -13,23 +13,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.core.query_engine import (  # noqa: E402
-    DenseRetriever,
-    ExactMetadataFilter,
-    HybridQueryEngine,
-    HybridSearchConfig,
-    NoneReranker,
-    QueryProcessor,
-    RRFFusion,
-    SparseRetriever,
-)
+from src.core.query_engine import HybridQueryEngine  # noqa: E402
+from src.core.services import build_local_query_engine  # noqa: E402
 from src.core.settings import Settings, load_settings  # noqa: E402
 from src.core.types import QueryRequest, RetrievalCandidate  # noqa: E402
-from src.ingestion.storage import BM25Indexer  # noqa: E402
-from src.libs.embedding import create_embedding  # noqa: E402
-from src.libs.loader import SQLiteIntegrityStore  # noqa: E402
-from src.libs.reranker import create_reranker  # noqa: E402
-from src.libs.vector_store import create_vector_store  # noqa: E402
 
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 
@@ -39,54 +26,8 @@ def build_query_engine(
     *,
     no_rerank: bool = False,
 ) -> HybridQueryEngine:
-    """从摄取阶段使用的同一组存储配置装配完整查询引擎。"""
-    storage = _required_mapping(settings.ingestion, "storage", "ingestion")
-    retrieval = settings.retrieval
-
-    sparse_backend = _required_text(retrieval, "sparse_backend", "retrieval").lower()
-    if sparse_backend != "bm25":
-        raise ValueError(f"Unsupported sparse backend: {sparse_backend}")
-    fusion_algorithm = _required_text(retrieval, "fusion_algorithm", "retrieval").lower()
-    if fusion_algorithm != "rrf":
-        raise ValueError(f"Unsupported fusion algorithm: {fusion_algorithm}")
-
-    integrity = SQLiteIntegrityStore(
-        _required_text(storage, "integrity_db_path", "ingestion.storage")
-    )
-    vector_store = create_vector_store(settings)
-    bm25_store = BM25Indexer(
-        _required_text(storage, "bm25_path", "ingestion.storage"),
-        generation_store=integrity,
-    )
-
-    rerank_backend = _required_text(settings.rerank, "backend", "rerank").lower()
-    rerank_enabled = not no_rerank and rerank_backend != "none"
-    reranker = create_reranker(settings) if rerank_enabled else NoneReranker()
-
-    final_top_k = _positive_int(retrieval, "top_k_final", "retrieval")
-    fusion_top_k = final_top_k
-    if rerank_enabled:
-        top_m = _optional_positive_int(settings.rerank, "top_m", "rerank")
-        if top_m is not None:
-            fusion_top_k = max(fusion_top_k, top_m)
-
-    return HybridQueryEngine(
-        query_processor=QueryProcessor(),
-        dense_retriever=DenseRetriever(
-            create_embedding(settings),
-            vector_store,
-            generation_store=integrity,
-        ),
-        sparse_retriever=SparseRetriever(bm25_store),
-        fusion=RRFFusion(),
-        metadata_filter=ExactMetadataFilter(),
-        reranker=reranker,
-        config=HybridSearchConfig(
-            dense_top_k=_positive_int(retrieval, "top_k_dense", "retrieval"),
-            sparse_top_k=_positive_int(retrieval, "top_k_sparse", "retrieval"),
-            fusion_top_k=fusion_top_k,
-        ),
-    )
+    """使用 Core 层统一工厂装配查询引擎，避免 CLI 复制依赖关系。"""
+    return build_local_query_engine(settings, no_rerank=no_rerank)
 
 
 def main(
@@ -249,17 +190,6 @@ def _summarize(text: str, max_chars: int = 240) -> str:
     return f"{normalized[: max_chars - 3]}..."
 
 
-def _required_mapping(
-    config: Mapping[str, Any],
-    key: str,
-    section: str,
-) -> Mapping[str, Any]:
-    value = config.get(key)
-    if not isinstance(value, Mapping):
-        raise ValueError(f"Missing required setting: {section}.{key}")
-    return value
-
-
 def _required_text(config: Mapping[str, Any], key: str, section: str) -> str:
     value = config.get(key)
     if not isinstance(value, str) or not value.strip():
@@ -272,16 +202,6 @@ def _positive_int(config: Mapping[str, Any], key: str, section: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"Setting {section}.{key} must be a positive integer")
     return value
-
-
-def _optional_positive_int(
-    config: Mapping[str, Any],
-    key: str,
-    section: str,
-) -> int | None:
-    if config.get(key) is None:
-        return None
-    return _positive_int(config, key, section)
 
 
 def _nonempty_argument(value: str) -> str:
