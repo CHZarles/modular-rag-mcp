@@ -10,6 +10,7 @@ import pymupdf
 import pytest
 
 from scripts.ingest import discover_pdf_files, main
+from scripts.query import main as query_main
 from src.libs.embedding import EmbeddingFactory
 
 pytestmark = pytest.mark.e2e
@@ -45,6 +46,14 @@ def test_cli_ingests_directory_skips_unchanged_and_supports_force(
     assert (tmp_path / "data/db/bm25/index.pkl").is_file()
     assert (tmp_path / "data/db/ingestion_history.db").is_file()
     assert (tmp_path / "data/db/image_index.db").is_file()
+
+    assert query_main(
+        ["--query", "modular RAG", "--collection", "docs", "--top-k", "1"],
+        settings_path=settings_path,
+    ) == 0
+    query_output = capsys.readouterr()
+    assert "检索结果（1 条）" in query_output.out
+    assert "first.pdf" in query_output.out
 
     assert main(
         ["--path", str(documents), "--collection", "docs"],
@@ -124,8 +133,14 @@ vector_store:
   distance_metric: cosine
 retrieval:
   sparse_backend: bm25
+  fusion_algorithm: rrf
+  top_k_dense: 20
+  top_k_sparse: 20
+  top_k_final: 10
 rerank:
   backend: none
+  top_m: 30
+  timeout_seconds: 10
 evaluation:
   backends: [custom]
 observability:
