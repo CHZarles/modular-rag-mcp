@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from src.core.query_engine.reranker import NoneReranker
+from src.core.query_engine.reranker import FallbackReranker, NoneReranker
 from src.ports.query import BaseReranker
 
 RerankerBackendFactory = Callable[[Mapping[str, Any]], BaseReranker]
@@ -37,13 +37,25 @@ class RerankerFactory:
         if not backend:
             raise ValueError("Missing required setting: rerank.backend")
 
-        factory = cls._backends.get(backend)
-        if factory is None:
+        backend_factory = cls._backends.get(backend)
+        if backend_factory is None:
             available = ", ".join(sorted(cls._backends)) or "none"
             raise ValueError(
                 f"Unsupported Reranker backend: {backend}. Registered backends: {available}"
             )
-        return factory(config)
+
+        top_m = _optional_positive_int(config, "top_m")
+        timeout_seconds = _optional_positive_float(config, "timeout_seconds")
+        implementation = backend_factory(config)
+        # none 本身不会失败，也没有远程耗时；避免为默认空操作创建线程池包装。
+        if backend == "none":
+            return implementation
+        return FallbackReranker(
+            implementation,
+            backend_name=backend,
+            top_m=top_m,
+            timeout_seconds=timeout_seconds,
+        )
 
 
 def create_reranker(settings: Any) -> BaseReranker:
@@ -60,6 +72,24 @@ def _rerank_config(settings: Any) -> Mapping[str, Any]:
     if not isinstance(config, Mapping):
         raise ValueError("Missing required setting: rerank.backend")
     return config
+
+
+def _optional_positive_int(config: Mapping[str, Any], key: str) -> int | None:
+    value = config.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"rerank.{key} must be a positive integer")
+    return value
+
+
+def _optional_positive_float(config: Mapping[str, Any], key: str) -> float | None:
+    value = config.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise ValueError(f"rerank.{key} must be a positive number")
+    return float(value)
 
 
 RerankerFactory.register("none", lambda config: NoneReranker())

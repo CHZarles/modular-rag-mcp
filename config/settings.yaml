@@ -62,6 +62,8 @@ retrieval:
 rerank:
   backend: none
   top_m: 30
+  # 具体重排后端超过该时间预算后回退到 RRF 原顺序。
+  timeout_seconds: 10
 
 # Lightweight local metrics are the initial evaluation backend.
 evaluation:

@@ -95,7 +95,7 @@
 | D3 | SparseRetriever（BM25 查询） | [x] | 2026-07-30 | |
 | D4 | RRF Fusion | [x] | 2026-07-30 | |
 | D5 | HybridSearch 编排 | [x] | 2026-07-30 | |
-| D6 | Reranker（Core 层编排 + Fallback） | [ ] | | |
+| D6 | Reranker（Core 层编排 + Fallback） | [x] | 2026-07-30 | |
 | D7 | 脚本入口 query.py（查询可用） | [ ] | | |
 | D8 | KnowledgeService 契约与本地实现 | [ ] | | |
 
