@@ -61,6 +61,7 @@ retrieval:
 # Disabled until a concrete reranker backend is configured.
 rerank:
   backend: none
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2
   top_m: 30
   prompt_path: ./config/prompts/rerank.txt
   # 具体重排后端超过该时间预算后回退到 RRF 原顺序。

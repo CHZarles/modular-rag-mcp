@@ -62,7 +62,7 @@
 | B7.5 | Recursive Splitter 默认实现 | [x] | 2026-01-28 | RecursiveSplitter + 24个单元测试 + langchain集成 |
 | B7.6 | ChromaStore 默认实现 | [x] | 2026-01-30 | ChromaStore + 20个集成测试 + roundtrip验证 |
 | B7.7 | LLM Reranker 实现 | [x] | 2026-08-01 | |
-| B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-01-30 | CrossEncoderReranker + 26个单元测试 + 工厂集成 |
+| B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-08-01 | |
 | B8 | Vision LLM 抽象接口与工厂集成 | [x] | 2026-01-31 | BaseVisionLLM + ImageInput + LLMFactory扩展 + 35个单元测试 |
 | B9 | Azure Vision LLM 实现 | [x] | 2026-01-31 | AzureVisionLLM + 22个单元测试 + mock测试 + 图片压缩 |
 

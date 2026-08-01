@@ -109,12 +109,16 @@ def _optional_positive_float(config: Mapping[str, Any], key: str) -> float | Non
 
 
 def _register_default_backends() -> None:
-    if "llm" in RerankerFactory._backends:
-        return
+    if "cross_encoder" not in RerankerFactory._backends:
+        from src.libs.reranker.cross_encoder_reranker import CrossEncoderReranker
 
-    from src.libs.reranker.llm_reranker import LLMReranker
+        RerankerFactory.register(
+            "cross_encoder", lambda config: CrossEncoderReranker(config)
+        )
+    if "llm" not in RerankerFactory._backends:
+        from src.libs.reranker.llm_reranker import LLMReranker
 
-    RerankerFactory.register("llm", lambda config: LLMReranker(config))
+        RerankerFactory.register("llm", lambda config: LLMReranker(config))
 
 
 RerankerFactory.register("none", lambda config: NoneReranker())
