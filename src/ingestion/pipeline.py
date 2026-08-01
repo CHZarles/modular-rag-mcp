@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import shutil
 import tempfile
-from collections.abc import Callable
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
@@ -83,6 +85,7 @@ class IngestionPipeline:
         on_progress: Callable[[str, int, int], None] | None = None,
         trace: TraceContext | None = None,
     ) -> IngestionResult:
+        pipeline_started = time.monotonic()
         source_revision = ""
         normalized_source_path = ""
         doc_key = ""
@@ -91,7 +94,7 @@ class IngestionPipeline:
         claim: ClaimHandle | None = None
 
         try:
-            self._notify("integrity", 1, on_progress, trace)
+            self._notify("integrity", 1, on_progress)
             normalized_source_path = str(
                 Path(request.source_path).expanduser().resolve(strict=True)
             )
@@ -125,68 +128,158 @@ class IngestionPipeline:
                         file_hash=source_revision,
                         metadata={"reason": claim_result.status, "doc_key": doc_key},
                     )
-                    self._record(trace, "skipped", result.to_dict())
+                    _record_trace_stage(
+                        trace,
+                        "ingestion",
+                        method="ingest",
+                        provider=type(self).__name__,
+                        details={"status": "skipped", "reason": claim_result.status},
+                        elapsed_ms=_elapsed_ms(pipeline_started),
+                    )
                     return result
                 if claim_result.handle is None:  # ClaimResult 自身也校验此不变量。
                     raise RuntimeError("integrity store returned an acquired claim without handle")
                 claim = claim_result.handle
 
                 current_stage = "load"
-                self._notify("load", 2, on_progress, trace)
-                loaded = self.loader.load(str(snapshot_path), request.collection, trace=trace)
-                document = _restore_document_identity(
-                    loaded,
-                    source_revision=source_revision,
-                    source_path=normalized_source_path,
-                    collection=request.collection,
-                )
+                self._notify("load", 2, on_progress)
+                with _trace_stage(
+                    trace,
+                    "load",
+                    method="load",
+                    provider=type(self.loader).__name__,
+                ) as stage_details:
+                    loaded = self.loader.load(str(snapshot_path), request.collection, trace=trace)
+                    document = _restore_document_identity(
+                        loaded,
+                        source_revision=source_revision,
+                        source_path=normalized_source_path,
+                        collection=request.collection,
+                    )
+                    raw_images = document.metadata.get("images", [])
+                    stage_details.update(
+                        {
+                            "document_id": document.id,
+                            "text_length": len(document.text),
+                            "image_count": len(raw_images) if isinstance(raw_images, list) else 0,
+                        }
+                    )
 
                 current_stage = "split"
-                self._notify("split", 3, on_progress, trace)
-                chunks = self.chunker.split_document(document, trace=trace)
+                self._notify("split", 3, on_progress)
+                with _trace_stage(
+                    trace,
+                    "split",
+                    method="split",
+                    provider=type(self.chunker).__name__,
+                    details={"input_length": len(document.text)},
+                ) as stage_details:
+                    chunks = self.chunker.split_document(document, trace=trace)
+                    stage_details.update(
+                        {
+                            "output_count": len(chunks),
+                            "average_chunk_length": (
+                                sum(len(chunk.text) for chunk in chunks) // len(chunks)
+                                if chunks
+                                else 0
+                            ),
+                        }
+                    )
 
                 current_stage = "transform"
-                self._notify("transform", 4, on_progress, trace)
-                # 转换器按注册顺序串行执行，后一个转换器接收前一个的输出。
-                for transform in self.transforms:
-                    chunks = transform.transform(chunks, trace=trace)
-                chunks = _stamp_generation(
-                    chunks,
-                    claim,
-                    normalized_source_path,
-                    request.collection,
-                )
+                self._notify("transform", 4, on_progress)
+                transform_names = [transform.name for transform in self.transforms]
+                with _trace_stage(
+                    trace,
+                    "transform",
+                    method="sequential" if self.transforms else "none",
+                    provider=type(self).__name__,
+                    details={
+                        "input_count": len(chunks),
+                        "transformer_count": len(self.transforms),
+                        "transformers": transform_names,
+                    },
+                ) as stage_details:
+                    # 转换器按注册顺序串行执行，后一个转换器接收前一个的输出。
+                    for transform in self.transforms:
+                        stage_details["current_transform"] = transform.name
+                        chunks = transform.transform(chunks, trace=trace)
+                    stage_details.pop("current_transform", None)
+                    chunks = _stamp_generation(
+                        chunks,
+                        claim,
+                        normalized_source_path,
+                        request.collection,
+                    )
+                    stage_details["output_count"] = len(chunks)
 
                 current_stage = "encode"
-                self._notify("encode", 5, on_progress, trace)
-                dense_vectors, sparse_vectors = self.batch_processor.process(chunks, trace=trace)
+                self._notify("encode", 5, on_progress)
+                with _trace_stage(
+                    trace,
+                    "embed",
+                    method="batch",
+                    provider=type(self.batch_processor).__name__,
+                    details={"input_count": len(chunks)},
+                ) as stage_details:
+                    dense_vectors, sparse_vectors = self.batch_processor.process(
+                        chunks, trace=trace
+                    )
+                    stage_details.update(
+                        {
+                            "dense_vector_count": len(dense_vectors),
+                            "dense_dimension": len(dense_vectors[0]) if dense_vectors else 0,
+                            "sparse_vector_count": len(sparse_vectors),
+                        }
+                    )
 
                 current_stage = "store"
-                self._notify("store", 6, on_progress, trace)
-                # 新 generation 只能追加自己的不可见数据，不能先删除仍在对外服务的旧代。
-                records = self.vector_upserter.upsert(
-                    chunks,
-                    dense_vectors,
-                    sparse_vectors,
-                    trace=trace,
-                )
-                # 最终正文 ID 是 Dense/BM25 的共同身份；generation 已包含在该 ID 中。
-                indexed_chunks = [
-                    replace(chunk, id=record.id)
-                    for chunk, record in zip(chunks, records, strict=True)
-                ]
-                self.bm25_store.upsert(indexed_chunks, sparse_vectors, trace=trace)
-                images = _coerce_image_refs(
-                    document.metadata.get("images", []),
-                    collection=request.collection,
-                    source_path=normalized_source_path,
-                )
-                self.image_store.save_refs(
-                    images,
-                    claim.doc_key,
-                    claim.generation,
-                    trace=trace,
-                )
+                self._notify("store", 6, on_progress)
+                with _trace_stage(
+                    trace,
+                    "upsert",
+                    method="generation_upsert",
+                    provider=type(self.vector_store).__name__,
+                    details={
+                        "input_count": len(chunks),
+                        "storage_providers": {
+                            "vector": type(self.vector_store).__name__,
+                            "sparse": type(self.bm25_store).__name__,
+                            "image": type(self.image_store).__name__,
+                        },
+                    },
+                ) as stage_details:
+                    # 新 generation 只能追加自己的不可见数据，不能先删除仍在对外服务的旧代。
+                    records = self.vector_upserter.upsert(
+                        chunks,
+                        dense_vectors,
+                        sparse_vectors,
+                        trace=trace,
+                    )
+                    # 最终正文 ID 是 Dense/BM25 的共同身份；generation 已包含在该 ID 中。
+                    indexed_chunks = [
+                        replace(chunk, id=record.id)
+                        for chunk, record in zip(chunks, records, strict=True)
+                    ]
+                    self.bm25_store.upsert(indexed_chunks, sparse_vectors, trace=trace)
+                    images = _coerce_image_refs(
+                        document.metadata.get("images", []),
+                        collection=request.collection,
+                        source_path=normalized_source_path,
+                    )
+                    self.image_store.save_refs(
+                        images,
+                        claim.doc_key,
+                        claim.generation,
+                        trace=trace,
+                    )
+                    stage_details.update(
+                        {
+                            "vector_count": len(records),
+                            "sparse_count": len(sparse_vectors),
+                            "image_count": len(images),
+                        }
+                    )
 
             # 快照已完成使命，先成功清理临时目录，再切换公开指针。这样即使临时目录清理
             # 异常，也只会让本代失败，不会出现“已经 Published 却返回 failed”。
@@ -214,8 +307,8 @@ class IngestionPipeline:
             )
             # 发布已经成功后，GC、进度回调或 Trace 失败都不能把业务结果改写成 failed。
             self._cleanup_garbage_generations(published_claim)
-            self._notify_after_publish(on_progress, trace)
-            self._record_after_publish(trace, result)
+            self._notify_after_publish(on_progress)
+            self._record_after_publish(trace, result, pipeline_started)
             return result
         except Exception as exc:
             error = f"{current_stage} stage failed: {exc}"
@@ -241,7 +334,14 @@ class IngestionPipeline:
                 error=error,
                 metadata=metadata,
             )
-            self._record(trace, "failed", result.to_dict())
+            _record_trace_stage(
+                trace,
+                "ingestion",
+                method="ingest",
+                provider=type(self).__name__,
+                details={"status": "failed", "stage": current_stage, "error": error},
+                elapsed_ms=_elapsed_ms(pipeline_started),
+            )
             return result
 
     def _cleanup_garbage_generations(self, claim: ClaimHandle) -> None:
@@ -271,17 +371,31 @@ class IngestionPipeline:
     def _notify_after_publish(
         self,
         on_progress: Callable[[str, int, int], None] | None,
-        trace: TraceContext | None,
     ) -> None:
         try:
-            self._notify("complete", 7, on_progress, trace)
+            self._notify("complete", 7, on_progress)
         except Exception as exc:
             logger.warning("Ingestion completion callback failed after publish: %s", exc)
 
     @staticmethod
-    def _record_after_publish(trace: TraceContext | None, result: IngestionResult) -> None:
+    def _record_after_publish(
+        trace: TraceContext | None,
+        result: IngestionResult,
+        pipeline_started: float,
+    ) -> None:
         try:
-            IngestionPipeline._record(trace, "result", result.to_dict())
+            _record_trace_stage(
+                trace,
+                "ingestion",
+                method="ingest",
+                provider=IngestionPipeline.__name__,
+                details={
+                    "status": result.status,
+                    "chunk_count": result.chunk_count,
+                    "image_count": result.image_count,
+                },
+                elapsed_ms=_elapsed_ms(pipeline_started),
+            )
         except Exception as exc:
             logger.warning("Ingestion result trace failed after publish: %s", exc)
 
@@ -290,16 +404,72 @@ class IngestionPipeline:
         stage: str,
         step: int,
         on_progress: Callable[[str, int, int], None] | None,
-        trace: TraceContext | None,
     ) -> None:
         if on_progress is not None:
             on_progress(stage, step, self._TOTAL_STAGES)
-        self._record(trace, stage, {"step": step, "total": self._TOTAL_STAGES})
 
-    @staticmethod
-    def _record(trace: TraceContext | None, stage: str, data: JsonDict) -> None:
-        if trace is not None:
-            trace.record_stage(stage, data)
+
+@contextmanager
+def _trace_stage(
+    trace: TraceContext | None,
+    stage_name: str,
+    *,
+    method: str,
+    provider: str,
+    details: JsonDict | None = None,
+) -> Iterator[JsonDict]:
+    stage_details = dict(details or {})
+    started = time.monotonic()
+    try:
+        yield stage_details
+    except Exception as exc:
+        stage_details.update(
+            {
+                "status": "error",
+                "error": str(exc) or type(exc).__name__,
+            }
+        )
+        _record_trace_stage(
+            trace,
+            stage_name,
+            method=method,
+            provider=provider,
+            details=stage_details,
+            elapsed_ms=_elapsed_ms(started),
+        )
+        raise
+    else:
+        stage_details.setdefault("status", "success")
+        _record_trace_stage(
+            trace,
+            stage_name,
+            method=method,
+            provider=provider,
+            details=stage_details,
+            elapsed_ms=_elapsed_ms(started),
+        )
+
+
+def _record_trace_stage(
+    trace: TraceContext | None,
+    stage_name: str,
+    *,
+    method: str,
+    provider: str,
+    details: JsonDict,
+    elapsed_ms: float,
+) -> None:
+    if trace is None:
+        return
+    trace.record_stage(
+        stage_name,
+        {"method": method, "provider": provider, "details": details},
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def _elapsed_ms(started: float) -> float:
+    return (time.monotonic() - started) * 1000.0
 
 
 def _coerce_image_refs(

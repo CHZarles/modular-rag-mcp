@@ -9,6 +9,7 @@ from threading import Event
 import pytest
 
 from core.query_engine import DenseRetriever
+from core.trace import TraceContext
 from core.types import Document, IngestionRequest
 from ingestion.chunking import DocumentChunker
 from ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
@@ -158,11 +159,14 @@ def test_pipeline_persists_dense_sparse_and_image_outputs_with_shared_ids(tmp_pa
     source.write_text("Pipeline orchestration writes searchable storage.", encoding="utf-8")
     pipeline, integrity, vector_store, bm25_store, image_store = build_pipeline(tmp_path)
     progress: list[tuple[str, int, int]] = []
+    trace = TraceContext(trace_type="ingestion")
 
     result = pipeline.run(
         IngestionRequest(source_path=str(source), collection="docs"),
         on_progress=lambda stage, step, total: progress.append((stage, step, total)),
+        trace=trace,
     )
+    trace.finish()
 
     assert result.status == "success"
     assert result.chunk_count == 2
@@ -190,6 +194,27 @@ def test_pipeline_persists_dense_sparse_and_image_outputs_with_shared_ids(tmp_pa
     assert len(images) == 1
     assert Path(images[0].path).is_file()
     assert integrity.list_processed("docs")[0]["status"] == "success"
+
+    required_stages = {"load", "split", "transform", "embed", "upsert"}
+    stages = {stage["stage"]: stage for stage in trace.stages}
+    assert required_stages <= stages.keys()
+    assert trace.to_dict()["trace_type"] == "ingestion"
+    for stage_name in required_stages:
+        matching = [stage for stage in trace.stages if stage["stage"] == stage_name]
+        assert len(matching) == 1
+        stage = matching[0]
+        assert isinstance(stage["elapsed_ms"], float)
+        assert stage["elapsed_ms"] >= 0
+        assert isinstance(stage["data"]["method"], str)
+        assert stage["data"]["method"]
+        assert isinstance(stage["data"]["provider"], str)
+        assert isinstance(stage["data"]["details"], dict)
+
+    assert stages["load"]["data"]["details"]["image_count"] == 1
+    assert stages["split"]["data"]["details"]["output_count"] == 2
+    assert stages["transform"]["data"]["details"]["transformer_count"] == 0
+    assert stages["embed"]["data"]["details"]["dense_vector_count"] == 2
+    assert stages["upsert"]["data"]["details"]["image_count"] == 1
 
     skipped = pipeline.run(IngestionRequest(source_path=str(source), collection="docs"))
     assert skipped.status == "skipped"
@@ -219,14 +244,22 @@ def test_pipeline_records_clear_failed_stage(tmp_path: Path) -> None:
     source = tmp_path / "broken.pdf"
     source.write_text("broken fixture", encoding="utf-8")
     pipeline, integrity, _, _, _ = build_pipeline(tmp_path, fail_loader=True)
+    trace = TraceContext(trace_type="ingestion")
 
-    result = pipeline.run(IngestionRequest(source_path=str(source), collection="docs"))
+    result = pipeline.run(
+        IngestionRequest(source_path=str(source), collection="docs"),
+        trace=trace,
+    )
 
     assert result.status == "failed"
     assert result.error == "load stage failed: parse exploded"
     record = integrity.list_processed("docs")[0]
     assert record["status"] == "failed"
     assert record["error_msg"] == result.error
+    load_stage = next(stage for stage in trace.stages if stage["stage"] == "load")
+    assert load_stage["data"]["details"]["status"] == "error"
+    assert load_stage["data"]["details"]["error"] == "parse exploded"
+    assert load_stage["elapsed_ms"] >= 0
 
 
 def test_failed_update_keeps_previous_generation_queryable(tmp_path: Path) -> None:
