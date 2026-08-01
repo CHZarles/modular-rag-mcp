@@ -177,6 +177,7 @@ def test_stdio_routes_tools_list_and_returns_standard_protocol_errors() -> None:
     assert [tool["name"] for tool in responses[2]["result"]["tools"]] == [
         "query_knowledge_hub",
         "list_collections",
+        "get_document_summary",
     ]
     assert responses[3]["error"]["code"] == types.METHOD_NOT_FOUND
     assert responses[4]["error"]["code"] == types.METHOD_NOT_FOUND
@@ -208,6 +209,7 @@ def test_query_knowledge_hub_runs_through_official_mcp_session() -> None:
                     assert [tool.name for tool in listed.tools] == [
                         "query_knowledge_hub",
                         "list_collections",
+                        "get_document_summary",
                     ]
                     result = await session.call_tool(
                         "query_knowledge_hub",

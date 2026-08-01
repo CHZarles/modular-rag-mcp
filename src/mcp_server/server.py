@@ -17,6 +17,7 @@ from mcp.shared.exceptions import MCPError
 
 from src.core.services.knowledge_service import KnowledgeService
 from src.mcp_server.protocol_handler import ProtocolHandler
+from src.mcp_server.tools.get_document_summary import GetDocumentSummaryTool
 from src.mcp_server.tools.list_collections import ListCollectionsTool
 from src.mcp_server.tools.query_knowledge_hub import QueryKnowledgeHubTool
 from src.observability.logger import get_logger
@@ -58,6 +59,8 @@ def create_mcp_server(
         handler.register_tool(QueryKnowledgeHubTool(get_service))
     if ListCollectionsTool.name not in handler.tools:
         handler.register_tool(ListCollectionsTool(get_service))
+    if GetDocumentSummaryTool.name not in handler.tools:
+        handler.register_tool(GetDocumentSummaryTool(get_service))
 
     async def on_list_tools(
         context: ServerRequestContext[ServerContext],

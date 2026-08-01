@@ -2101,7 +2101,7 @@ dashboard:
 | E2 | Protocol Handler 协议解析与能力协商 | [x] | 2026-07-31 | |
 | E3 | query_knowledge_hub Tool | [x] | 2026-07-31 | |
 | E4 | list_collections Tool | [x] | 2026-08-01 | |
-| E5 | get_document_summary Tool | [ ] | | |
+| E5 | get_document_summary Tool | [x] | 2026-08-01 | |
 | E6 | 多模态返回组装（Text + Image） | [ ] | | |
 
 #### 阶段 F：Trace 基础设施与打点
