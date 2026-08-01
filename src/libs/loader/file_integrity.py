@@ -425,6 +425,36 @@ class SQLiteIntegrityStore(FileIntegrityStore):
             rows = connection.execute(sql, parameters).fetchall()
         return [dict(row) for row in rows]
 
+    def remove_record(
+        self,
+        source_path_or_revision: str,
+        collection: str | None = None,
+    ) -> bool:
+        """删除文档控制记录，使已清理的文档可以重新摄取。"""
+        if not isinstance(source_path_or_revision, str) or not source_path_or_revision.strip():
+            raise ValueError("file integrity error: document identity must be non-empty")
+
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if collection is None:
+                rows = connection.execute(
+                    "SELECT DISTINCT doc_key FROM ingestion_attempt WHERE source_revision = ?",
+                    (source_path_or_revision,),
+                ).fetchall()
+                doc_keys = [str(row["doc_key"]) for row in rows]
+            else:
+                doc_keys = [compute_doc_key(source_path_or_revision, collection)]
+
+            removed = False
+            for doc_key in doc_keys:
+                connection.execute("DELETE FROM ingestion_attempt WHERE doc_key = ?", (doc_key,))
+                cursor = connection.execute(
+                    "DELETE FROM document_state WHERE doc_key = ?",
+                    (doc_key,),
+                )
+                removed = removed or cursor.rowcount > 0
+        return removed
+
     def _initialize(self) -> None:
         """创建分代控制表；保留旧 ingestion_history 表供人工迁移或审计。"""
         with closing(self._connect()) as connection, connection:

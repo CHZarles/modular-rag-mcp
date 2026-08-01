@@ -15,6 +15,7 @@ Chroma 的 metadata 只适合保存字符串、数字、布尔值等标量，而
 from __future__ import annotations
 
 import json
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -167,6 +168,31 @@ class ChromaStore:
         # 二次遍历输入 ids，保证上层合并稀疏检索结果时顺序稳定。
         return [records[record_id] for record_id in ids if record_id in records]
 
+    def get_by_metadata(self, filters: JsonDict) -> list[ChunkRecord]:
+        """按 metadata 等值条件读取 Chunk，供文档管理与浏览使用。"""
+        if not filters:
+            raise ValueError("chroma get error: filters must not be empty")
+        result = self._collection.get(
+            where=_to_where(filters),
+            include=["documents", "metadatas"],
+        )
+        ids = list(result.get("ids") or [])
+        documents = result.get("documents")
+        metadatas = result.get("metadatas")
+        records: list[ChunkRecord] = []
+        for index, record_id in enumerate(ids):
+            raw_metadata = _item_at(metadatas, index, {})
+            records.append(
+                ChunkRecord(
+                    id=str(record_id),
+                    text=str(_item_at(documents, index, "")),
+                    metadata=_decode_metadata(raw_metadata),
+                    sparse_vector=_decode_json_dict(raw_metadata, _SPARSE_VECTOR_JSON_KEY),
+                    content_hash=_optional_string(raw_metadata, _CONTENT_HASH_KEY),
+                )
+            )
+        return sorted(records, key=_chunk_record_order)
+
     def get_collection_stats(self, collection: str | None = None) -> CollectionInfo:
         """汇总当前 Chroma 索引中的文档、Chunk 与图片引用数量。"""
         get_kwargs: dict[str, Any] = {"include": ["metadatas"]}
@@ -212,6 +238,16 @@ def _to_where(filters: JsonDict) -> JsonDict:
     if len(filters) == 1:
         return dict(filters)
     return {"$and": [{key: value} for key, value in filters.items()]}
+
+
+def _chunk_record_order(record: ChunkRecord) -> tuple[int, str]:
+    chunk_index = record.metadata.get("chunk_index")
+    order = (
+        chunk_index
+        if isinstance(chunk_index, int) and not isinstance(chunk_index, bool) and chunk_index >= 0
+        else sys.maxsize
+    )
+    return order, record.id
 
 
 def _encode_metadata(record: ChunkRecord) -> JsonDict:

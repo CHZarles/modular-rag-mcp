@@ -187,9 +187,7 @@ def test_force_creates_new_generation_but_does_not_steal_live_claim(tmp_path: Pa
     store.mark_staged(first)
     store.publish(first, 1)
 
-    forced = store.try_claim(
-        "revision-1", str(source), "docs", "worker-b", 60, force=True
-    )
+    forced = store.try_claim("revision-1", str(source), "docs", "worker-b", 60, force=True)
     assert forced.status == "acquired"
     assert forced.handle is not None
     assert forced.handle.generation == first.generation + 1
@@ -209,6 +207,23 @@ def test_garbage_list_never_includes_active_or_currently_claimed_generation(
     assert store.list_garbage_generations(active.doc_key) == []
     store.mark_failed(claimed, "test cleanup")
     assert store.list_garbage_generations(active.doc_key) == [claimed.generation]
+
+
+def test_remove_record_deletes_history_and_allows_reingestion(tmp_path: Path) -> None:
+    source = tmp_path / "document.pdf"
+    source.write_text("content", encoding="utf-8")
+    store = SQLiteIntegrityStore(tmp_path / "history.db")
+    first = _claim(store, "revision-1", source, "worker-a")
+    store.mark_staged(first)
+    store.publish(first, 2)
+
+    assert store.remove_record(str(source), "docs") is True
+    assert store.remove_record(str(source), "docs") is False
+    assert store.list_processed("docs") == []
+    assert store.get_active_generations("docs") == {}
+
+    replacement = _claim(store, "revision-1", source, "worker-b")
+    assert replacement.generation == 1
 
 
 def test_existing_legacy_database_gets_generation_tables_without_data_loss(tmp_path: Path) -> None:
@@ -234,9 +249,7 @@ def test_existing_legacy_database_gets_generation_tables_without_data_loss(tmp_p
     with sqlite3.connect(db_path) as connection:
         tables = {
             row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         legacy = connection.execute("SELECT file_hash FROM ingestion_history").fetchone()
     assert {"document_state", "ingestion_attempt"} <= tables

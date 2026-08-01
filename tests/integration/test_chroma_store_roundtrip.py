@@ -136,3 +136,7 @@ def test_chroma_collection_stats_deduplicate_documents_and_images(tmp_path: Path
     assert docs_stats.document_count == 1
     assert docs_stats.chunk_count == 2
     assert docs_stats.image_count == 2
+    assert [record.id for record in store.get_by_metadata({"doc_key": "doc-a"})] == [
+        "docs-a-1",
+        "docs-a-2",
+    ]
