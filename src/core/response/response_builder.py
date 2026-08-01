@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from src.core.response.multimodal_assembler import build_mcp_image_content
 from src.core.types import Citation, JsonDict, QueryRequest, QueryResponse, RetrievalCandidate
 from src.ports.response import CitationGenerator, MultimodalAssembler
 
@@ -51,8 +52,12 @@ class ResponseBuilder:
     def build_mcp_result(self, response: QueryResponse) -> JsonDict:
         """把领域响应转换为 MCP Tool 可直接返回的文本和结构化内容。"""
         answer = _answer_for_mcp(response)
+        content: list[JsonDict] = [
+            {"type": "text", "text": _markdown(answer, response.citations)}
+        ]
+        content.extend(build_mcp_image_content(response.images))
         return {
-            "content": [{"type": "text", "text": _markdown(answer, response.citations)}],
+            "content": content,
             "structuredContent": {
                 "answer": answer,
                 "citations": [
