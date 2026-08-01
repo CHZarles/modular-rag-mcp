@@ -8,10 +8,10 @@ from pathlib import Path
 from src.core.trace.trace_context import TraceContext
 
 
-class JsonlTraceCollector:
-    """以追加方式写入 JSON Lines，保持追踪组件轻量可选。"""
+class TraceCollector:
+    """结束并持久化 Trace，每条记录占一个 JSON Lines 行。"""
 
-    def __init__(self, traces_path: str | Path) -> None:
+    def __init__(self, traces_path: str | Path = "logs/traces.jsonl") -> None:
         self._path = Path(traces_path)
 
     @property
@@ -19,6 +19,11 @@ class JsonlTraceCollector:
         return self._path
 
     def collect(self, trace: TraceContext) -> None:
+        trace.finish()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(trace.to_dict(), ensure_ascii=False) + "\n")
+
+
+class JsonlTraceCollector(TraceCollector):
+    """保留原有名称，明确该 Collector 当前使用 JSON Lines 后端。"""

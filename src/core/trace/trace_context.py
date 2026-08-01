@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Literal
 
 from src.core.types import JsonDict
 
@@ -55,6 +55,9 @@ class TraceContext:
             self.record_stage(stage_name, payload, (time.monotonic() - started) * 1000.0)
 
     def finish(self) -> None:
+        """结束追踪；重复调用不会改变首次结束时间和总耗时。"""
+        if self._finish_mono is not None:
+            return
         self._finish_mono = time.monotonic()
         self.finished_at = datetime.now(timezone.utc).isoformat()
 
@@ -76,6 +79,7 @@ class TraceContext:
         return None
 
     def to_dict(self) -> JsonDict:
+        """转换为可直接交给 ``json.dumps`` 的普通字典。"""
         return {
             "trace_id": self.trace_id,
             "trace_type": self.trace_type,
