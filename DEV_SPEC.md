@@ -2048,7 +2048,7 @@ dashboard:
 | B3 | Splitter 抽象接口与工厂 | [x] | 2026-07-28 | |
 | B4 | VectorStore 抽象接口与工厂 | [x] | 2026-07-28 | |
 | B5 | Reranker 抽象接口与工厂（含 None 回退） | [x] | 2026-07-28 | |
-| B6 | Evaluator 抽象接口与工厂 | [ ] | | |
+| B6 | Evaluator 抽象接口与工厂 | [x] | 2026-08-01 | |
 | B7.1 | OpenAI-Compatible LLM 实现 | [x] | 2026-07-28 | |
 | B7.2 | Ollama LLM 实现 | [x] | 2026-07-28 | |
 | B7.3 | OpenAI & Azure Embedding 实现 | [x] | 2026-07-28 | |
