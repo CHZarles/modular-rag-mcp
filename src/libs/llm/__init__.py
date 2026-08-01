@@ -1,6 +1,7 @@
 """LLM 与视觉 LLM 接口的兼容导出。"""
 
 from src.libs.llm.azure_llm import AzureOpenAILLM
+from src.libs.llm.azure_vision_llm import AzureVisionLLM
 from src.libs.llm.base_llm import BaseLLM, ChatResponse, Message
 from src.libs.llm.base_vision_llm import (
     BaseVisionLLM,
@@ -15,6 +16,7 @@ from src.libs.llm.openai_llm import OpenAICompatibleLLM
 
 __all__ = [
     "AzureOpenAILLM",
+    "AzureVisionLLM",
     "BaseLLM",
     "BaseVisionLLM",
     "ChatResponse",

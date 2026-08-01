@@ -145,6 +145,7 @@ def _register_default_providers() -> None:
         return
 
     from src.libs.llm.azure_llm import AzureOpenAILLM
+    from src.libs.llm.azure_vision_llm import AzureVisionLLM
     from src.libs.llm.deepseek_llm import DeepSeekLLM
     from src.libs.llm.ollama_llm import OllamaLLM
     from src.libs.llm.openai_llm import OpenAICompatibleLLM
@@ -153,6 +154,7 @@ def _register_default_providers() -> None:
     LLMFactory.register("deepseek", lambda config: DeepSeekLLM(config))
     LLMFactory.register("ollama", lambda config: OllamaLLM(config))
     LLMFactory.register("openai", lambda config: OpenAICompatibleLLM(config))
+    LLMFactory.register_vision_provider("azure", lambda config: AzureVisionLLM(config))
     LLMFactory.register_vision_provider(
         "openai", lambda config: OpenAICompatibleLLM(config)
     )

@@ -2058,7 +2058,7 @@ dashboard:
 | B7.7 | LLM Reranker 实现 | [x] | 2026-08-01 | |
 | B7.8 | Cross-Encoder Reranker 实现 | [x] | 2026-08-01 | |
 | B8 | Vision LLM 抽象接口与工厂集成 | [x] | 2026-08-01 | |
-| B9 | Azure Vision LLM 实现 | [ ] | | |
+| B9 | Azure Vision LLM 实现 | [x] | 2026-08-01 | |
 
 #### 阶段 C：Ingestion Pipeline MVP
 
