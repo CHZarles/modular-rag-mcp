@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -20,6 +20,7 @@ from src.core.types import (
     IngestionRequest,
     IngestionResult,
     JsonDict,
+    ProgressCallback,
 )
 from src.ingestion.embedding import BatchProcessor
 from src.ingestion.storage import VectorUpserter
@@ -44,7 +45,16 @@ class IngestionPipeline:
     Pipeline 本身，所有外部能力均通过端口注入。
     """
 
-    _TOTAL_STAGES = 7
+    _PROGRESS_STAGES = (
+        "integrity",
+        "load",
+        "split",
+        "transform",
+        "encode",
+        "store",
+        "complete",
+    )
+    _TOTAL_STAGES = len(_PROGRESS_STAGES)
 
     def __init__(
         self,
@@ -74,7 +84,7 @@ class IngestionPipeline:
     def ingest(
         self,
         request: IngestionRequest,
-        on_progress: Callable[[str, int, int], None] | None = None,
+        on_progress: ProgressCallback | None = None,
         trace: TraceContext | None = None,
     ) -> IngestionResult:
         return self.run(request, on_progress=on_progress, trace=trace)
@@ -82,7 +92,7 @@ class IngestionPipeline:
     def run(
         self,
         request: IngestionRequest,
-        on_progress: Callable[[str, int, int], None] | None = None,
+        on_progress: ProgressCallback | None = None,
         trace: TraceContext | None = None,
     ) -> IngestionResult:
         pipeline_started = time.monotonic()
@@ -94,7 +104,7 @@ class IngestionPipeline:
         claim: ClaimHandle | None = None
 
         try:
-            self._notify("integrity", 1, on_progress)
+            self._notify("integrity", on_progress)
             normalized_source_path = str(
                 Path(request.source_path).expanduser().resolve(strict=True)
             )
@@ -142,7 +152,7 @@ class IngestionPipeline:
                 claim = claim_result.handle
 
                 current_stage = "load"
-                self._notify("load", 2, on_progress)
+                self._notify("load", on_progress)
                 with _trace_stage(
                     trace,
                     "load",
@@ -166,7 +176,7 @@ class IngestionPipeline:
                     )
 
                 current_stage = "split"
-                self._notify("split", 3, on_progress)
+                self._notify("split", on_progress)
                 with _trace_stage(
                     trace,
                     "split",
@@ -187,7 +197,7 @@ class IngestionPipeline:
                     )
 
                 current_stage = "transform"
-                self._notify("transform", 4, on_progress)
+                self._notify("transform", on_progress)
                 transform_names = [transform.name for transform in self.transforms]
                 with _trace_stage(
                     trace,
@@ -214,7 +224,7 @@ class IngestionPipeline:
                     stage_details["output_count"] = len(chunks)
 
                 current_stage = "encode"
-                self._notify("encode", 5, on_progress)
+                self._notify("encode", on_progress)
                 with _trace_stage(
                     trace,
                     "embed",
@@ -234,7 +244,7 @@ class IngestionPipeline:
                     )
 
                 current_stage = "store"
-                self._notify("store", 6, on_progress)
+                self._notify("store", on_progress)
                 with _trace_stage(
                     trace,
                     "upsert",
@@ -370,10 +380,10 @@ class IngestionPipeline:
 
     def _notify_after_publish(
         self,
-        on_progress: Callable[[str, int, int], None] | None,
+        on_progress: ProgressCallback | None,
     ) -> None:
         try:
-            self._notify("complete", 7, on_progress)
+            self._notify("complete", on_progress)
         except Exception as exc:
             logger.warning("Ingestion completion callback failed after publish: %s", exc)
 
@@ -402,10 +412,10 @@ class IngestionPipeline:
     def _notify(
         self,
         stage: str,
-        step: int,
-        on_progress: Callable[[str, int, int], None] | None,
+        on_progress: ProgressCallback | None,
     ) -> None:
         if on_progress is not None:
+            step = self._PROGRESS_STAGES.index(stage) + 1
             on_progress(stage, step, self._TOTAL_STAGES)
 
 
