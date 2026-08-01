@@ -10,7 +10,13 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from src.ports.llm import ChatResponse, ImageInput, Message
+from src.ports.llm import (
+    ChatResponse,
+    ImageInput,
+    ImagePreprocessor,
+    Message,
+    preprocess_image,
+)
 
 JsonObject = dict[str, Any]
 
@@ -52,11 +58,13 @@ class OpenAICompatibleLLM:
         image: ImageInput,
         messages: list[Message] | None = None,
         trace: Any | None = None,
+        preprocessor: ImagePreprocessor | None = None,
         **kwargs: Any,
     ) -> ChatResponse:
         """按 OpenAI-compatible ``image_url`` 格式发送文本和单张图片。"""
         if not isinstance(text, str) or not text.strip():
             raise ValueError(f"{self.provider} input error: text must not be empty")
+        image = preprocess_image(image, preprocessor)
 
         serialized: list[JsonObject] = (
             list(_serialize_messages(messages, self.provider)) if messages else []

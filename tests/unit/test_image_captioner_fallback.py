@@ -163,7 +163,9 @@ def test_enabled_mode_builds_current_openai_compatible_vision_client(
     image_path = tmp_path / "one.png"
     image_path.write_bytes(b"image")
     llm = FakeVisionLLM({"one.png": "Caption from configured model."})
-    monkeypatch.setattr("src.ingestion.transform.image_captioner.create_llm", lambda _: llm)
+    monkeypatch.setattr(
+        "src.ingestion.transform.image_captioner.create_vision_llm", lambda _: llm
+    )
 
     result = ImageCaptioner(settings(True)).transform(
         [make_chunk([{"id": "img-1", "path": str(image_path)}])]

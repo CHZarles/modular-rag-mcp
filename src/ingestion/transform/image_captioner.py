@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.types import Chunk, ImageRef, JsonDict
-from src.libs.llm import BaseVisionLLM, ImageInput, create_llm
+from src.libs.llm import BaseVisionLLM, ImageInput, create_vision_llm
 
 _DEFAULT_PROMPT = """请描述图片中与知识检索有关的信息。
 重点说明可见文字、结构、流程、数据关系和结论，不添加图片中不存在的内容。
@@ -38,10 +38,10 @@ class ImageCaptioner:
         self._vision_llm = vision_llm
         self._prompt = self._load_prompt(prompt_path)
 
-        # MiniMax M3 复用现有 OpenAI-compatible 客户端，无需单独配置 Vision Provider。
+        # 未配置独立 Vision Provider 时，工厂会复用现有 llm 配置。
         if self._enabled and self._vision_llm is None:
             try:
-                candidate = create_llm(settings)
+                candidate = create_vision_llm(settings)
             except Exception:
                 candidate = None
             if isinstance(candidate, BaseVisionLLM):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -52,6 +53,20 @@ class ImageInput:
             raise ValueError("provide exactly one of path, data, or base64")
 
 
+ImagePreprocessor = Callable[[ImageInput], ImageInput]
+
+
+def preprocess_image(
+    image: ImageInput,
+    preprocessor: ImagePreprocessor | None = None,
+) -> ImageInput:
+    """执行可选的图片压缩或格式转换，并校验预处理结果。"""
+    processed = preprocessor(image) if preprocessor is not None else image
+    if not isinstance(processed, ImageInput):
+        raise TypeError("image preprocessor must return ImageInput")
+    return processed
+
+
 @runtime_checkable
 class BaseVisionLLM(Protocol):
     """接受文本与单张图片的视觉模型端口。"""
@@ -62,5 +77,6 @@ class BaseVisionLLM(Protocol):
         image: ImageInput,
         messages: list[Message] | None = None,
         trace: Any | None = None,
+        preprocessor: ImagePreprocessor | None = None,
         **kwargs: Any,
     ) -> ChatResponse: ...

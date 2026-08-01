@@ -54,6 +54,17 @@ def test_load_settings_reads_optional_ingestion_section(tmp_path: Path) -> None:
     assert settings.ingestion["chunk_refiner"]["use_llm"] is True
 
 
+def test_load_settings_reads_optional_vision_llm_section(tmp_path: Path) -> None:
+    path = write_settings(
+        tmp_path / "settings.yaml",
+        VALID_SETTINGS + "vision_llm:\n  provider: azure\n  model: gpt-4o\n",
+    )
+
+    settings = load_settings(str(path))
+
+    assert settings.vision_llm == {"provider": "azure", "model": "gpt-4o"}
+
+
 def test_load_settings_names_missing_nested_field(tmp_path: Path) -> None:
     path = write_settings(
         tmp_path / "settings.yaml",
