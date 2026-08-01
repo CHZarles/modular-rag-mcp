@@ -65,6 +65,17 @@ def test_load_settings_reads_optional_vision_llm_section(tmp_path: Path) -> None
     assert settings.vision_llm == {"provider": "azure", "model": "gpt-4o"}
 
 
+def test_load_settings_reads_optional_dashboard_section(tmp_path: Path) -> None:
+    path = write_settings(
+        tmp_path / "settings.yaml",
+        VALID_SETTINGS + "dashboard:\n  enabled: true\n  port: 8601\n",
+    )
+
+    settings = load_settings(str(path))
+
+    assert settings.dashboard == {"enabled": True, "port": 8601}
+
+
 def test_load_settings_names_missing_nested_field(tmp_path: Path) -> None:
     path = write_settings(
         tmp_path / "settings.yaml",
@@ -81,7 +92,9 @@ def test_main_loads_settings_at_startup(tmp_path: Path) -> None:
     assert isinstance(main(str(path)), Settings)
 
 
-def test_load_settings_expands_environment_variables(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_load_settings_expands_environment_variables(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("TEST_LLM_MODEL", "MiniMax-M3")
     config = VALID_SETTINGS.replace(
         "  provider: openai\nembedding:",

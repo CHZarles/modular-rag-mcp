@@ -38,6 +38,7 @@ class Settings:
     observability: ConfigSection
     ingestion: ConfigSection = field(default_factory=dict)
     vision_llm: ConfigSection | None = None
+    dashboard: ConfigSection = field(default_factory=dict)
 
 
 def validate_settings(settings: Settings) -> None:
@@ -75,6 +76,14 @@ def load_settings(path: str) -> Settings:
     vision_llm = raw.get("vision_llm")
     if vision_llm is not None and not isinstance(vision_llm, dict):
         raise ValueError("Setting vision_llm must be a mapping")
-    settings = Settings(**sections, ingestion=ingestion, vision_llm=vision_llm)
+    dashboard = raw.get("dashboard", {})
+    if not isinstance(dashboard, dict):
+        raise ValueError("Setting dashboard must be a mapping")
+    settings = Settings(
+        **sections,
+        ingestion=ingestion,
+        vision_llm=vision_llm,
+        dashboard=dashboard,
+    )
     validate_settings(settings)
     return settings

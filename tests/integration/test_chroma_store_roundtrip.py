@@ -90,3 +90,49 @@ def test_chroma_upsert_is_idempotent_and_delete_returns_count(tmp_path: Path) ->
     assert store.get_by_ids(["same-id"])[0].text == "new text"
     assert store.delete_by_metadata({"collection": "docs"}) == 1
     assert store.get_by_ids(["same-id"]) == []
+
+
+def test_chroma_collection_stats_deduplicate_documents_and_images(tmp_path: Path) -> None:
+    store = ChromaStore(make_config(tmp_path / "chroma"))
+    store.upsert(
+        [
+            ChunkRecord(
+                id="docs-a-1",
+                text="alpha",
+                metadata={
+                    "collection": "docs",
+                    "doc_key": "doc-a",
+                    "image_refs": ["image-1"],
+                },
+                dense_vector=[1.0, 0.0],
+            ),
+            ChunkRecord(
+                id="docs-a-2",
+                text="beta",
+                metadata={
+                    "collection": "docs",
+                    "doc_key": "doc-a",
+                    "image_refs": ["image-1", "image-2"],
+                },
+                dense_vector=[0.9, 0.1],
+            ),
+            ChunkRecord(
+                id="notes-b-1",
+                text="gamma",
+                metadata={"collection": "notes", "doc_key": "doc-b"},
+                dense_vector=[0.0, 1.0],
+            ),
+        ]
+    )
+
+    all_stats = store.get_collection_stats()
+    docs_stats = store.get_collection_stats("docs")
+
+    assert all_stats.name == "roundtrip"
+    assert all_stats.document_count == 2
+    assert all_stats.chunk_count == 3
+    assert all_stats.image_count == 2
+    assert docs_stats.name == "docs"
+    assert docs_stats.document_count == 1
+    assert docs_stats.chunk_count == 2
+    assert docs_stats.image_count == 2

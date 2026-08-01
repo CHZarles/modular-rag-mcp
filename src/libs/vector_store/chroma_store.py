@@ -21,7 +21,7 @@ from typing import Any
 
 import chromadb
 
-from src.core.types import ChunkRecord, JsonDict, SearchHit
+from src.core.types import ChunkRecord, CollectionInfo, JsonDict, SearchHit
 
 # 这些字段只供适配器内部使用，不属于用户原始 metadata。
 _METADATA_JSON_KEY = "_rag_metadata_json"
@@ -166,6 +166,31 @@ class ChromaStore:
 
         # 二次遍历输入 ids，保证上层合并稀疏检索结果时顺序稳定。
         return [records[record_id] for record_id in ids if record_id in records]
+
+    def get_collection_stats(self, collection: str | None = None) -> CollectionInfo:
+        """汇总当前 Chroma 索引中的文档、Chunk 与图片引用数量。"""
+        get_kwargs: dict[str, Any] = {"include": ["metadatas"]}
+        if collection is not None:
+            get_kwargs["where"] = {"collection": collection}
+        result = self._collection.get(**get_kwargs)
+
+        document_ids: set[str] = set()
+        image_ids: set[str] = set()
+        for raw_metadata in result.get("metadatas") or []:
+            metadata = _decode_metadata(raw_metadata)
+            document_id = metadata.get("doc_key") or metadata.get("source_path")
+            if isinstance(document_id, str) and document_id:
+                document_ids.add(document_id)
+            image_refs = metadata.get("image_refs")
+            if isinstance(image_refs, list):
+                image_ids.update(str(image_id) for image_id in image_refs)
+
+        return CollectionInfo(
+            name=collection or self.collection_name,
+            document_count=len(document_ids),
+            chunk_count=len(result.get("ids") or []),
+            image_count=len(image_ids),
+        )
 
     def delete_by_metadata(self, filters: JsonDict) -> int:
         """删除匹配元数据条件的记录并返回删除数量。

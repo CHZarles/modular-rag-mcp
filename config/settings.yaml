@@ -76,3 +76,12 @@ evaluation:
 observability:
   enabled: true
   log_file: ./logs/traces.jsonl
+
+# Local maintainer dashboard. It binds to loopback unless explicitly overridden.
+dashboard:
+  enabled: true
+  address: 127.0.0.1
+  port: 8501
+  traces_dir: ./logs
+  auto_refresh: true
+  refresh_interval: 5

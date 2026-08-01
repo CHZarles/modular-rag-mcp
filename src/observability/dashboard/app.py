@@ -1,0 +1,151 @@
+"""Streamlit entry point for the local RAG operations dashboard."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import streamlit as st
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.observability.dashboard.pages.overview import render as render_overview  # noqa: E402
+
+
+def _placeholder(title: str, message: str = "此页面将在后续开发阶段开放。") -> None:
+    st.title(title)
+    st.info(message)
+
+
+def _data_browser() -> None:
+    _placeholder("数据浏览器")
+
+
+def _ingestion_manager() -> None:
+    _placeholder("Ingestion 管理")
+
+
+def _ingestion_traces() -> None:
+    _placeholder("Ingestion 追踪")
+
+
+def _query_traces() -> None:
+    _placeholder("Query 追踪")
+
+
+def _evaluation_panel() -> None:
+    _placeholder("评估面板", "评估模块尚未启用。")
+
+
+def main() -> None:
+    st.set_page_config(
+        page_title="Modular RAG Console",
+        page_icon=":material/hub:",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    _apply_styles()
+    st.logo(
+        ":material/hub:",
+        icon_image=":material/hub:",
+        size="large",
+    )
+
+    navigation = st.navigation(
+        {
+            "Workspace": [
+                st.Page(
+                    render_overview,
+                    title="系统总览",
+                    icon=":material/dashboard:",
+                    default=True,
+                ),
+                st.Page(_data_browser, title="数据浏览器", icon=":material/database:"),
+                st.Page(
+                    _ingestion_manager,
+                    title="Ingestion 管理",
+                    icon=":material/upload_file:",
+                ),
+            ],
+            "Observability": [
+                st.Page(
+                    _ingestion_traces,
+                    title="Ingestion 追踪",
+                    icon=":material/account_tree:",
+                ),
+                st.Page(_query_traces, title="Query 追踪", icon=":material/search_insights:"),
+            ],
+            "Quality": [
+                st.Page(_evaluation_panel, title="评估面板", icon=":material/analytics:"),
+            ],
+        },
+        position="sidebar",
+        expanded=True,
+    )
+    navigation.run()
+
+
+def _apply_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --rag-ink: #15221f;
+            --rag-muted: #5d6b67;
+            --rag-line: #dce5e2;
+            --rag-paper: #f7f9f8;
+            --rag-teal: #0f766e;
+            --rag-blue: #2563eb;
+            --rag-amber: #b45309;
+        }
+        .stApp { background: var(--rag-paper); color: var(--rag-ink); }
+        .block-container { max-width: 1280px; padding-top: 2rem; padding-bottom: 3rem; }
+        h1, h2, h3, p, button, label, input { letter-spacing: 0 !important; }
+        h1 { color: var(--rag-ink); font-weight: 720; }
+        [data-testid="stMetric"] {
+            background: #ffffff;
+            border: 1px solid var(--rag-line);
+            border-top: 3px solid var(--rag-teal);
+            border-radius: 8px;
+            min-height: 118px;
+            padding: 1rem 1.1rem;
+        }
+        [data-testid="stMetricLabel"] { color: var(--rag-muted); }
+        [data-testid="stMetricValue"] { color: var(--rag-ink); }
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            background: #ffffff;
+            border-color: var(--rag-line);
+            border-radius: 8px;
+            min-height: 190px;
+        }
+        .component-kicker {
+            align-items: center;
+            color: var(--rag-muted);
+            display: flex;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.72rem;
+            justify-content: space-between;
+            letter-spacing: 0;
+        }
+        .component-state { font-weight: 700; }
+        .component-state.ready { color: var(--rag-teal); }
+        .component-state.off { color: var(--rag-amber); }
+        [data-testid="stCode"] {
+            border: 0;
+            border-left: 3px solid var(--rag-blue);
+            border-radius: 0 4px 4px 0;
+        }
+        @media (max-width: 700px) {
+            .block-container { padding-top: 1.25rem; }
+            [data-testid="stVerticalBlockBorderWrapper"] { min-height: auto; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+if __name__ == "__main__":
+    main()
