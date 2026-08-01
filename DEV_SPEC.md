@@ -2052,7 +2052,7 @@ dashboard:
 | B7.1 | OpenAI-Compatible LLM 实现 | [x] | 2026-07-28 | |
 | B7.2 | Ollama LLM 实现 | [x] | 2026-07-28 | |
 | B7.3 | OpenAI & Azure Embedding 实现 | [x] | 2026-07-28 | |
-| B7.4 | Ollama Embedding 实现 | [ ] | | |
+| B7.4 | Ollama Embedding 实现 | [x] | 2026-08-01 | |
 | B7.5 | Recursive Splitter 默认实现 | [x] | 2026-07-28 | |
 | B7.6 | ChromaStore 默认实现 | [x] | 2026-07-29 | |
 | B7.7 | LLM Reranker 实现 | [ ] | | |

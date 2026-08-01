@@ -71,9 +71,11 @@ def _register_default_providers() -> None:
         return
 
     from src.libs.embedding.azure_embedding import AzureOpenAIEmbedding
+    from src.libs.embedding.ollama_embedding import OllamaEmbedding
     from src.libs.embedding.openai_embedding import OpenAIEmbedding
 
     EmbeddingFactory.register("azure", lambda config: AzureOpenAIEmbedding(config))
+    EmbeddingFactory.register("ollama", lambda config: OllamaEmbedding(config))
     EmbeddingFactory.register("openai", lambda config: OpenAIEmbedding(config))
     _DEFAULT_PROVIDERS_REGISTERED = True
 
