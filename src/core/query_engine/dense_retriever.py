@@ -61,8 +61,6 @@ class DenseRetriever:
         candidates = [
             _candidate_from_hit(hit, rank) for rank, hit in enumerate(hits, start=1)
         ]
-        if trace is not None and hasattr(trace, "record_stage"):
-            trace.record_stage("dense_retrieval", {"count": len(candidates)})
         return candidates
 
 

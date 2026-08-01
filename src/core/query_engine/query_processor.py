@@ -69,8 +69,6 @@ class QueryProcessor:
             keywords=keywords,
             filters=dict(request.filters),
         )
-        if trace is not None and hasattr(trace, "record_stage"):
-            trace.record_stage("query_process", processed.to_dict())
         return processed
 
 

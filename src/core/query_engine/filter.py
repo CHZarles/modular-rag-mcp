@@ -21,9 +21,4 @@ class ExactMetadataFilter:
             for candidate in candidates
             if all(candidate.metadata.get(key) == value for key, value in filters.items())
         ]
-        if trace is not None and hasattr(trace, "record_stage"):
-            trace.record_stage(
-                "metadata_filter",
-                {"input_count": len(candidates), "output_count": len(filtered), "filters": filters},
-            )
         return filtered

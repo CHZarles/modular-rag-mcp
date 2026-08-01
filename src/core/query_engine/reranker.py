@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import replace
@@ -47,7 +48,21 @@ class FallbackReranker:
         """调用后端精排；异常或超时时保留输入的 Fusion 顺序。"""
         if top_k <= 0:
             raise ValueError("reranker top_k must be positive")
+        started = time.monotonic()
         if not candidates:
+            _record_rerank_stage(
+                trace,
+                method=self.backend_name,
+                provider=type(self.backend).__name__,
+                details={
+                    "status": "skipped",
+                    "input_count": 0,
+                    "output_count": 0,
+                    "top_k": top_k,
+                    "fallback": False,
+                },
+                started=started,
+            )
             return []
 
         # top_m 限制昂贵后端的输入；当调用方要求更多结果时，至少覆盖 top_k。
@@ -61,12 +76,27 @@ class FallbackReranker:
                 top_k,
                 trace,
             )
-            return list(reranked[:top_k])
+            results = list(reranked[:top_k])
+            _record_rerank_stage(
+                trace,
+                method=self.backend_name,
+                provider=type(self.backend).__name__,
+                details={
+                    "status": "success",
+                    "input_count": len(candidates),
+                    "backend_input_count": len(backend_candidates),
+                    "output_count": len(results),
+                    "top_k": top_k,
+                    "fallback": False,
+                },
+                started=started,
+            )
+            return results
         except _RerankTimeoutError as exc:
-            return self._fallback(candidates, top_k, str(exc))
+            return self._fallback_with_trace(candidates, top_k, str(exc), trace, started)
         except Exception as exc:
             reason = str(exc) or type(exc).__name__
-            return self._fallback(candidates, top_k, reason)
+            return self._fallback_with_trace(candidates, top_k, reason, trace, started)
 
     def _call_backend(
         self,
@@ -124,6 +154,31 @@ class FallbackReranker:
             for candidate in candidates[:top_k]
         ]
 
+    def _fallback_with_trace(
+        self,
+        candidates: list[RetrievalCandidate],
+        top_k: int,
+        reason: str,
+        trace: object | None,
+        started: float,
+    ) -> list[RetrievalCandidate]:
+        results = self._fallback(candidates, top_k, reason)
+        _record_rerank_stage(
+            trace,
+            method=self.backend_name,
+            provider=type(self.backend).__name__,
+            details={
+                "status": "fallback",
+                "input_count": len(candidates),
+                "output_count": len(results),
+                "top_k": top_k,
+                "fallback": True,
+                "reason": reason,
+            },
+            started=started,
+        )
+        return results
+
 
 class NoneReranker:
     """保持融合结果原顺序的空操作重排序器。"""
@@ -137,7 +192,36 @@ class NoneReranker:
     ) -> list[RetrievalCandidate]:
         if top_k <= 0:
             raise ValueError("reranker top_k must be positive")
+        started = time.monotonic()
         results = list(candidates[:top_k])
-        if trace is not None and hasattr(trace, "record_stage"):
-            trace.record_stage("rerank", {"method": "none", "count": len(results)})
+        _record_rerank_stage(
+            trace,
+            method="none",
+            provider=type(self).__name__,
+            details={
+                "status": "skipped",
+                "input_count": len(candidates),
+                "output_count": len(results),
+                "top_k": top_k,
+                "fallback": False,
+            },
+            started=started,
+        )
         return results
+
+
+def _record_rerank_stage(
+    trace: object | None,
+    *,
+    method: str,
+    provider: str,
+    details: dict[str, object],
+    started: float,
+) -> None:
+    if trace is None or not hasattr(trace, "record_stage"):
+        return
+    trace.record_stage(
+        "rerank",
+        {"method": method, "provider": provider, "details": details},
+        elapsed_ms=(time.monotonic() - started) * 1000.0,
+    )

@@ -85,8 +85,6 @@ class RRFFusion:
             )
             for index, chunk_id in enumerate(ordered_ids[:top_k], start=1)
         ]
-        if trace is not None and hasattr(trace, "record_stage"):
-            trace.record_stage("fusion", {"count": len(fused), "method": "rrf", "k": self.k})
         return fused
 
 

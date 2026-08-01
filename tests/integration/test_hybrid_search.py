@@ -15,6 +15,7 @@ from src.core.query_engine import (
     QueryProcessor,
     RRFFusion,
 )
+from src.core.trace import TraceContext
 from src.core.types import JsonDict, QueryRequest, RetrievalCandidate
 from src.ports.query import QueryEngine
 
@@ -31,6 +32,7 @@ class FakeDenseRetriever:
         self.barrier = barrier
         self.error = error
         self.calls: list[tuple[str, int, JsonDict | None]] = []
+        self.traces: list[object | None] = []
 
     def retrieve(
         self,
@@ -40,6 +42,7 @@ class FakeDenseRetriever:
         trace: object | None = None,
     ) -> list[RetrievalCandidate]:
         self.calls.append((query, top_k, filters))
+        self.traces.append(trace)
         if self.barrier is not None:
             self.barrier.wait(timeout=1)
         if self.error is not None:
@@ -59,6 +62,7 @@ class FakeSparseRetriever:
         self.barrier = barrier
         self.error = error
         self.calls: list[tuple[list[str], int, JsonDict | None]] = []
+        self.traces: list[object | None] = []
 
     def retrieve(
         self,
@@ -68,6 +72,7 @@ class FakeSparseRetriever:
         trace: object | None = None,
     ) -> list[RetrievalCandidate]:
         self.calls.append((keywords, top_k, filters))
+        self.traces.append(trace)
         if self.barrier is not None:
             self.barrier.wait(timeout=1)
         if self.error is not None:
@@ -115,14 +120,59 @@ def test_search_runs_dense_and_sparse_in_parallel_then_fuses_results() -> None:
     assert all(result.source == "fusion" for result in results)
 
 
+def test_search_records_timed_query_stages_with_methods_and_details() -> None:
+    dense = FakeDenseRetriever([_candidate("d", "dense", rank=1)])
+    sparse = FakeSparseRetriever([_candidate("s", "sparse", rank=1)])
+    engine = _engine(dense=dense, sparse=sparse)
+    trace = TraceContext(trace_type="query")
+
+    results = engine.search(
+        QueryRequest(query="lease generation", collection="docs", top_k=2),
+        trace=trace,
+    )
+    trace.finish()
+
+    required_stages = {
+        "query_processing",
+        "dense_retrieval",
+        "sparse_retrieval",
+        "fusion",
+        "rerank",
+    }
+    stages = {stage["stage"]: stage for stage in trace.stages}
+    assert required_stages <= stages.keys()
+    for stage_name in required_stages:
+        stage = stages[stage_name]
+        assert isinstance(stage["elapsed_ms"], float)
+        assert stage["elapsed_ms"] >= 0
+        assert isinstance(stage["data"]["method"], str)
+        assert stage["data"]["method"]
+        assert isinstance(stage["data"]["provider"], str)
+        assert isinstance(stage["data"]["details"], dict)
+
+    assert trace.to_dict()["trace_type"] == "query"
+    assert dense.traces == [trace]
+    assert sparse.traces == [trace]
+    assert [result.chunk_id for result in results] == ["d", "s"]
+
+
 def test_search_keeps_results_when_one_retrieval_route_fails() -> None:
     dense = FakeDenseRetriever([], error=RuntimeError("embedding unavailable"))
     sparse = FakeSparseRetriever([_candidate("s", "sparse", rank=1)])
     engine = _engine(dense=dense, sparse=sparse)
+    trace = TraceContext()
 
-    results = engine.search(QueryRequest(query="lease", collection="docs", top_k=1))
+    results = engine.search(
+        QueryRequest(query="lease", collection="docs", top_k=1),
+        trace=trace,
+    )
 
     assert [result.chunk_id for result in results] == ["s"]
+    dense_stage = next(stage for stage in trace.stages if stage["stage"] == "dense_retrieval")
+    sparse_stage = next(stage for stage in trace.stages if stage["stage"] == "sparse_retrieval")
+    assert dense_stage["data"]["details"]["status"] == "error"
+    assert dense_stage["data"]["details"]["error"] == "embedding unavailable"
+    assert sparse_stage["data"]["details"]["status"] == "success"
 
 
 def test_search_raises_when_every_enabled_route_fails() -> None:

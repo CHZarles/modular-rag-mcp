@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -41,6 +42,13 @@ class HybridSearchConfig:
             raise ValueError("hybrid search must enable at least one retrieval route")
 
 
+@dataclass(frozen=True)
+class _RouteOutcome:
+    candidates: list[RetrievalCandidate]
+    elapsed_ms: float
+    error: str | None = None
+
+
 class HybridQueryEngine:
     """执行查询预处理、并行双路召回、融合、过滤与重排序。"""
 
@@ -73,10 +81,35 @@ class HybridQueryEngine:
         request: QueryRequest,
         trace: object | None = None,
     ) -> list[RetrievalCandidate]:
-        processed = self.query_processor.process(request, trace=trace)
+        search_started = time.monotonic()
+        processing_started = time.monotonic()
+        try:
+            processed = self.query_processor.process(request, trace=trace)
+        except Exception as exc:
+            _record_trace_stage(
+                trace,
+                "query_processing",
+                method="process",
+                provider=type(self.query_processor).__name__,
+                details={"status": "error", "error": str(exc)},
+                started=processing_started,
+            )
+            raise
+        _record_trace_stage(
+            trace,
+            "query_processing",
+            method="process",
+            provider=type(self.query_processor).__name__,
+            details={
+                "status": "success",
+                "keyword_count": len(processed.keywords),
+                "filter_count": len(processed.filters),
+            },
+            started=processing_started,
+        )
         filters = _merge_filters(processed.filters, request.filters, request.collection)
 
-        routes: list[tuple[str, Callable[[], list[RetrievalCandidate]]]] = []
+        routes: list[tuple[str, str, Callable[[], list[RetrievalCandidate]]]] = []
         errors: JsonDict = {}
 
         # 两路互不依赖：并发执行可让远程 Embedding 等待与本地 BM25 查询重叠。
@@ -85,6 +118,7 @@ class HybridQueryEngine:
             routes.append(
                 (
                     "dense",
+                    type(dense_retriever).__name__,
                     lambda: dense_retriever.retrieve(
                         processed.standalone_query,
                         top_k=self.config.dense_top_k,
@@ -99,6 +133,7 @@ class HybridQueryEngine:
             routes.append(
                 (
                     "sparse",
+                    type(sparse_retriever).__name__,
                     lambda: sparse_retriever.retrieve(
                         processed.keywords,
                         top_k=self.config.sparse_top_k,
@@ -113,29 +148,93 @@ class HybridQueryEngine:
             max_workers=len(routes),
             thread_name_prefix="hybrid-search",
         ) as executor:
-            futures = [(name, executor.submit(retrieve)) for name, retrieve in routes]
+            futures = [
+                (name, provider, executor.submit(_run_route, retrieve))
+                for name, provider, retrieve in routes
+            ]
             # 按 Dense、Sparse 的固定路由顺序取回结果，避免完成时序改变 RRF 同分结果。
-            for name, future in futures:
-                try:
-                    ranked_lists.append(future.result())
-                except Exception as exc:
+            for name, provider, future in futures:
+                outcome = future.result()
+                details: JsonDict = {
+                    "status": "error" if outcome.error is not None else "success",
+                    "requested_top_k": (
+                        self.config.dense_top_k if name == "dense" else self.config.sparse_top_k
+                    ),
+                    "result_count": len(outcome.candidates),
+                }
+                if outcome.error is not None:
+                    details["error"] = outcome.error
                     # 单路失败时保留另一条通道的结果，满足混合检索的降级语义。
-                    errors[name] = str(exc)
+                    errors[name] = outcome.error
+                else:
+                    ranked_lists.append(outcome.candidates)
+                _record_trace_stage(
+                    trace,
+                    f"{name}_retrieval",
+                    method=name,
+                    provider=provider,
+                    details=details,
+                    elapsed_ms=outcome.elapsed_ms,
+                )
 
         # 所有通道都失败不能伪装成“查询没有命中”，否则上层无法区分空结果与系统故障。
         if not ranked_lists and errors:
-            details = "; ".join(f"{name}: {errors[name]}" for name, _ in routes)
-            raise RuntimeError(f"all retrieval routes failed: {details}")
+            failure_details = "; ".join(f"{name}: {errors[name]}" for name, _, _ in routes)
+            raise RuntimeError(f"all retrieval routes failed: {failure_details}")
 
         # 融合阶段多保留一批候选，为后续元数据过滤与重排留出余量。
-        fused = self.fusion.fuse(
-            [ranked for ranked in ranked_lists if ranked],
-            top_k=max(request.top_k, self.config.fusion_top_k),
-            trace=trace,
+        nonempty_rankings = [ranked for ranked in ranked_lists if ranked]
+        fusion_top_k = max(request.top_k, self.config.fusion_top_k)
+        fusion_started = time.monotonic()
+        try:
+            fused = self.fusion.fuse(
+                nonempty_rankings,
+                top_k=fusion_top_k,
+                trace=trace,
+            )
+        except Exception as exc:
+            _record_trace_stage(
+                trace,
+                "fusion",
+                method="fuse",
+                provider=type(self.fusion).__name__,
+                details={"status": "error", "error": str(exc)},
+                started=fusion_started,
+            )
+            raise
+        _record_trace_stage(
+            trace,
+            "fusion",
+            method="fuse",
+            provider=type(self.fusion).__name__,
+            details={
+                "status": "success",
+                "input_list_count": len(nonempty_rankings),
+                "input_count": sum(len(ranked) for ranked in nonempty_rankings),
+                "output_count": len(fused),
+                "top_k": fusion_top_k,
+            },
+            started=fusion_started,
         )
+
+        filter_started = time.monotonic()
         filtered = self.metadata_filter.apply(fused, filters, trace=trace)
+        _record_trace_stage(
+            trace,
+            "metadata_filter",
+            method="filter",
+            provider=type(self.metadata_filter).__name__,
+            details={
+                "status": "success",
+                "input_count": len(fused),
+                "output_count": len(filtered),
+                "filter_count": len(filters),
+            },
+            started=filter_started,
+        )
 
         # 重排器属于可选增强，异常时回退到已经过滤的融合顺序。
+        rerank_started = time.monotonic()
         try:
             reranked = self.reranker.rerank(
                 processed.standalone_query,
@@ -146,16 +245,68 @@ class HybridQueryEngine:
         except Exception as exc:
             errors["rerank"] = str(exc)
             reranked = filtered[: request.top_k]
-
-        if trace is not None and hasattr(trace, "record_stage"):
-            trace.record_stage(
-                "query_engine",
-                {"result_count": len(reranked), "errors": errors},
+            _record_trace_stage(
+                trace,
+                "rerank",
+                method="fallback",
+                provider=type(self.reranker).__name__,
+                details={
+                    "status": "fallback",
+                    "error": str(exc),
+                    "input_count": len(filtered),
+                    "output_count": len(reranked),
+                },
+                started=rerank_started,
             )
+
+        _record_trace_stage(
+            trace,
+            "query_engine",
+            method="hybrid_search",
+            provider=type(self).__name__,
+            details={"result_count": len(reranked), "errors": errors},
+            started=search_started,
+        )
         return reranked[: request.top_k]
 
 
 HybridSearch = HybridQueryEngine
+
+
+def _run_route(
+    retrieve: Callable[[], list[RetrievalCandidate]],
+) -> _RouteOutcome:
+    started = time.monotonic()
+    try:
+        candidates = retrieve()
+    except Exception as exc:
+        return _RouteOutcome([], _elapsed_ms(started), str(exc) or type(exc).__name__)
+    return _RouteOutcome(candidates, _elapsed_ms(started))
+
+
+def _record_trace_stage(
+    trace: object | None,
+    stage_name: str,
+    *,
+    method: str,
+    provider: str,
+    details: JsonDict,
+    started: float | None = None,
+    elapsed_ms: float | None = None,
+) -> None:
+    if trace is None or not hasattr(trace, "record_stage"):
+        return
+    timing_start = started if started is not None else time.monotonic()
+    duration = elapsed_ms if elapsed_ms is not None else _elapsed_ms(timing_start)
+    trace.record_stage(
+        stage_name,
+        {"method": method, "provider": provider, "details": details},
+        elapsed_ms=duration,
+    )
+
+
+def _elapsed_ms(started: float) -> float:
+    return (time.monotonic() - started) * 1000.0
 
 
 def _merge_filters(

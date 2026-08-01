@@ -10,6 +10,7 @@ from threading import Event
 import pytest
 
 from src.core.query_engine.reranker import FallbackReranker, NoneReranker
+from src.core.trace import TraceContext
 from src.core.types import RetrievalCandidate
 from src.libs.reranker import RerankerFactory, create_reranker
 from src.ports.query import BaseReranker
@@ -93,8 +94,9 @@ def test_reranker_limits_backend_input_and_returns_backend_order() -> None:
 def test_reranker_falls_back_to_fusion_order_and_marks_reason() -> None:
     candidates = [_candidate("a", 1), _candidate("b", 2), _candidate("c", 3)]
     reranker = FallbackReranker(FailingReranker(), backend_name="failing")
+    trace = TraceContext()
 
-    results = reranker.rerank("lease", candidates, top_k=2)
+    results = reranker.rerank("lease", candidates, top_k=2, trace=trace)
 
     assert [item.chunk_id for item in results] == ["a", "b"]
     assert all(item.source == "fusion" for item in results)
@@ -107,6 +109,21 @@ def test_reranker_falls_back_to_fusion_order_and_marks_reason() -> None:
         },
     }
     assert "rerank" not in candidates[0].debug
+    stage = trace.stages[0]
+    assert stage["stage"] == "rerank"
+    assert stage["elapsed_ms"] >= 0
+    assert stage["data"] == {
+        "method": "failing",
+        "provider": "FailingReranker",
+        "details": {
+            "status": "fallback",
+            "input_count": 3,
+            "output_count": 2,
+            "top_k": 2,
+            "fallback": True,
+            "reason": "backend unavailable",
+        },
+    }
 
 
 def test_reranker_timeout_returns_without_waiting_for_blocked_backend() -> None:
