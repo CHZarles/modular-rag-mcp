@@ -175,7 +175,8 @@ def test_stdio_routes_tools_list_and_returns_standard_protocol_errors() -> None:
         for message in received
     }
     assert [tool["name"] for tool in responses[2]["result"]["tools"]] == [
-        "query_knowledge_hub"
+        "query_knowledge_hub",
+        "list_collections",
     ]
     assert responses[3]["error"]["code"] == types.METHOD_NOT_FOUND
     assert responses[4]["error"]["code"] == types.METHOD_NOT_FOUND
@@ -204,7 +205,10 @@ def test_query_knowledge_hub_runs_through_official_mcp_session() -> None:
                 async with ClientSession(client_receive, client_send) as session:
                     await session.initialize()
                     listed = await session.list_tools()
-                    assert [tool.name for tool in listed.tools] == ["query_knowledge_hub"]
+                    assert [tool.name for tool in listed.tools] == [
+                        "query_knowledge_hub",
+                        "list_collections",
+                    ]
                     result = await session.call_tool(
                         "query_knowledge_hub",
                         {"query": "generation fence", "top_k": 2, "collection": "docs"},
