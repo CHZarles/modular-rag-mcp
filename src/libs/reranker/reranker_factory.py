@@ -32,6 +32,7 @@ class RerankerFactory:
     @classmethod
     def create(cls, settings: Any) -> BaseReranker:
         """从 Settings 或 rerank 配置字典创建对应的重排序器。"""
+        _register_default_backends()
         config = _rerank_config(settings)
         backend = str(config.get("backend", "")).strip().lower()
         if not backend:
@@ -46,7 +47,7 @@ class RerankerFactory:
 
         top_m = _optional_positive_int(config, "top_m")
         timeout_seconds = _optional_positive_float(config, "timeout_seconds")
-        implementation = backend_factory(config)
+        implementation = backend_factory(_backend_config(settings, config))
         # none 本身不会失败，也没有远程耗时；避免为默认空操作创建线程池包装。
         if backend == "none":
             return implementation
@@ -74,6 +75,21 @@ def _rerank_config(settings: Any) -> Mapping[str, Any]:
     return config
 
 
+def _backend_config(settings: Any, config: Mapping[str, Any]) -> Mapping[str, Any]:
+    """给具体后端补充所需的顶层配置，同时保持原 rerank 字段不变。"""
+    backend_config = dict(config)
+    if "llm" in backend_config:
+        return backend_config
+
+    if isinstance(settings, Mapping):
+        llm_config = settings.get("llm") if "rerank" in settings else None
+    else:
+        llm_config = getattr(settings, "llm", None)
+    if isinstance(llm_config, Mapping):
+        backend_config["llm"] = llm_config
+    return backend_config
+
+
 def _optional_positive_int(config: Mapping[str, Any], key: str) -> int | None:
     value = config.get(key)
     if value is None:
@@ -90,6 +106,15 @@ def _optional_positive_float(config: Mapping[str, Any], key: str) -> float | Non
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         raise ValueError(f"rerank.{key} must be a positive number")
     return float(value)
+
+
+def _register_default_backends() -> None:
+    if "llm" in RerankerFactory._backends:
+        return
+
+    from src.libs.reranker.llm_reranker import LLMReranker
+
+    RerankerFactory.register("llm", lambda config: LLMReranker(config))
 
 
 RerankerFactory.register("none", lambda config: NoneReranker())
