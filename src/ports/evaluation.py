@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from src.core.types import EvaluationCase, EvaluationReport, QueryResponse
@@ -27,8 +28,7 @@ class EvalRunner(Protocol):
 
     def run(
         self,
-        cases: list[EvaluationCase],
-        evaluators: list[BaseEvaluator],
+        test_set_path: str | Path,
     ) -> EvaluationReport: ...
 
 
