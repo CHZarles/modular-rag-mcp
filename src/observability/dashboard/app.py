@@ -14,6 +14,9 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.observability.dashboard.pages.data_browser import (  # noqa: E402
     render as render_data_browser,
 )
+from src.observability.dashboard.pages.evaluation_panel import (  # noqa: E402
+    render as render_evaluation_panel,
+)
 from src.observability.dashboard.pages.ingestion_manager import (  # noqa: E402
     render as render_ingestion_manager,
 )
@@ -24,15 +27,6 @@ from src.observability.dashboard.pages.overview import render as render_overview
 from src.observability.dashboard.pages.query_traces import (  # noqa: E402
     render as render_query_traces,
 )
-
-
-def _placeholder(title: str, message: str = "此页面将在后续开发阶段开放。") -> None:
-    st.title(title)
-    st.info(message)
-
-
-def _evaluation_panel() -> None:
-    _placeholder("评估面板", "评估模块尚未启用。")
 
 
 def main() -> None:
@@ -87,7 +81,12 @@ def main() -> None:
                 ),
             ],
             "Quality": [
-                st.Page(_evaluation_panel, title="评估面板", icon=":material/analytics:"),
+                st.Page(
+                    render_evaluation_panel,
+                    title="评估面板",
+                    icon=":material/analytics:",
+                    url_path="evaluation",
+                ),
             ],
         },
         position="sidebar",
