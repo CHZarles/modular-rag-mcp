@@ -145,13 +145,12 @@ def _render_ingestion(
         if collection_config is not None
         else _collection_options(settings, collections)
     )
-    selection, created_collection = _render_collection_picker(
+    collection = st.selectbox(
+        "Collection",
         options,
-        collection_config,
+        accept_new_options=True,
+        key="ingestion_collection",
     )
-    if created_collection:
-        return
-    collection = selection
     uploaded = st.file_uploader("PDF 文件", type=["pdf"], key="ingestion_pdf")
     ai_enrichment = st.toggle(
         "AI 增强",
@@ -195,52 +194,6 @@ def _render_ingestion(
         return
     st.session_state[_JOB_KEY] = job.job_id
     st.rerun()
-
-
-def _render_collection_picker(
-    options: list[str],
-    collection_config: ConfigService | None,
-) -> tuple[str, bool]:
-    controls = st.columns([2, 2, 1], gap="small")
-    with controls[0]:
-        collection = st.selectbox(
-            "Collection",
-            options,
-            accept_new_options=True,
-            key="ingestion_collection",
-        )
-    created = False
-    if collection_config is not None:
-        with controls[1]:
-            new_collection = st.text_input(
-                "New collection",
-                key="ingestion_new_collection",
-            )
-        with controls[2]:
-            st.write("")
-            create_clicked = st.button(
-                ":material/add:",
-                key="ingestion_create_collection",
-                help="新建 Collection",
-                type="tertiary",
-            )
-        if create_clicked:
-            created = _create_collection(collection_config, new_collection)
-            if created:
-                st.session_state["ingestion_collection"] = new_collection.strip()
-                _load_services.clear()
-                st.rerun()
-    return str(collection), created
-
-
-def _create_collection(config: ConfigService, name: str) -> bool:
-    try:
-        config.add_collection(name)
-    except Exception as exc:
-        st.error("Collection 创建失败。")
-        st.caption(f"{type(exc).__name__}: {exc}")
-        return False
-    return True
 
 
 def _collection_options(settings: Settings, indexed_collections: list[str]) -> list[str]:
