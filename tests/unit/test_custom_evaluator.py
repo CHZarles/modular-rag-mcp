@@ -95,6 +95,43 @@ def test_custom_evaluator_computes_source_level_recall_for_stable_golden_sets() 
     }
 
 
+def test_custom_evaluator_normalizes_source_basename_and_case_across_platforms() -> None:
+    case = EvaluationCase(
+        case_id="q1",
+        query="where?",
+        metadata={"expected_sources": [r"C:\golden\GUIDE.PDF"]},
+    )
+    result = response("first", "matching")
+    result.items[0].metadata["source_path"] = "/documents/other.pdf"
+    result.items[1].metadata["source"] = "/runtime/guide.pdf"
+
+    assert CustomEvaluator().evaluate(case, result) == {
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "source_hit_rate": 1.0,
+        "source_mrr": 0.5,
+    }
+
+
+@pytest.mark.parametrize(
+    "expected_sources",
+    [None, "guide.pdf", [], [""], [None, 1]],
+)
+def test_custom_evaluator_omits_source_metrics_without_valid_source_contract(
+    expected_sources: object,
+) -> None:
+    case = EvaluationCase(
+        case_id="q1",
+        query="where?",
+        metadata={"expected_sources": expected_sources},
+    )
+
+    assert CustomEvaluator().evaluate(case, response("missing")) == {
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+    }
+
+
 def test_factory_creates_custom_evaluator_from_settings() -> None:
     settings = Settings(
         knowledge_service={"mode": "local"},
@@ -142,3 +179,14 @@ def test_factory_composes_multiple_backends() -> None:
     evaluator = EvaluatorFactory.create({"backends": ["custom", "fixed"]})
 
     assert evaluator.name == "composite"
+
+
+def test_factory_backend_override_accepts_config_without_backend_list() -> None:
+    evaluator = create_evaluator({}, backend=" CUSTOM ")
+
+    assert isinstance(evaluator, CustomEvaluator)
+
+
+def test_evaluator_factory_rejects_empty_registered_name() -> None:
+    with pytest.raises(ValueError, match="backend name must not be empty"):
+        EvaluatorFactory.register(" ", lambda config: FixedEvaluator())

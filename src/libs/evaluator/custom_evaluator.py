@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from src.core.types import EvaluationCase, QueryResponse
@@ -42,9 +41,7 @@ def _source_metrics(case: EvaluationCase, response: QueryResponse) -> dict[str, 
     if not isinstance(raw_sources, list) or not raw_sources:
         return {}
     expected = {
-        Path(source).name.casefold()
-        for source in raw_sources
-        if isinstance(source, str) and source.strip()
+        _source_name(source) for source in raw_sources if isinstance(source, str) and source.strip()
     }
     if not expected:
         return {}
@@ -64,7 +61,12 @@ def _source_metrics(case: EvaluationCase, response: QueryResponse) -> dict[str, 
 
 def _candidate_source_name(metadata: dict[str, Any]) -> str:
     value = metadata.get("source_path") or metadata.get("source")
-    return Path(value).name.casefold() if isinstance(value, str) else ""
+    return _source_name(value) if isinstance(value, str) else ""
+
+
+def _source_name(value: str) -> str:
+    """Normalize persisted source names independently of the current host OS."""
+    return value.strip().replace("\\", "/").rsplit("/", 1)[-1].casefold()
 
 
 __all__ = ["CustomEvaluator"]
