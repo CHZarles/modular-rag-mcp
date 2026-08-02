@@ -53,6 +53,8 @@ vector_store:
 
 # Dense and sparse candidates are fused with reciprocal rank fusion.
 retrieval:
+  enable_dense: true
+  enable_sparse: true
   sparse_backend: bm25
   fusion_algorithm: rrf
   top_k_dense: 20

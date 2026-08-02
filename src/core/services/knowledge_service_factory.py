@@ -90,7 +90,11 @@ def build_local_query_engine(
         _required_text(storage, "integrity_db_path", "ingestion.storage")
     )
     retrieval = settings.retrieval
-    if _required_text(retrieval, "sparse_backend", "retrieval").lower() != "bm25":
+    enable_dense = _optional_bool(retrieval, "enable_dense", "retrieval", default=True)
+    enable_sparse = _optional_bool(retrieval, "enable_sparse", "retrieval", default=True)
+    if not enable_dense and not enable_sparse:
+        raise ValueError("retrieval must enable at least one retrieval route")
+    if enable_sparse and _required_text(retrieval, "sparse_backend", "retrieval").lower() != "bm25":
         raise ValueError("Unsupported sparse backend; local mode currently requires bm25")
     if _required_text(retrieval, "fusion_algorithm", "retrieval").lower() != "rrf":
         raise ValueError("Unsupported fusion algorithm; local mode currently requires rrf")
@@ -107,16 +111,24 @@ def build_local_query_engine(
 
     return HybridQueryEngine(
         query_processor=QueryProcessor(),
-        dense_retriever=DenseRetriever(
-            create_embedding(settings),
-            create_vector_store(settings),
-            generation_store=integrity,
-        ),
-        sparse_retriever=SparseRetriever(
-            BM25Indexer(
-                _required_text(storage, "bm25_path", "ingestion.storage"),
+        dense_retriever=(
+            DenseRetriever(
+                create_embedding(settings),
+                create_vector_store(settings),
                 generation_store=integrity,
             )
+            if enable_dense
+            else None
+        ),
+        sparse_retriever=(
+            SparseRetriever(
+                BM25Indexer(
+                    _required_text(storage, "bm25_path", "ingestion.storage"),
+                    generation_store=integrity,
+                )
+            )
+            if enable_sparse
+            else None
         ),
         fusion=RRFFusion(),
         metadata_filter=ExactMetadataFilter(),
@@ -125,6 +137,8 @@ def build_local_query_engine(
             dense_top_k=_positive_int(retrieval, "top_k_dense", "retrieval"),
             sparse_top_k=_positive_int(retrieval, "top_k_sparse", "retrieval"),
             fusion_top_k=fusion_top_k,
+            enable_dense=enable_dense,
+            enable_sparse=enable_sparse,
         ),
     )
 
@@ -162,3 +176,16 @@ def _optional_positive_int(
     if config.get(key) is None:
         return None
     return _positive_int(config, key, section)
+
+
+def _optional_bool(
+    config: Mapping[str, Any],
+    key: str,
+    section: str,
+    *,
+    default: bool,
+) -> bool:
+    value = config.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"Setting {section}.{key} must be a boolean")
+    return value

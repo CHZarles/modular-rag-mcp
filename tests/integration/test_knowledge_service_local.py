@@ -8,7 +8,12 @@ from typing import Any
 
 import pytest
 
-from src.core.services import LocalKnowledgeService, SQLiteKnowledgeCatalog, build_knowledge_service
+from src.core.services import (
+    LocalKnowledgeService,
+    SQLiteKnowledgeCatalog,
+    build_knowledge_service,
+    build_local_query_engine,
+)
 from src.core.settings import Settings
 from src.core.types import ChunkRecord, ClaimHandle, JsonDict, QueryRequest, SearchHit
 from src.libs.embedding import EmbeddingFactory
@@ -114,7 +119,9 @@ def test_sqlite_catalog_only_exposes_active_generations(tmp_path: Path) -> None:
 
     catalog = SQLiteKnowledgeCatalog(store)
 
-    assert [(item.name, item.document_count, item.chunk_count) for item in catalog.list_collections()] == [
+    assert [
+        (item.name, item.document_count, item.chunk_count) for item in catalog.list_collections()
+    ] == [
         ("docs", 1, 3),
         ("notes", 1, 2),
     ]
@@ -126,6 +133,39 @@ def test_sqlite_catalog_only_exposes_active_generations(tmp_path: Path) -> None:
     assert catalog.get_document_summary("revision-b").doc_id == active_b.doc_key
     with pytest.raises(KeyError, match="document not found"):
         catalog.get_document_summary("missing")
+
+
+def test_local_factory_can_build_sparse_only_without_dense_backends(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    settings.retrieval["enable_dense"] = False
+    settings.retrieval["enable_sparse"] = True
+    monkeypatch.setattr(
+        "src.core.services.knowledge_service_factory.create_embedding",
+        lambda settings: pytest.fail("disabled dense route must not create an embedding"),
+    )
+    monkeypatch.setattr(
+        "src.core.services.knowledge_service_factory.create_vector_store",
+        lambda settings: pytest.fail("disabled dense route must not create a vector store"),
+    )
+
+    engine = build_local_query_engine(settings)
+
+    assert engine.config.enable_dense is False
+    assert engine.config.enable_sparse is True
+    assert engine.dense_retriever is None
+    assert engine.sparse_retriever is not None
+
+
+def test_local_factory_rejects_disabling_every_retrieval_route(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    settings.retrieval["enable_dense"] = False
+    settings.retrieval["enable_sparse"] = False
+
+    with pytest.raises(ValueError, match="at least one retrieval route"):
+        build_local_query_engine(settings)
 
 
 def _publish(

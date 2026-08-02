@@ -205,6 +205,64 @@ initialize / tools/list
 查询时，依赖故障才会按内部错误返回。同步的知识查询通过 `asyncio.to_thread()` 执行，
 避免阻塞官方 SDK 的异步协议循环。
 
+## 如何验证真实 MCP 进程边界
+
+内存流集成测试能验证 Server 路由，但不能证明命令行启动、环境继承、stdio 管道和真实本地
+索引可以一起工作。I1 因此使用官方 `stdio_client` 启动独立 Python 子进程，再由官方
+`ClientSession` 顺序执行：
+
+```text
+父进程：生成 PDF -> 摄取到临时 SQLite / BM25 / Chroma
+                         │
+                         └─ 持久化文件
+                                  │
+官方 stdio_client -> 启动 MCP Server 子进程
+                                  │ initialize
+                                  │ tools/list
+                                  │ tools/call(query_knowledge_hub)
+                                  ▼
+                         structuredContent.citations
+```
+
+这条测试刻意不直接调用 `create_mcp_server()`，因为那会绕开几个生产环境中常见的故障点：
+
+- 子进程入口能否通过 `python -m src.mcp_server.server` 正常启动；
+- stdout 是否只承载 JSON-RPC，日志是否留在 stderr；
+- initialize 之后，Client 是否能发现并调用真实 Tool；
+- 服务能否从磁盘恢复父进程刚构建的索引；
+- MCP 返回经过 SDK 序列化后是否仍包含结构化引用。
+
+### 为什么使用 RAG_SETTINGS_PATH
+
+MCP Server 是独立进程，不能直接接收 pytest 中的 Python 对象。启动参数通过
+`RAG_SETTINGS_PATH` 指向临时配置，让子进程和父进程读取同一组持久化路径。没有这个配置
+注入点，测试只能污染仓库默认数据目录，多个测试或多个工作区也容易互相干扰。
+
+默认服务仍采用延迟初始化，环境变量在第一次 Tool 调用时读取；若未设置，则回退到
+`config/settings.yaml`。服务创建后继续按进程缓存，因此运行期间切换环境变量不会热加载。
+
+### 为什么 E2E 查询只启用 BM25
+
+摄取阶段需要生成 Dense Vector，所以父进程注册一个确定性测试 Embedding，并把向量和
+BM25 索引都写入磁盘。但 Python Provider 注册表是进程内状态，不会自动复制到 Server
+子进程。让子进程再次使用该测试 Provider，反而会把测试绑到隐式跨进程状态上。
+
+查询工厂现在支持两个独立开关：
+
+```yaml
+retrieval:
+  enable_dense: false
+  enable_sparse: true
+```
+
+关闭 Dense 后，工厂不会创建 Embedding Provider 或 Vector Store；Server 只从共享的
+BM25 快照查询。这样测试不依赖网络、API Key 或父进程注册表，同时仍然验证真实 PDF、
+真实摄取结果、generation 可见性、查询编排和 Citation 生成。生产默认配置仍同时启用
+Dense 与 Sparse，不改变正常的混合检索行为。
+
+两路都关闭会在装配阶段失败，而不是让运行时把“没有检索通道”伪装成“没有搜索结果”。
+配置值也必须是真正的布尔值，避免字符串 `"false"` 在 Python 中因 truthy 语义被误判。
+
 ## 当前实际能力边界
 
 ### 1. 当前 answer 不是 LLM 综合生成的最终回答
@@ -270,6 +328,8 @@ debug。只有出现明确客户端需求后，再扩展稳定输出 Schema。
 - `tests/unit/test_response_builder.py` 覆盖 Markdown、结构化引用和空结果；
 - `tests/integration/test_mcp_server.py` 使用官方 `ClientSession` 验证
   `initialize -> tools/list -> tools/call` 完整流程；
+- `tests/e2e/test_mcp_client.py` 使用官方 stdio Client 启动真实子进程，从临时持久化索引
+  查询并断言结构化 citations；
 - 当前 E3 完整回归结果：`254 passed, 5 skipped`；
 - E3 代码已通过 Ruff、全量源码 Mypy、compileall 和 `git diff --check`。
 

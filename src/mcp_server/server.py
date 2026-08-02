@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -94,7 +95,8 @@ def _build_default_knowledge_service() -> KnowledgeService:
     from src.core.services import build_knowledge_service
     from src.core.settings import load_settings
 
-    settings = load_settings(str(DEFAULT_SETTINGS_PATH))
+    settings_path = os.environ.get("RAG_SETTINGS_PATH", str(DEFAULT_SETTINGS_PATH))
+    settings = load_settings(settings_path)
     return build_knowledge_service(settings)
 
 
