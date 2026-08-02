@@ -2,14 +2,51 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.core.settings import ConfigSection, Settings, load_settings
+import yaml
+
+from src.core.settings import (
+    LOCAL_SECRETS_FILENAME,
+    LOCAL_SETTINGS_FILENAME,
+    ConfigSection,
+    Settings,
+    load_settings,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
+
+_COMPONENT_SECTIONS = {
+    "GEN": "llm",
+    "EMB": "embedding",
+    "SPLIT": "splitter",
+    "RANK": "rerank",
+    "STORE": "vector_store",
+    "EVAL": "evaluation",
+}
+_EDITABLE_FIELDS = {
+    "GEN": {"provider", "model", "base_url", "endpoint", "timeout_seconds"},
+    "EMB": {
+        "provider",
+        "model",
+        "base_url",
+        "group_id",
+        "dimension",
+        "endpoint",
+        "deployment_name",
+        "api_version",
+        "timeout_seconds",
+    },
+    "SPLIT": {"provider", "chunk_size", "chunk_overlap"},
+    "RANK": {"backend", "model", "top_m", "timeout_seconds"},
+    "STORE": {"backend", "persist_path", "collection_name", "distance_metric"},
+    "EVAL": {"backends", "golden_test_set"},
+}
+_SECRET_NAMES = {"GEN": "RAG_LLM_API_KEY", "EMB": "RAG_EMBEDDING_API_KEY"}
 
 
 @dataclass(frozen=True)
@@ -42,12 +79,56 @@ class DashboardOptions:
 class ConfigService:
     """Load Settings once and expose only values suitable for the dashboard."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, settings_path: str | Path | None = None) -> None:
         self.settings = settings
+        self.settings_path = Path(settings_path).expanduser() if settings_path else None
 
     @classmethod
     def from_path(cls, path: str | Path = DEFAULT_SETTINGS_PATH) -> ConfigService:
-        return cls(load_settings(str(Path(path).expanduser())))
+        settings_path = Path(path).expanduser()
+        return cls(load_settings(str(settings_path)), settings_path)
+
+    def component_config(self, code: str) -> ConfigSection:
+        """Return a copy of one component's resolved runtime configuration."""
+        section_name = _component_section(code)
+        section = getattr(self.settings, section_name)
+        return dict(section)
+
+    def update_component(
+        self,
+        code: str,
+        values: ConfigSection,
+        *,
+        api_key: str | None = None,
+    ) -> None:
+        """Persist dashboard edits as ignored local overrides without touching base YAML."""
+        if self.settings_path is None:
+            raise ValueError("component configuration requires a settings file path")
+        normalized_code = code.strip().upper()
+        section_name = _component_section(normalized_code)
+        unknown = set(values) - _EDITABLE_FIELDS[normalized_code]
+        if unknown:
+            names = ", ".join(sorted(unknown))
+            raise ValueError(f"unsupported {section_name} settings: {names}")
+
+        updates = dict(values)
+        clean_key = api_key.strip() if api_key is not None else ""
+        if clean_key:
+            secret_name = _SECRET_NAMES.get(normalized_code)
+            if secret_name is None:
+                raise ValueError(f"component {normalized_code} does not accept an API key")
+            _merge_yaml_file(
+                self.settings_path.with_name(LOCAL_SECRETS_FILENAME),
+                {secret_name: clean_key},
+                private=True,
+            )
+            updates["api_key"] = f"${{{secret_name}}}"
+
+        _merge_yaml_file(
+            self.settings_path.with_name(LOCAL_SETTINGS_FILENAME),
+            {section_name: updates},
+            private=False,
+        )
 
     def component_summaries(self) -> tuple[ComponentSummary, ...]:
         settings = self.settings
@@ -183,6 +264,44 @@ def _project_path(value: Any, *, default: str) -> Path:
     raw = str(value if value not in (None, "") else default)
     path = Path(raw).expanduser()
     return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def _component_section(code: str) -> str:
+    normalized = code.strip().upper()
+    try:
+        return _COMPONENT_SECTIONS[normalized]
+    except KeyError as exc:
+        raise ValueError(f"unknown dashboard component: {code}") from exc
+
+
+def _merge_yaml_file(path: Path, updates: dict[str, Any], *, private: bool) -> None:
+    current: dict[str, Any] = {}
+    if path.exists():
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError(f"local configuration must be a YAML mapping: {path}")
+        current = loaded
+    merged = _merge_mapping(current, updates)
+    content = yaml.safe_dump(merged, sort_keys=False, allow_unicode=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(content, encoding="utf-8")
+    if private:
+        temporary.chmod(0o600)
+    os.replace(temporary, path)
+    if private:
+        path.chmod(0o600)
+
+
+def _merge_mapping(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in updates.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _merge_mapping(current, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 __all__ = [

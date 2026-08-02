@@ -106,6 +106,52 @@ def test_load_settings_expands_environment_variables(
     assert load_settings(str(path)).llm["model"] == "MiniMax-M3"
 
 
+def test_load_settings_merges_local_overrides_and_secrets(tmp_path: Path) -> None:
+    path = write_settings(
+        tmp_path / "settings.yaml",
+        VALID_SETTINGS.replace(
+            "embedding:\n  provider: openai\n",
+            "embedding:\n  provider: openai\n  api_key: ${RAG_EMBEDDING_API_KEY}\n",
+        ),
+    )
+    (tmp_path / "settings.local.yaml").write_text(
+        "embedding:\n  provider: minimax\n  model: embo-01\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "secrets.local.yaml").write_text(
+        "RAG_EMBEDDING_API_KEY: local-secret\n",
+        encoding="utf-8",
+    )
+
+    settings = load_settings(str(path))
+
+    assert settings.embedding == {
+        "provider": "minimax",
+        "model": "embo-01",
+        "api_key": "local-secret",
+    }
+
+
+def test_environment_takes_precedence_over_local_secret(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("RAG_EMBEDDING_API_KEY", "environment-secret")
+    path = write_settings(
+        tmp_path / "settings.yaml",
+        VALID_SETTINGS.replace(
+            "embedding:\n  provider: openai\n",
+            "embedding:\n  provider: openai\n  api_key: ${RAG_EMBEDDING_API_KEY}\n",
+        ),
+    )
+    (tmp_path / "secrets.local.yaml").write_text(
+        "RAG_EMBEDDING_API_KEY: local-secret\n",
+        encoding="utf-8",
+    )
+
+    assert load_settings(str(path)).embedding["api_key"] == "environment-secret"
+
+
 def test_resolve_settings_path_uses_explicit_then_environment_then_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

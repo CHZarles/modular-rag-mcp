@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from src.core.types import JsonDict, RetrievalCandidate, SearchHit
-from src.ports.ingestion import BaseEmbedding, BaseVectorStore, GenerationStateStore
+from src.ports.ingestion import (
+    BaseEmbedding,
+    BaseVectorStore,
+    GenerationStateStore,
+    QueryEmbedding,
+)
 
 
 class DenseRetriever:
@@ -40,8 +45,11 @@ class DenseRetriever:
             raise ValueError("dense retriever top_k must be positive")
         if not query.strip():
             return []
-        # 查询只生成一个向量；批量接口由摄取和其他调用方共同复用。
-        vectors = self.embedding.embed([query], trace=trace)
+        # MiniMax 等 Provider 会区分 query/db；其余 Provider 继续复用批量接口。
+        if isinstance(self.embedding, QueryEmbedding):
+            vectors = [self.embedding.embed_query(query, trace=trace)]
+        else:
+            vectors = self.embedding.embed([query], trace=trace)
         if len(vectors) != 1:
             raise ValueError("dense retriever embedding count must equal one")
         if not vectors[0]:

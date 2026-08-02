@@ -1,14 +1,18 @@
 """配置文件加载与校验。"""
 
 import os
+import re
 from dataclasses import dataclass, field
-from os.path import expandvars
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 ConfigSection = dict[str, Any]
+
+LOCAL_SETTINGS_FILENAME = "settings.local.yaml"
+LOCAL_SECRETS_FILENAME = "secrets.local.yaml"
+_ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 # 启动阶段只校验装配核心服务必需的字段，供应商专属字段由对应适配器负责。
 _REQUIRED_FIELDS = {
@@ -53,10 +57,21 @@ def validate_settings(settings: Settings) -> None:
 
 
 def load_settings(path: str) -> Settings:
-    """读取 YAML 配置，展开环境变量后完成基础校验。"""
-    # 展开 ${MINIMAX_API_KEY} 一类引用，避免把密钥直接写入配置文件。
-    content = expandvars(Path(path).read_text(encoding="utf-8"))
-    raw = yaml.safe_load(content)
+    """读取基础配置、本地覆盖和本地凭据，然后完成基础校验。"""
+    settings_path = Path(path).expanduser()
+    raw = _load_yaml_mapping(settings_path, label="settings")
+    local_settings_path = settings_path.with_name(LOCAL_SETTINGS_FILENAME)
+    if local_settings_path.exists():
+        overrides = _load_yaml_mapping(local_settings_path, label="local settings")
+        raw = _deep_merge(raw, overrides)
+
+    secrets_path = settings_path.with_name(LOCAL_SECRETS_FILENAME)
+    local_secrets = (
+        _load_string_mapping(secrets_path, label="local secrets")
+        if secrets_path.exists()
+        else {}
+    )
+    raw = _expand_references(raw, local_secrets)
     if not isinstance(raw, dict):
         raise ValueError("settings must be a YAML mapping")
 
@@ -88,6 +103,49 @@ def load_settings(path: str) -> Settings:
     )
     validate_settings(settings)
     return settings
+
+
+def _load_yaml_mapping(path: Path, *, label: str) -> dict[str, Any]:
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"{label} must be a YAML mapping")
+    return raw
+
+
+def _load_string_mapping(path: Path, *, label: str) -> dict[str, str]:
+    raw = _load_yaml_mapping(path, label=label)
+    values: dict[str, str] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise ValueError(f"{label} keys and values must be strings")
+        values[key] = value
+    return values
+
+
+def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _expand_references(value: Any, local_secrets: dict[str, str]) -> Any:
+    if isinstance(value, dict):
+        return {key: _expand_references(item, local_secrets) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_expand_references(item, local_secrets) for item in value]
+    if not isinstance(value, str):
+        return value
+
+    def replacement(match: re.Match[str]) -> str:
+        name = match.group(1)
+        return os.environ.get(name, local_secrets.get(name, match.group(0)))
+
+    return _ENV_REFERENCE.sub(replacement, value)
 
 
 def resolve_settings_path(

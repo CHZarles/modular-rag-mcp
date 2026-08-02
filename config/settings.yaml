@@ -11,11 +11,12 @@ llm:
   base_url: ${OPENAI_BASE_URL}
   api_key: ${MINIMAX_API_KEY}
 
-# Embeddings remain independent because MiniMax is configured only for generation here.
+# MiniMax Embedding uses its native request/response schema rather than the chat schema.
 embedding:
-  provider: openai
-  model: text-embedding-3-small
-  api_key: ${OPENAI_API_KEY}
+  provider: minimax
+  model: embo-01
+  base_url: https://api.minimax.io/v1
+  api_key: ${MINIMAX_API_KEY}
 
 # Markdown-aware chunking for ingestion.
 splitter:

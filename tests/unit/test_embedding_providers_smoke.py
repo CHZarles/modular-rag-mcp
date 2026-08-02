@@ -7,7 +7,12 @@ from urllib.request import Request
 
 import pytest
 
-from libs.embedding import AzureOpenAIEmbedding, EmbeddingFactory, OpenAIEmbedding
+from libs.embedding import (
+    AzureOpenAIEmbedding,
+    EmbeddingFactory,
+    MiniMaxEmbedding,
+    OpenAIEmbedding,
+)
 
 
 class FakeHTTPResponse:
@@ -30,6 +35,13 @@ def embedding_payload() -> dict[str, Any]:
             {"index": 1, "embedding": [0.3, 0.4]},
             {"index": 0, "embedding": [0.1, 0.2]},
         ]
+    }
+
+
+def minimax_payload() -> dict[str, Any]:
+    return {
+        "vectors": [[0.1, 0.2], [0.3, 0.4]],
+        "base_resp": {"status_code": 0, "status_msg": ""},
     }
 
 
@@ -68,6 +80,84 @@ def test_openai_embedding_provider_posts_embeddings_request(
         "model": "text-embedding-3-small",
         "input": ["alpha", "beta"],
     }
+
+
+def test_minimax_embedding_provider_uses_native_document_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[Request] = []
+
+    def fake_urlopen(request: Request, timeout: float) -> FakeHTTPResponse:
+        captured.append(request)
+        return FakeHTTPResponse(minimax_payload())
+
+    monkeypatch.setattr("src.libs.embedding.minimax_embedding.urlopen", fake_urlopen)
+    embedding = EmbeddingFactory.create(
+        {
+            "embedding": {
+                "provider": "minimax",
+                "model": "embo-01",
+                "api_key": "secret",
+                "group_id": "group 1",
+            }
+        }
+    )
+
+    vectors = embedding.embed(["alpha", "beta"])
+
+    assert isinstance(embedding, MiniMaxEmbedding)
+    assert vectors == [[0.1, 0.2], [0.3, 0.4]]
+    request = captured[0]
+    assert request.full_url == "https://api.minimax.io/v1/embeddings?GroupId=group+1"
+    assert headers(request)["authorization"] == "Bearer secret"
+    assert json.loads(cast(bytes, request.data).decode("utf-8")) == {
+        "model": "embo-01",
+        "type": "db",
+        "texts": ["alpha", "beta"],
+    }
+
+
+def test_minimax_embedding_uses_query_type_for_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[Request] = []
+
+    def fake_urlopen(request: Request, timeout: float) -> FakeHTTPResponse:
+        captured.append(request)
+        return FakeHTTPResponse(
+            {"vectors": [[0.5, 0.6]], "base_resp": {"status_code": 0}}
+        )
+
+    monkeypatch.setattr("src.libs.embedding.minimax_embedding.urlopen", fake_urlopen)
+    embedding = MiniMaxEmbedding({"model": "embo-01", "api_key": "secret"})
+
+    assert embedding.embed_query("question") == [0.5, 0.6]
+    assert json.loads(cast(bytes, captured[0].data).decode("utf-8")) == {
+        "model": "embo-01",
+        "type": "query",
+        "texts": ["question"],
+    }
+
+
+def test_minimax_embedding_surfaces_api_errors_without_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_urlopen(request: Request, timeout: float) -> FakeHTTPResponse:
+        return FakeHTTPResponse(
+            {
+                "base_resp": {
+                    "status_code": 1004,
+                    "status_msg": "login failed",
+                }
+            }
+        )
+
+    monkeypatch.setattr("src.libs.embedding.minimax_embedding.urlopen", fake_urlopen)
+    embedding = MiniMaxEmbedding({"model": "embo-01", "api_key": "secret-key"})
+
+    with pytest.raises(RuntimeError, match="minimax API error: 1004") as exc_info:
+        embedding.embed(["alpha"])
+    assert "secret-key" not in str(exc_info.value)
 
 
 def test_azure_embedding_provider_uses_deployment_url(monkeypatch: pytest.MonkeyPatch) -> None:

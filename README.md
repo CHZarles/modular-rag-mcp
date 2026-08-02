@@ -130,13 +130,13 @@ Windows PowerShell 使用 `.venv\Scripts\Activate.ps1` 激活环境。安装完�
 export MINIMAX_API_KEY="your-minimax-api-key"
 export OPENAI_BASE_URL="https://api.minimax.io/v1"
 export SGPT_MODEL="MiniMax-M2.5"
-export OPENAI_API_KEY="your-openai-api-key"
+export MINIMAX_GROUP_ID="your-group-id" # 仅旧版账号要求
 ```
 
-`config/settings.yaml` 中的 `${VAR_NAME}` 会在启动时展开。Embedding 与 LLM 是两个独立
-Provider：MiniMax 的聊天模型不能代替 Embedding API。若使用其他 OpenAI-compatible
-Embedding 服务，同时修改 `embedding.base_url`、`embedding.model` 和
-`embedding.api_key`。
+`config/settings.yaml` 中的 `${VAR_NAME}` 会在启动时展开。默认的 LLM 和 Embedding 都用
+同一把 MiniMax API Key，但调用的是两套独立接口：聊天使用 OpenAI-compatible Chat API，
+Embedding 使用 MiniMax 原生 `/embeddings` 接口和 `embo-01`。旧版 MiniMax 账号若要求
+GroupId，可在 `embedding` 下增加 `group_id: ${MINIMAX_GROUP_ID}`。
 
 不要把真实密钥写入 Git 或 MCP 配置模板。桌面应用未必会读取交互式 Shell 配置，后文的
 MCP 示例展示了如何显式向子进程传递环境变量。
@@ -259,7 +259,6 @@ Server。
       "env": {
         "RAG_SETTINGS_PATH": "/ABSOLUTE/PATH/MODULAR-RAG-MCP-SERVER/config/settings.yaml",
         "MINIMAX_API_KEY": "${input:minimaxApiKey}",
-        "OPENAI_API_KEY": "${input:openaiApiKey}",
         "OPENAI_BASE_URL": "https://api.minimax.io/v1",
         "SGPT_MODEL": "MiniMax-M2.5"
       }
@@ -270,12 +269,6 @@ Server。
       "id": "minimaxApiKey",
       "type": "promptString",
       "description": "MiniMax API Key",
-      "password": true
-    },
-    {
-      "id": "openaiApiKey",
-      "type": "promptString",
-      "description": "OpenAI Embedding API Key",
       "password": true
     }
   ]
@@ -304,7 +297,6 @@ Server。
       "env": {
         "RAG_SETTINGS_PATH": "/ABSOLUTE/PATH/MODULAR-RAG-MCP-SERVER/config/settings.yaml",
         "MINIMAX_API_KEY": "your-minimax-api-key",
-        "OPENAI_API_KEY": "your-openai-api-key",
         "OPENAI_BASE_URL": "https://api.minimax.io/v1",
         "SGPT_MODEL": "MiniMax-M2.5"
       }
@@ -347,8 +339,18 @@ Dashboard 默认使用快速摄取：保留解析、规则清洗、切块、Dens
 `AI 增强`。摄取任务在后台运行，切换页面或刷新浏览器不会阻塞任务；同一进程内会恢复
 最近的活动任务及其进度。
 
+`AI 增强` 不包含 Embedding，也不是完成 RAG 摄取的必要条件。开启后，`ChunkRefiner`
+逐块清理和重写正文，`MetadataEnricher` 生成 title、summary、tags，`ImageCaptioner`
+为图片生成描述并注入关联 Chunk。大文档会产生大量 LLM 调用，因此默认关闭。
+
 Dashboard 默认只监听 `127.0.0.1`。对外暴露前应自行增加认证、TLS 和网络访问控制，不要
 直接把本地维护界面绑定到公网地址。
+
+系统总览的每个组件卡片都可以通过设置按钮打开配置窗口。Provider、模型、Endpoint、
+切块参数、Reranker 和存储参数保存在 Git 忽略的 `config/settings.local.yaml`；在窗口中
+输入的 API Key 单独保存在权限为 `0600` 的 `config/secrets.local.yaml`，不会写入基础配置
+或提交到 Git。环境变量优先于本地凭据；Dashboard 保存后立即重载，独立运行的 MCP
+Server 需要重启后读取新配置。
 
 ---
 
@@ -596,13 +598,12 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 先确认变量在**当前进程**中存在，而不只是写在另一个终端的配置文件里：
 
 ```bash
-test -n "$MINIMAX_API_KEY" && echo "LLM key loaded"
-test -n "$OPENAI_API_KEY" && echo "Embedding key loaded"
+test -n "$MINIMAX_API_KEY" && echo "LLM and Embedding key loaded"
 ```
 
-然后检查 LLM 与 Embedding 的 `base_url`、`model`、`api_key` 是否属于同一个服务商。常见
-错误是给聊天模型配置了 Embedding 模型名，或认为 MiniMax Chat API 会自动提供
-Embedding。MCP 由桌面应用启动时，还需要在 MCP 配置的 `env` 中显式传入变量。
+然后分别检查 LLM 与 Embedding 的 `base_url`、`model` 和请求协议。MiniMax Chat 与
+Embedding 共用 API Key，但聊天模型不能填到 Embedding 配置中，`embo-01` 也不能填到
+聊天配置中。MCP 由桌面应用启动时，还需要在 MCP 配置的 `env` 中显式传入变量。
 
 ### 3. 为什么查询没有结果？
 

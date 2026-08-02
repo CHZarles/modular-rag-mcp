@@ -63,6 +63,8 @@ venv.bak/
 config/test_credentials.yaml
 config/settings.yaml.qa_backup
 config/settings.yaml.bak
+config/settings.local.yaml
+config/secrets.local.yaml
 
 # IDE
 .idea/

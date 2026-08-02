@@ -98,6 +98,13 @@ class BaseEmbedding(Protocol):
 
 
 @runtime_checkable
+class QueryEmbedding(Protocol):
+    """为区分查询和文档语义的 Provider 提供查询向量能力。"""
+
+    def embed_query(self, text: str, trace: Any | None = None) -> list[float]: ...
+
+
+@runtime_checkable
 class SparseEncoder(Protocol):
     """批量生成用于关键词检索的稀疏表示。"""
 

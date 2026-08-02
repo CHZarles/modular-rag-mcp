@@ -31,6 +31,17 @@ class FakeEmbedding:
         return self.vectors
 
 
+class PurposeAwareEmbedding(FakeEmbedding):
+    def __init__(self, vector: list[float]) -> None:
+        super().__init__([[9.9]])
+        self.vector = vector
+        self.query_calls: list[tuple[str, object | None]] = []
+
+    def embed_query(self, text: str, trace: object | None = None) -> list[float]:
+        self.query_calls.append((text, trace))
+        return self.vector
+
+
 class FakeVectorStore:
     def __init__(self, hits: list[SearchHit]) -> None:
         self.hits = hits
@@ -120,6 +131,18 @@ def test_retrieve_blank_query_skips_external_dependencies() -> None:
     assert DenseRetriever(embedding, store).retrieve("  ", top_k=3) == []
     assert embedding.calls == []
     assert store.calls == []
+
+
+def test_retrieve_prefers_provider_specific_query_embedding() -> None:
+    trace = object()
+    embedding = PurposeAwareEmbedding([0.7, 0.8])
+    store = FakeVectorStore([])
+
+    DenseRetriever(embedding, store).retrieve("question", top_k=2, trace=trace)
+
+    assert embedding.query_calls == [("question", trace)]
+    assert embedding.calls == []
+    assert store.calls == [([0.7, 0.8], 2, None, trace)]
 
 
 @pytest.mark.parametrize("top_k", [0, -1])

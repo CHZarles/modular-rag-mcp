@@ -64,3 +64,24 @@ observability:
         "chroma / dashboard-test",
         "custom",
     ]
+    assert [button.key for button in app.button] == [
+        "configure_GEN",
+        "configure_EMB",
+        "configure_SPLIT",
+        "configure_RANK",
+        "configure_STORE",
+        "configure_EVAL",
+    ]
+
+    app.button[1].click().run()
+
+    assert not app.exception
+    assert app.subheader[-1].value == "Embedding"
+    assert [(field.label, field.value) for field in app.selectbox] == [
+        ("Provider", "openai")
+    ]
+    assert [(field.label, field.value) for field in app.text_input[:2]] == [
+        ("Model", "embed-test"),
+        ("Base URL", ""),
+    ]
+    assert app.button[-1].label == "保存配置"

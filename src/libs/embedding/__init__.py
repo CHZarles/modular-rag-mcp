@@ -4,6 +4,7 @@ from src.libs.embedding.azure_embedding import AzureOpenAIEmbedding
 from src.libs.embedding.base_embedding import BaseEmbedding
 from src.libs.embedding.embedding_factory import EmbeddingFactory, create_embedding
 from src.libs.embedding.hash_embedding import HashEmbedding
+from src.libs.embedding.minimax_embedding import MiniMaxEmbedding
 from src.libs.embedding.ollama_embedding import OllamaEmbedding
 from src.libs.embedding.openai_embedding import OpenAIEmbedding
 
@@ -12,6 +13,7 @@ __all__ = [
     "BaseEmbedding",
     "EmbeddingFactory",
     "HashEmbedding",
+    "MiniMaxEmbedding",
     "OllamaEmbedding",
     "OpenAIEmbedding",
     "create_embedding",
