@@ -34,6 +34,8 @@ class RerankerFactory:
         """从 Settings 或 rerank 配置字典创建对应的重排序器。"""
         _register_default_backends()
         config = _rerank_config(settings)
+        if _is_disabled(config):
+            return NoneReranker()
         backend = str(config.get("backend", "")).strip().lower()
         if not backend:
             raise ValueError("Missing required setting: rerank.backend")
@@ -106,6 +108,13 @@ def _optional_positive_float(config: Mapping[str, Any], key: str) -> float | Non
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         raise ValueError(f"rerank.{key} must be a positive number")
     return float(value)
+
+
+def _is_disabled(config: Mapping[str, Any]) -> bool:
+    value = config.get("enabled", True)
+    if isinstance(value, bool):
+        return not value
+    return str(value).strip().lower() in {"false", "0", "no", "off", "disabled"}
 
 
 def _register_default_backends() -> None:

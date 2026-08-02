@@ -64,3 +64,10 @@ def test_llm_factory_names_unknown_provider() -> None:
 def test_llm_factory_requires_provider() -> None:
     with pytest.raises(ValueError, match=r"llm\.provider"):
         LLMFactory.create({"llm": {}})
+
+
+def test_llm_factory_respects_component_enabled_switch() -> None:
+    LLMFactory.register("fake", lambda config: FakeLLM(str(config["model"])))
+
+    with pytest.raises(ValueError, match="LLM component is disabled"):
+        create_llm({"provider": "fake", "model": "inline", "enabled": False})

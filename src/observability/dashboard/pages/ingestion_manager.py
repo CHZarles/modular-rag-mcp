@@ -61,23 +61,31 @@ def render(
     data = data_service
     loaded_settings = settings
     uploads = Path(upload_root).expanduser() if upload_root is not None else None
+    collection_config: ConfigService | None = None
     if data is None or loaded_settings is None or uploads is None:
         configured_path = settings_path or os.environ.get(
             "RAG_SETTINGS_PATH", str(DEFAULT_SETTINGS_PATH)
         )
         selected_path = Path(configured_path).expanduser()
         try:
-            configured_data, configured_settings, loaded_uploads, loaded_collector = _load_services(
-                str(selected_path), selected_path.stat().st_mtime_ns
-            )
+            (
+                configured_config,
+                configured_data,
+                configured_settings,
+                loaded_uploads,
+                loaded_collector,
+            ) = _load_services(str(selected_path), selected_path.stat().st_mtime_ns)
         except Exception as exc:
             st.error("摄取服务初始化失败，请检查运行配置。")
             st.caption(f"{type(exc).__name__}: {exc}")
             return
+        collection_config = configured_config
         data = data or configured_data
         loaded_settings = loaded_settings or configured_settings
         uploads = uploads or loaded_uploads
         trace_collector = trace_collector or loaded_collector
+    elif settings_path is not None:
+        collection_config = ConfigService.from_path(settings_path)
 
     jobs = job_service or _load_job_service()
     ingest_tab, documents_tab = st.tabs(["摄取", "文档"])
@@ -88,6 +96,7 @@ def render(
             uploads,
             trace_collector,
             jobs,
+            collection_config,
         )
     with documents_tab:
         _render_deletion(data)
@@ -97,7 +106,7 @@ def render(
 def _load_services(
     settings_path: str,
     modified_ns: int,
-) -> tuple[DataService, Settings, Path, TraceCollector | None]:
+) -> tuple[ConfigService, DataService, Settings, Path, TraceCollector | None]:
     del modified_ns
     config = ConfigService.from_path(settings_path)
     storage = config.settings.ingestion.get("storage")
@@ -105,6 +114,7 @@ def _load_services(
         raise ValueError("Missing required setting: ingestion.storage")
     uploads = Path(_required_text(storage, "upload_root", "ingestion.storage")).expanduser()
     return (
+        config,
         DataService.from_settings(config.settings),
         config.settings,
         uploads,
@@ -123,19 +133,25 @@ def _render_ingestion(
     upload_root: Path,
     trace_collector: TraceCollector | None,
     jobs: IngestionJobService,
+    collection_config: ConfigService | None = None,
 ) -> None:
     current_job = _current_job(jobs)
     if current_job is not None:
         _render_job_status(jobs, current_job.job_id)
 
     collections = data.list_collections()
-    options = collections or ["default"]
-    collection = st.selectbox(
-        "Collection",
-        options,
-        accept_new_options=True,
-        key="ingestion_collection",
+    options = (
+        collection_config.known_collections(collections)
+        if collection_config is not None
+        else _collection_options(settings, collections)
     )
+    selection, created_collection = _render_collection_picker(
+        options,
+        collection_config,
+    )
+    if created_collection:
+        return
+    collection = selection
     uploaded = st.file_uploader("PDF 文件", type=["pdf"], key="ingestion_pdf")
     ai_enrichment = st.toggle(
         "AI 增强",
@@ -179,6 +195,63 @@ def _render_ingestion(
         return
     st.session_state[_JOB_KEY] = job.job_id
     st.rerun()
+
+
+def _render_collection_picker(
+    options: list[str],
+    collection_config: ConfigService | None,
+) -> tuple[str, bool]:
+    controls = st.columns([2, 2, 1], gap="small")
+    with controls[0]:
+        collection = st.selectbox(
+            "Collection",
+            options,
+            accept_new_options=True,
+            key="ingestion_collection",
+        )
+    created = False
+    if collection_config is not None:
+        with controls[1]:
+            new_collection = st.text_input(
+                "New collection",
+                key="ingestion_new_collection",
+            )
+        with controls[2]:
+            st.write("")
+            create_clicked = st.button(
+                ":material/add:",
+                key="ingestion_create_collection",
+                help="新建 Collection",
+                type="tertiary",
+            )
+        if create_clicked:
+            created = _create_collection(collection_config, new_collection)
+            if created:
+                st.session_state["ingestion_collection"] = new_collection.strip()
+                _load_services.clear()
+                st.rerun()
+    return str(collection), created
+
+
+def _create_collection(config: ConfigService, name: str) -> bool:
+    try:
+        config.add_collection(name)
+    except Exception as exc:
+        st.error("Collection 创建失败。")
+        st.caption(f"{type(exc).__name__}: {exc}")
+        return False
+    return True
+
+
+def _collection_options(settings: Settings, indexed_collections: list[str]) -> list[str]:
+    names = {"default", *indexed_collections}
+    configured = settings.vector_store.get("collection_name")
+    if isinstance(configured, str) and configured.strip():
+        names.add(configured.strip())
+    dashboard_collections = settings.dashboard.get("collections")
+    if isinstance(dashboard_collections, list):
+        names.update(str(item).strip() for item in dashboard_collections if str(item).strip())
+    return sorted(names, key=str.casefold)
 
 
 def _current_job(jobs: IngestionJobService) -> IngestionJob | None:

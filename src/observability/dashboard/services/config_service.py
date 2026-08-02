@@ -28,8 +28,9 @@ _COMPONENT_SECTIONS = {
     "STORE": "vector_store",
     "EVAL": "evaluation",
 }
+_TOGGLEABLE_COMPONENTS = {"GEN", "RANK"}
 _EDITABLE_FIELDS = {
-    "GEN": {"provider", "model", "base_url", "endpoint", "timeout_seconds"},
+    "GEN": {"enabled", "provider", "model", "base_url", "endpoint", "timeout_seconds"},
     "EMB": {
         "provider",
         "model",
@@ -42,11 +43,12 @@ _EDITABLE_FIELDS = {
         "timeout_seconds",
     },
     "SPLIT": {"provider", "chunk_size", "chunk_overlap"},
-    "RANK": {"backend", "model", "top_m", "timeout_seconds"},
+    "RANK": {"enabled", "backend", "model", "top_m", "timeout_seconds"},
     "STORE": {"backend", "persist_path", "collection_name", "distance_metric"},
     "EVAL": {"backends", "golden_test_set"},
 }
 _SECRET_NAMES = {"GEN": "RAG_LLM_API_KEY", "EMB": "RAG_EMBEDDING_API_KEY"}
+_DEFAULT_KNOWLEDGE_COLLECTION = "default"
 
 
 @dataclass(frozen=True)
@@ -58,10 +60,7 @@ class ComponentSummary:
     provider: str
     model: str | None = None
     details: tuple[tuple[str, str], ...] = ()
-
-    @property
-    def enabled(self) -> bool:
-        return self.provider.lower() not in {"none", "disabled", "off"}
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -130,6 +129,50 @@ class ConfigService:
             private=False,
         )
 
+    def set_component_enabled(self, code: str, enabled: bool) -> None:
+        """Persist one component enable switch as a local override."""
+        if self.settings_path is None:
+            raise ValueError("component configuration requires a settings file path")
+        normalized_code = code.strip().upper()
+        if normalized_code not in _TOGGLEABLE_COMPONENTS:
+            raise ValueError(f"component {normalized_code} must stay enabled")
+        section_name = _component_section(normalized_code)
+        updates: dict[str, Any] = {"enabled": enabled}
+        if enabled and normalized_code == "RANK":
+            backend = _text(getattr(self.settings, section_name), "backend", default="none")
+            if backend.lower() in {"none", "disabled", "off"}:
+                updates["backend"] = "cross_encoder"
+        _merge_yaml_file(
+            self.settings_path.with_name(LOCAL_SETTINGS_FILENAME),
+            {section_name: updates},
+            private=False,
+        )
+
+    def known_collections(self, indexed_collections: list[str] | tuple[str, ...] = ()) -> list[str]:
+        """Return configured and already indexed knowledge collection names."""
+        names = {
+            _DEFAULT_KNOWLEDGE_COLLECTION,
+            *_dashboard_collections(self.settings.dashboard),
+            *_clean_collection_names(indexed_collections),
+        }
+        default_name = _optional_text(self.settings.vector_store, "collection_name")
+        if default_name is not None and _is_simple_name(default_name):
+            names.add(default_name)
+        return sorted(names, key=str.casefold)
+
+    def add_collection(self, name: str) -> None:
+        """Persist an empty dashboard-visible knowledge collection name."""
+        if self.settings_path is None:
+            raise ValueError("collection creation requires a settings file path")
+        cleaned = name.strip()
+        if not _is_simple_name(cleaned):
+            raise ValueError("collection must be a non-empty simple name")
+        _merge_yaml_file(
+            self.settings_path.with_name(LOCAL_SETTINGS_FILENAME),
+            {"dashboard": {"collections": self.known_collections((cleaned,))}},
+            private=False,
+        )
+
     def component_summaries(self) -> tuple[ComponentSummary, ...]:
         settings = self.settings
         return (
@@ -138,6 +181,7 @@ class ConfigService:
                 label="LLM",
                 provider=_text(settings.llm, "provider"),
                 model=_optional_text(settings.llm, "model"),
+                enabled=_component_enabled(settings.llm, provider_key="provider"),
             ),
             ComponentSummary(
                 code="EMB",
@@ -145,6 +189,7 @@ class ConfigService:
                 provider=_text(settings.embedding, "provider"),
                 model=_optional_text(settings.embedding, "model"),
                 details=(("Dimension", _display(settings.embedding.get("dimension"), "Auto")),),
+                enabled=True,
             ),
             ComponentSummary(
                 code="SPLIT",
@@ -154,6 +199,7 @@ class ConfigService:
                     ("Chunk size", _display(settings.splitter.get("chunk_size"))),
                     ("Overlap", _display(settings.splitter.get("chunk_overlap"))),
                 ),
+                enabled=True,
             ),
             ComponentSummary(
                 code="RANK",
@@ -161,6 +207,7 @@ class ConfigService:
                 provider=_text(settings.rerank, "backend"),
                 model=_optional_text(settings.rerank, "model"),
                 details=(("Top M", _display(settings.rerank.get("top_m"))),),
+                enabled=_component_enabled(settings.rerank, provider_key="backend"),
             ),
             ComponentSummary(
                 code="STORE",
@@ -168,12 +215,14 @@ class ConfigService:
                 provider=_text(settings.vector_store, "backend"),
                 model=_optional_text(settings.vector_store, "collection_name"),
                 details=(("Distance", _display(settings.vector_store.get("distance_metric"))),),
+                enabled=True,
             ),
             ComponentSummary(
                 code="EVAL",
                 label="Evaluator",
                 provider=_backend_list(settings.evaluation.get("backends")),
                 details=(("Golden set", _path_name(settings.evaluation.get("golden_test_set"))),),
+                enabled=True,
             ),
         )
 
@@ -223,6 +272,48 @@ def _backend_list(value: Any) -> str:
         if backends:
             return ", ".join(backends)
     return "none"
+
+
+def _dashboard_collections(config: ConfigSection) -> list[str]:
+    raw = config.get("collections")
+    if not isinstance(raw, list):
+        return []
+    return _clean_collection_names(tuple(str(item) for item in raw))
+
+
+def _clean_collection_names(values: tuple[str, ...] | list[str]) -> list[str]:
+    names: list[str] = []
+    for value in values:
+        cleaned = value.strip()
+        if _is_simple_name(cleaned) and cleaned not in names:
+            names.append(cleaned)
+    return names
+
+
+def _is_simple_name(value: str) -> bool:
+    path = Path(value)
+    return bool(value) and path.name == value and value not in {".", ".."}
+
+
+def _component_enabled(
+    config: ConfigSection,
+    *,
+    provider_key: str,
+) -> bool:
+    value = config.get("enabled")
+    if isinstance(value, bool):
+        if not value:
+            return False
+    if value is not None:
+        normalized = str(value).strip().lower()
+        if normalized in {"false", "0", "no", "off", "disabled"}:
+            return False
+
+    provider = config.get(provider_key)
+    normalized_provider = str(provider).strip().lower() if provider is not None else ""
+    if not normalized_provider:
+        return True
+    return normalized_provider not in {"none", "disabled", "off"}
 
 
 def _path_name(value: Any) -> str:

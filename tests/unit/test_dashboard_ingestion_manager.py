@@ -6,6 +6,7 @@ import pytest
 
 from core.settings import Settings
 from observability.dashboard.pages.ingestion_manager import (
+    _collection_options,
     _settings_for_ingestion_profile,
     _store_uploaded_pdf,
 )
@@ -53,6 +54,19 @@ def test_fast_profile_disables_model_enrichment_without_mutating_settings() -> N
     assert fast.ingestion["image_captioner"]["enabled"] is False
     assert settings.ingestion["chunk_refiner"]["use_llm"] is True
     assert _settings_for_ingestion_profile(settings, ai_enrichment=True) is settings
+
+
+def test_collection_options_include_configured_dashboard_names() -> None:
+    settings = _settings()
+    settings.vector_store["collection_name"] = "backend-default"
+    settings.dashboard["collections"] = ["notes"]
+
+    assert _collection_options(settings, ["papers"]) == [
+        "backend-default",
+        "default",
+        "notes",
+        "papers",
+    ]
 
 
 def _settings() -> Settings:

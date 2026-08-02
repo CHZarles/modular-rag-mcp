@@ -66,6 +66,8 @@ class LLMFactory:
         """从 Settings 或 llm 配置字典创建对应的 LLM 客户端。"""
         _register_default_providers()
         config = _llm_config(settings)
+        if _is_disabled(config):
+            raise ValueError("LLM component is disabled")
         provider = str(config.get("provider", "")).strip().lower()
         if not provider:
             raise ValueError("Missing required setting: llm.provider")
@@ -83,6 +85,8 @@ class LLMFactory:
         """优先从 vision_llm 配置创建客户端，缺省时复用 llm 配置。"""
         _register_default_providers()
         config = _vision_llm_config(settings)
+        if _is_disabled(config):
+            raise ValueError("Vision LLM component is disabled")
         provider = str(config.get("provider", "")).strip().lower()
         if not provider:
             raise ValueError("Missing required setting: vision_llm.provider")
@@ -134,6 +138,13 @@ def _vision_llm_config(settings: Any) -> Mapping[str, Any]:
     if not isinstance(config, Mapping):
         raise ValueError("Missing required setting: vision_llm.provider")
     return config
+
+
+def _is_disabled(config: Mapping[str, Any]) -> bool:
+    value = config.get("enabled", True)
+    if isinstance(value, bool):
+        return not value
+    return str(value).strip().lower() in {"false", "0", "no", "off", "disabled"}
 
 
 _DEFAULT_PROVIDERS_REGISTERED = False

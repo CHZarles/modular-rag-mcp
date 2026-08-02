@@ -71,6 +71,14 @@ def test_reranker_factory_routes_custom_backend() -> None:
     assert [item.chunk_id for item in reranker.rerank("query", candidates, top_k=2)] == ["b", "a"]
 
 
+def test_reranker_factory_respects_component_enabled_switch() -> None:
+    RerankerFactory.register("reverse", lambda config: ReverseReranker())
+
+    reranker = create_reranker({"backend": "reverse", "enabled": False})
+
+    assert isinstance(reranker, NoneReranker)
+
+
 def test_reranker_factory_names_unknown_backend() -> None:
     with pytest.raises(ValueError, match="Unsupported Reranker backend: missing"):
         RerankerFactory.create({"rerank": {"backend": "missing"}})

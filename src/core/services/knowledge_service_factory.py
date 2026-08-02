@@ -100,7 +100,11 @@ def build_local_query_engine(
         raise ValueError("Unsupported fusion algorithm; local mode currently requires rrf")
 
     rerank_backend = _required_text(settings.rerank, "backend", "rerank").lower()
-    rerank_enabled = not no_rerank and rerank_backend != "none"
+    rerank_enabled = (
+        not no_rerank
+        and _optional_bool(settings.rerank, "enabled", "rerank", default=True)
+        and rerank_backend != "none"
+    )
     reranker = create_reranker(settings) if rerank_enabled else NoneReranker()
     final_top_k = _positive_int(retrieval, "top_k_final", "retrieval")
     fusion_top_k = final_top_k

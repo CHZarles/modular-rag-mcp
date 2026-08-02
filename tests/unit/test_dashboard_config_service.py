@@ -101,6 +101,55 @@ def test_component_update_rejects_unknown_or_sensitive_public_fields(tmp_path: P
         service.update_component("EMB", {"api_key": "must-not-be-public"})
 
 
+def test_component_enabled_switch_is_limited_to_optional_components(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.yaml"
+    settings_path.write_text(_settings_yaml(), encoding="utf-8")
+    service = ConfigService.from_path(settings_path)
+
+    service.set_component_enabled("GEN", False)
+
+    local_settings = (tmp_path / "settings.local.yaml").read_text(encoding="utf-8")
+    assert "llm:" in local_settings
+    assert "enabled: false" in local_settings
+    assert ConfigService.from_path(settings_path).component_summaries()[0].enabled is False
+
+    with pytest.raises(ValueError, match="must stay enabled"):
+        service.set_component_enabled("EMB", False)
+    with pytest.raises(ValueError, match="must stay enabled"):
+        service.set_component_enabled("EVAL", False)
+
+
+def test_enabling_reranker_from_none_selects_default_backend(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.yaml"
+    settings_path.write_text(_settings_yaml(), encoding="utf-8")
+    service = ConfigService.from_path(settings_path)
+
+    service.set_component_enabled("RANK", True)
+
+    settings = ConfigService.from_path(settings_path).settings
+    assert settings.rerank["enabled"] is True
+    assert settings.rerank["backend"] == "cross_encoder"
+
+
+def test_collection_registry_merges_configured_and_indexed_names(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.yaml"
+    settings_path.write_text(_settings_yaml(), encoding="utf-8")
+    service = ConfigService.from_path(settings_path)
+
+    assert service.known_collections(["papers"]) == ["default", "papers"]
+
+    service.add_collection("notes")
+
+    reloaded = ConfigService.from_path(settings_path)
+    assert reloaded.known_collections(["papers"]) == ["default", "notes", "papers"]
+    local_settings = (tmp_path / "settings.local.yaml").read_text(encoding="utf-8")
+    assert "collections:" in local_settings
+    assert "- notes" in local_settings
+
+    with pytest.raises(ValueError, match="collection must be"):
+        service.add_collection("../bad")
+
+
 def _settings_yaml() -> str:
     return """\
 knowledge_service:

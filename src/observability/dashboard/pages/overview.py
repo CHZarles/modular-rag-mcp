@@ -13,6 +13,8 @@ from src.libs.vector_store import ChromaStore
 from src.observability.dashboard.services import ComponentSummary, ConfigService
 from src.observability.dashboard.services.config_service import DEFAULT_SETTINGS_PATH
 
+_TOGGLEABLE_COMPONENTS = {"GEN", "RANK"}
+
 
 def render(settings_path: str | Path | None = None) -> None:
     """Render configuration and index health without exposing provider secrets."""
@@ -32,7 +34,7 @@ def render(settings_path: str | Path | None = None) -> None:
     st.title("系统总览")
     st.caption("本地 RAG 运行状态")
 
-    _render_asset_stats(vector_store)
+    _render_asset_stats(config_service, vector_store, selected_path)
     st.subheader("组件配置")
     components = config_service.component_summaries()
     for row_start in range(0, len(components), 3):
@@ -53,15 +55,45 @@ def _load_runtime(settings_path: str, modified_ns: int) -> tuple[ConfigService, 
     return config_service, ChromaStore(settings.vector_store)
 
 
-def _render_asset_stats(vector_store: ChromaStore) -> None:
+def _render_asset_stats(
+    config_service: ConfigService,
+    vector_store: ChromaStore,
+    settings_path: Path,
+) -> None:
     st.subheader("数据资产")
+    indexed_collections = vector_store.list_collections()
+    options = ["全部", *config_service.known_collections(indexed_collections)]
+    controls = st.columns([2, 2, 1], gap="small")
+    with controls[0]:
+        selected_label = st.selectbox(
+            "Collection",
+            options,
+            key="overview_asset_collection",
+        )
+    with controls[1]:
+        new_collection = st.text_input(
+            "New collection",
+            key="overview_new_collection",
+        )
+    with controls[2]:
+        st.write("")
+        create_clicked = st.button(
+            ":material/add:",
+            key="overview_create_collection",
+            help="新建 Collection",
+            type="tertiary",
+        )
+    if create_clicked:
+        _create_collection(settings_path, new_collection, "overview_asset_collection")
+
+    selected_collection = None if selected_label == "全部" else selected_label
     try:
-        stats = vector_store.get_collection_stats()
+        stats = vector_store.get_collection_stats(selected_collection)
     except Exception as exc:
         st.error("索引状态读取失败，请检查向量存储配置后刷新页面。")
         st.caption(f"{type(exc).__name__}: {exc}")
         stats = CollectionInfo(
-            name=vector_store.collection_name,
+            name=selected_collection or vector_store.collection_name,
             document_count=0,
             chunk_count=0,
             image_count=0,
@@ -72,6 +104,19 @@ def _render_asset_stats(vector_store: ChromaStore) -> None:
     documents.metric("Documents", stats.document_count)
     chunks.metric("Chunks", stats.chunk_count)
     images.metric("Images", stats.image_count)
+
+
+def _create_collection(settings_path: Path, name: str, selected_key: str) -> None:
+    cleaned = name.strip()
+    try:
+        ConfigService.from_path(settings_path).add_collection(cleaned)
+    except Exception as exc:
+        st.error("Collection 创建失败")
+        st.caption(f"{type(exc).__name__}: {exc}")
+        return
+    st.session_state[selected_key] = cleaned
+    _load_runtime.clear()
+    st.rerun()
 
 
 def _render_component(component: ComponentSummary, settings_path: Path) -> None:
@@ -94,13 +139,24 @@ def _render_component(component: ComponentSummary, settings_path: Path) -> None:
         st.code(primary, language=None)
         if component.details:
             st.caption(" · ".join(f"{label}: {value}" for label, value in component.details))
-        if st.button(
-            ":material/settings:",
-            key=f"configure_{component.code}",
-            help=f"配置 {component.label}",
-            type="tertiary",
-        ):
-            _component_dialog(str(settings_path), component.code)
+        actions = st.columns([1, 1], gap="small")
+        with actions[0]:
+            if st.button(
+                ":material/settings:",
+                key=f"configure_{component.code}",
+                help=f"配置 {component.label}",
+                type="tertiary",
+            ):
+                _component_dialog(str(settings_path), component.code)
+        if component.code in _TOGGLEABLE_COMPONENTS:
+            with actions[1]:
+                enabled = st.toggle(
+                    "启用",
+                    value=component.enabled,
+                    key=f"toggle_{component.code}",
+                )
+            if enabled != component.enabled:
+                _set_component_enabled(settings_path, component.code, enabled)
 
 
 @st.dialog("组件配置", width="large")
@@ -135,19 +191,52 @@ def _component_dialog(settings_path: str, code: str) -> None:
 
 
 def _component_fields(code: str, config: dict[str, object]) -> tuple[dict[str, object], str | None]:
+    enabled = _component_enabled_field(code, config)
     if code == "GEN":
-        return _llm_fields(config)
+        values, api_key = _llm_fields(config)
+        return _with_optional_enabled(code, values, enabled), api_key
     if code == "EMB":
         return _embedding_fields(config)
     if code == "SPLIT":
         return _splitter_fields(config), None
     if code == "RANK":
-        return _reranker_fields(config), None
+        return _with_optional_enabled(code, _reranker_fields(config), enabled), None
     if code == "STORE":
         return _store_fields(config), None
     if code == "EVAL":
         return _evaluation_fields(config), None
     raise ValueError(f"unknown dashboard component: {code}")
+
+
+def _set_component_enabled(settings_path: Path, code: str, enabled: bool) -> None:
+    try:
+        ConfigService.from_path(settings_path).set_component_enabled(code, enabled)
+    except Exception as exc:
+        st.error("组件状态保存失败")
+        st.caption(f"{type(exc).__name__}: {exc}")
+        return
+    _load_runtime.clear()
+    st.rerun()
+
+
+def _component_enabled_field(code: str, config: dict[str, object]) -> bool | None:
+    if code not in _TOGGLEABLE_COMPONENTS:
+        return None
+    return st.toggle(
+        "Enabled",
+        value=_config_enabled(code, config),
+        key=f"{code}_enabled",
+    )
+
+
+def _with_optional_enabled(
+    code: str,
+    values: dict[str, object],
+    enabled: bool | None,
+) -> dict[str, object]:
+    if code in _TOGGLEABLE_COMPONENTS and enabled is not None:
+        return {**values, "enabled": enabled}
+    return values
 
 
 def _llm_fields(config: dict[str, object]) -> tuple[dict[str, object], str]:
@@ -342,6 +431,26 @@ def _select_with_current(
         choices.insert(0, value)
     index = choices.index(value) if value in choices else 0
     return st.selectbox(label, choices, index=index, key=key)
+
+
+def _config_enabled(code: str, config: dict[str, object]) -> bool:
+    raw = config.get("enabled")
+    if isinstance(raw, bool):
+        if not raw:
+            return False
+    if raw is not None:
+        normalized = str(raw).strip().lower()
+        if normalized in {"false", "0", "no", "off", "disabled"}:
+            return False
+
+    if code == "RANK":
+        return _string(config.get("backend")).strip().lower() not in {
+            "",
+            "none",
+            "disabled",
+            "off",
+        }
+    return _string(config.get("provider")).strip().lower() not in {"", "none", "off"}
 
 
 def _string(value: object) -> str:

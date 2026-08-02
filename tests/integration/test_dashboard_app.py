@@ -65,6 +65,7 @@ observability:
         "custom",
     ]
     assert [button.key for button in app.button] == [
+        "overview_create_collection",
         "configure_GEN",
         "configure_EMB",
         "configure_SPLIT",
@@ -73,14 +74,15 @@ observability:
         "configure_EVAL",
     ]
 
-    app.button[1].click().run()
+    app.button[2].click().run()
 
     assert not app.exception
     assert app.subheader[-1].value == "Embedding"
     assert [(field.label, field.value) for field in app.selectbox] == [
-        ("Provider", "openai")
+        ("Collection", "全部"),
+        ("Provider", "openai"),
     ]
-    assert [(field.label, field.value) for field in app.text_input[:2]] == [
+    assert [(field.label, field.value) for field in app.text_input[1:3]] == [
         ("Model", "embed-test"),
         ("Base URL", ""),
     ]

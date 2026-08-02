@@ -21,7 +21,7 @@ def test_dashboard_submits_upload_in_background_and_renders_completion(tmp_path:
     assert app.toggle[0].value is False
 
     app.file_uploader[0].upload("guide.pdf", pdf_bytes, "application/pdf").run()
-    app.button[0].click().run()
+    next(button for button in app.button if button.label == "开始摄取").click().run()
 
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline and not app.success:

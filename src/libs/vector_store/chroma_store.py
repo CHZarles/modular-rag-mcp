@@ -218,6 +218,16 @@ class ChromaStore:
             image_count=len(image_ids),
         )
 
+    def list_collections(self) -> list[str]:
+        """Return knowledge collection names stored in chunk metadata."""
+        result = self._collection.get(include=["metadatas"])
+        names = {
+            str(collection)
+            for raw_metadata in result.get("metadatas") or []
+            if (collection := _decode_metadata(raw_metadata).get("collection"))
+        }
+        return sorted(names, key=str.casefold)
+
     def delete_by_metadata(self, filters: JsonDict) -> int:
         """删除匹配元数据条件的记录并返回删除数量。
 
