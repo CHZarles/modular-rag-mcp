@@ -7,10 +7,12 @@ from src.libs.evaluator.evaluator_factory import (
     create_evaluator,
     create_evaluators,
 )
+from src.observability.evaluation.composite_evaluator import CompositeEvaluator
 
 __all__ = [
     "BaseEvaluator",
     "CustomEvaluator",
+    "CompositeEvaluator",
     "EvaluatorFactory",
     "NoneEvaluator",
     "create_evaluator",

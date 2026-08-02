@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from src.libs.evaluator.custom_evaluator import CustomEvaluator
+from src.observability.evaluation.composite_evaluator import CompositeEvaluator
 from src.observability.evaluation.ragas_evaluator import RagasEvaluator
 from src.ports.evaluation import BaseEvaluator
 
@@ -30,10 +31,12 @@ class EvaluatorFactory:
 
     @classmethod
     def create(cls, settings: Any, backend: str | None = None) -> BaseEvaluator:
-        """创建一个后端；配置多个后端时应改用 ``create_all``。"""
+        """创建单个后端，或按配置组合多个后端。"""
         config = _evaluation_config(settings)
-        selected = backend.strip().lower() if backend is not None else _single_backend(config)
-        return cls._create_backend(selected, config)
+        if backend is not None:
+            return cls._create_backend(backend.strip().lower(), config)
+        evaluators = [cls._create_backend(name, config) for name in _backend_names(config)]
+        return evaluators[0] if len(evaluators) == 1 else CompositeEvaluator(evaluators)
 
     @classmethod
     def create_all(cls, settings: Any) -> list[BaseEvaluator]:
@@ -85,13 +88,6 @@ def _backend_names(config: Mapping[str, Any]) -> list[str]:
             raise ValueError("evaluation.backends entries must be non-empty strings")
         names.append(value.strip().lower())
     return names
-
-
-def _single_backend(config: Mapping[str, Any]) -> str:
-    names = _backend_names(config)
-    if len(names) != 1:
-        raise ValueError("Multiple evaluation.backends configured; use EvaluatorFactory.create_all")
-    return names[0]
 
 
 EvaluatorFactory.register("custom", lambda config: CustomEvaluator())

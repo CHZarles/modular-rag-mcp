@@ -120,6 +120,8 @@ def test_factory_requires_non_empty_backend_list(backends: object) -> None:
         EvaluatorFactory.create({"evaluation": {"backends": backends}})
 
 
-def test_factory_requires_create_all_for_multiple_backends() -> None:
-    with pytest.raises(ValueError, match="create_all"):
-        EvaluatorFactory.create({"backends": ["custom", "custom_metrics"]})
+def test_factory_composes_multiple_backends() -> None:
+    EvaluatorFactory.register("fixed", lambda config: FixedEvaluator())
+    evaluator = EvaluatorFactory.create({"backends": ["custom", "fixed"]})
+
+    assert evaluator.name == "composite"
