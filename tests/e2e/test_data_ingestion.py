@@ -80,9 +80,17 @@ def test_cli_ingests_directory_skips_unchanged_and_supports_force(
         json.loads(line)
         for line in (tmp_path / "logs/traces.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert len(traces) == 5
-    assert all(trace["trace_type"] == "ingestion" for trace in traces)
+    assert len(traces) == 6
+    assert [trace["trace_type"] for trace in traces] == [
+        "ingestion",
+        "ingestion",
+        "query",
+        "ingestion",
+        "ingestion",
+        "ingestion",
+    ]
     assert [trace["metadata"]["status"] for trace in traces] == [
+        "success",
         "success",
         "success",
         "skipped",

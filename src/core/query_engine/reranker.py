@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import replace
 
-from src.core.types import RetrievalCandidate
+from src.core.types import JsonDict, RetrievalCandidate
 from src.ports.query import BaseReranker
 
 
@@ -60,6 +60,8 @@ class FallbackReranker:
                     "output_count": 0,
                     "top_k": top_k,
                     "fallback": False,
+                    "input_candidates": [],
+                    "output_candidates": [],
                 },
                 started=started,
             )
@@ -88,6 +90,8 @@ class FallbackReranker:
                     "output_count": len(results),
                     "top_k": top_k,
                     "fallback": False,
+                    "input_candidates": _candidate_snapshots(backend_candidates),
+                    "output_candidates": _candidate_snapshots(results),
                 },
                 started=started,
             )
@@ -174,6 +178,8 @@ class FallbackReranker:
                 "top_k": top_k,
                 "fallback": True,
                 "reason": reason,
+                "input_candidates": _candidate_snapshots(candidates),
+                "output_candidates": _candidate_snapshots(results),
             },
             started=started,
         )
@@ -204,6 +210,8 @@ class NoneReranker:
                 "output_count": len(results),
                 "top_k": top_k,
                 "fallback": False,
+                "input_candidates": _candidate_snapshots(candidates),
+                "output_candidates": _candidate_snapshots(results),
             },
             started=started,
         )
@@ -225,3 +233,17 @@ def _record_rerank_stage(
         {"method": method, "provider": provider, "details": details},
         elapsed_ms=(time.monotonic() - started) * 1000.0,
     )
+
+
+def _candidate_snapshots(candidates: list[RetrievalCandidate]) -> list[JsonDict]:
+    return [
+        {
+            "chunk_id": candidate.chunk_id,
+            "rank": index,
+            "score": candidate.score,
+            "source": candidate.source,
+            "source_path": candidate.metadata.get("source_path"),
+            "title": candidate.metadata.get("title"),
+        }
+        for index, candidate in enumerate(candidates[:50], start=1)
+    ]

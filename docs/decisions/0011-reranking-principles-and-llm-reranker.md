@@ -399,6 +399,32 @@ LLM Rerank 仍然存在模型层风险：
 
 Rerank 的价值是以可接受的延迟和成本改善前排质量，而不是单纯让链路多调用一次模型。
 
+## Dashboard 如何解释排名变化
+
+G6 不只记录每个阶段的数量，还把候选的轻量排序快照写入 Trace。Dense、Sparse、Fusion 和
+Rerank 分别记录 `chunk_id`、阶段内 rank、score、source、source_path 和 title，不写 Chunk 正文或
+Embedding。单个列表最多保存 50 项，避免可观测性数据随候选正文无限膨胀。
+
+Rerank 阶段同时保存：
+
+```text
+input_candidates  = 进入精排的 Fusion 顺序
+output_candidates = 精排或 fallback 后的最终顺序
+```
+
+Dashboard 按稳定 `chunk_id` 连接两份快照，再计算：
+
+```text
+change = before_rank - after_rank
+```
+
+正数表示排名上升，负数表示下降，缺失 after rank 表示候选被 Top-K 截断。不能按数组位置直接连接，
+因为 Reranker 的职责正是改变数组顺序。
+
+这套设计同时保留了两类分数的边界：Dense/Sparse/Fusion/Rerank 的 score 只在各自阶段内解释，页面
+展示排名变化但不会把异构分数伪装成可直接比较的概率。Query 入口还会把最终结果快照写入 Trace 顶层
+metadata，使页面能区分“某阶段候选”和“真正返回给调用方的 Top-K”。
+
 ## 相关实现
 
 - `src/libs/reranker/llm_reranker.py`

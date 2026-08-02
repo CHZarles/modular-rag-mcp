@@ -14,13 +14,16 @@ from src.observability.logger import get_logger
 logger = get_logger(__name__)
 
 
-def create_ingestion_trace_collector(settings: Settings) -> TraceCollector | None:
+def create_trace_collector(settings: Settings) -> TraceCollector | None:
     """Build the configured collector, or return None when tracing is disabled."""
     observability = settings.observability
     if not _boolean(observability.get("enabled"), default=True):
         return None
     path = _required_text(observability, "log_file", "observability")
     return TraceCollector(path)
+
+
+create_ingestion_trace_collector = create_trace_collector
 
 
 def run_traced_ingestion(
@@ -98,4 +101,8 @@ def _boolean(value: Any, *, default: bool) -> bool:
     raise ValueError(f"observability configuration error: invalid boolean {value!r}")
 
 
-__all__ = ["create_ingestion_trace_collector", "run_traced_ingestion"]
+__all__ = [
+    "create_ingestion_trace_collector",
+    "create_trace_collector",
+    "run_traced_ingestion",
+]

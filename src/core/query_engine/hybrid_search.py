@@ -161,6 +161,7 @@ class HybridQueryEngine:
                         self.config.dense_top_k if name == "dense" else self.config.sparse_top_k
                     ),
                     "result_count": len(outcome.candidates),
+                    "candidates": _candidate_snapshots(outcome.candidates),
                 }
                 if outcome.error is not None:
                     details["error"] = outcome.error
@@ -213,6 +214,7 @@ class HybridQueryEngine:
                 "input_count": sum(len(ranked) for ranked in nonempty_rankings),
                 "output_count": len(fused),
                 "top_k": fusion_top_k,
+                "candidates": _candidate_snapshots(fused),
             },
             started=fusion_started,
         )
@@ -229,6 +231,7 @@ class HybridQueryEngine:
                 "input_count": len(fused),
                 "output_count": len(filtered),
                 "filter_count": len(filters),
+                "candidates": _candidate_snapshots(filtered),
             },
             started=filter_started,
         )
@@ -282,6 +285,20 @@ def _run_route(
     except Exception as exc:
         return _RouteOutcome([], _elapsed_ms(started), str(exc) or type(exc).__name__)
     return _RouteOutcome(candidates, _elapsed_ms(started))
+
+
+def _candidate_snapshots(candidates: list[RetrievalCandidate]) -> list[JsonDict]:
+    return [
+        {
+            "chunk_id": candidate.chunk_id,
+            "rank": index,
+            "score": candidate.score,
+            "source": candidate.source,
+            "source_path": candidate.metadata.get("source_path"),
+            "title": candidate.metadata.get("title"),
+        }
+        for index, candidate in enumerate(candidates[:50], start=1)
+    ]
 
 
 def _record_trace_stage(

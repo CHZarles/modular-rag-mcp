@@ -21,15 +21,14 @@ from src.observability.dashboard.pages.ingestion_traces import (  # noqa: E402
     render as render_ingestion_traces,
 )
 from src.observability.dashboard.pages.overview import render as render_overview  # noqa: E402
+from src.observability.dashboard.pages.query_traces import (  # noqa: E402
+    render as render_query_traces,
+)
 
 
 def _placeholder(title: str, message: str = "此页面将在后续开发阶段开放。") -> None:
     st.title(title)
     st.info(message)
-
-
-def _query_traces() -> None:
-    _placeholder("Query 追踪")
 
 
 def _evaluation_panel() -> None:
@@ -80,7 +79,12 @@ def main() -> None:
                     icon=":material/account_tree:",
                     url_path="ingestion-traces",
                 ),
-                st.Page(_query_traces, title="Query 追踪", icon=":material/search_insights:"),
+                st.Page(
+                    render_query_traces,
+                    title="Query 追踪",
+                    icon=":material/search_insights:",
+                    url_path="query-traces",
+                ),
             ],
             "Quality": [
                 st.Page(_evaluation_panel, title="评估面板", icon=":material/analytics:"),

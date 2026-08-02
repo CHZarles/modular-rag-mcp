@@ -17,6 +17,10 @@ from src.core.query_engine import HybridQueryEngine  # noqa: E402
 from src.core.services import build_local_query_engine  # noqa: E402
 from src.core.settings import Settings, load_settings  # noqa: E402
 from src.core.types import QueryRequest, RetrievalCandidate  # noqa: E402
+from src.observability.query_trace import (  # noqa: E402
+    create_trace_collector,
+    run_traced_query,
+)
 
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 
@@ -46,6 +50,7 @@ def main(
             "retrieval",
         )
         engine = build_query_engine(settings, no_rerank=args.no_rerank)
+        trace_collector = create_trace_collector(settings)
     except Exception as exc:
         print(f"查询初始化失败: {exc}", file=sys.stderr)
         return 2
@@ -56,7 +61,7 @@ def main(
         collection=args.collection,
     )
     try:
-        results = engine.search(request)
+        results = run_traced_query(engine, request, trace_collector)
     except Exception as exc:
         print(f"查询失败: {exc}", file=sys.stderr)
         return 1

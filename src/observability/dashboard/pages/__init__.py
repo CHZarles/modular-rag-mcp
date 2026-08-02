@@ -8,10 +8,12 @@ from src.observability.dashboard.pages.ingestion_traces import (
     render as render_ingestion_traces,
 )
 from src.observability.dashboard.pages.overview import render as render_overview
+from src.observability.dashboard.pages.query_traces import render as render_query_traces
 
 __all__ = [
     "render_data_browser",
     "render_ingestion_manager",
     "render_ingestion_traces",
     "render_overview",
+    "render_query_traces",
 ]
