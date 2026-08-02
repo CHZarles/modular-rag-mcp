@@ -1,5 +1,6 @@
 """配置文件加载与校验。"""
 
+import os
 from dataclasses import dataclass, field
 from os.path import expandvars
 from pathlib import Path
@@ -87,3 +88,18 @@ def load_settings(path: str) -> Settings:
     )
     validate_settings(settings)
     return settings
+
+
+def resolve_settings_path(
+    explicit_path: str | Path | None,
+    *,
+    default_path: str | Path,
+) -> Path:
+    """Resolve one process-wide settings path with explicit input taking precedence."""
+    if explicit_path is not None:
+        return Path(explicit_path).expanduser()
+
+    environment_path = os.environ.get("RAG_SETTINGS_PATH", "").strip()
+    if environment_path:
+        return Path(environment_path).expanduser()
+    return Path(default_path).expanduser()

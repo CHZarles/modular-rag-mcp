@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.core.query_engine import HybridQueryEngine  # noqa: E402
 from src.core.services import build_local_query_engine  # noqa: E402
-from src.core.settings import Settings, load_settings  # noqa: E402
+from src.core.settings import Settings, load_settings, resolve_settings_path  # noqa: E402
 from src.core.types import QueryRequest, RetrievalCandidate  # noqa: E402
 from src.observability.query_trace import (  # noqa: E402
     create_trace_collector,
@@ -37,13 +37,17 @@ def build_query_engine(
 def main(
     argv: Sequence[str] | None = None,
     *,
-    settings_path: str | Path = DEFAULT_SETTINGS_PATH,
+    settings_path: str | Path | None = None,
 ) -> int:
     """加载本地索引，执行一次查询并输出适合终端阅读的结果。"""
     args = _build_parser().parse_args(argv)
 
     try:
-        settings = load_settings(str(settings_path))
+        selected_settings_path = resolve_settings_path(
+            settings_path,
+            default_path=DEFAULT_SETTINGS_PATH,
+        )
+        settings = load_settings(str(selected_settings_path))
         top_k = args.top_k or _positive_int(
             settings.retrieval,
             "top_k_final",

@@ -13,7 +13,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.core.services import build_local_query_engine  # noqa: E402
-from src.core.settings import load_settings  # noqa: E402
+from src.core.settings import load_settings, resolve_settings_path  # noqa: E402
 from src.libs.evaluator import create_evaluator  # noqa: E402
 from src.observability.evaluation import EvalRunner  # noqa: E402
 
@@ -23,13 +23,17 @@ DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 def main(
     argv: Sequence[str] | None = None,
     *,
-    settings_path: str | Path = DEFAULT_SETTINGS_PATH,
+    settings_path: str | Path | None = None,
 ) -> int:
     parser = argparse.ArgumentParser(description="Run the local RAG golden-set evaluation")
     parser.add_argument("--test-set", default=None, help="Golden test set JSON path")
     args = parser.parse_args(argv)
     try:
-        settings = load_settings(str(settings_path))
+        selected_settings_path = resolve_settings_path(
+            settings_path,
+            default_path=DEFAULT_SETTINGS_PATH,
+        )
+        settings = load_settings(str(selected_settings_path))
         configured_path = args.test_set or settings.evaluation.get("golden_test_set")
         if not isinstance(configured_path, str) or not configured_path.strip():
             raise ValueError("Missing required setting: evaluation.golden_test_set")

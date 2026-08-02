@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from core.settings import Settings, load_settings
+from core.settings import Settings, load_settings, resolve_settings_path
 from main import main
 
 VALID_SETTINGS = """\
@@ -104,3 +104,19 @@ def test_load_settings_expands_environment_variables(
     path = write_settings(tmp_path / "settings.yaml", config)
 
     assert load_settings(str(path)).llm["model"] == "MiniMax-M3"
+
+
+def test_resolve_settings_path_uses_explicit_then_environment_then_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    default_path = tmp_path / "default.yaml"
+    environment_path = tmp_path / "environment.yaml"
+    explicit_path = tmp_path / "explicit.yaml"
+
+    monkeypatch.setenv("RAG_SETTINGS_PATH", str(environment_path))
+    assert resolve_settings_path(explicit_path, default_path=default_path) == explicit_path
+    assert resolve_settings_path(None, default_path=default_path) == environment_path
+
+    monkeypatch.delenv("RAG_SETTINGS_PATH")
+    assert resolve_settings_path(None, default_path=default_path) == default_path

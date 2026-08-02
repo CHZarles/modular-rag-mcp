@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.core.settings import load_settings  # noqa: E402
+from src.core.settings import load_settings, resolve_settings_path  # noqa: E402
 from src.core.types import IngestionRequest, IngestionResult  # noqa: E402
 from src.ingestion import build_ingestion_pipeline  # noqa: E402
 from src.observability.ingestion_trace import (  # noqa: E402
@@ -47,7 +47,7 @@ def discover_pdf_files(source: str | Path) -> list[Path]:
 def main(
     argv: Sequence[str] | None = None,
     *,
-    settings_path: str | Path = DEFAULT_SETTINGS_PATH,
+    settings_path: str | Path | None = None,
 ) -> int:
     """解析 CLI 参数，逐个摄取文件，并以退出码汇总执行结果。"""
     parser = _build_parser()
@@ -55,7 +55,11 @@ def main(
 
     try:
         files = discover_pdf_files(args.path)
-        settings = load_settings(str(settings_path))
+        selected_settings_path = resolve_settings_path(
+            settings_path,
+            default_path=DEFAULT_SETTINGS_PATH,
+        )
+        settings = load_settings(str(selected_settings_path))
         pipeline = build_ingestion_pipeline(settings)
         trace_collector = create_ingestion_trace_collector(settings)
     except Exception as exc:
