@@ -11,16 +11,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.observability.dashboard.pages.data_browser import (  # noqa: E402
+    render as render_data_browser,
+)
 from src.observability.dashboard.pages.overview import render as render_overview  # noqa: E402
 
 
 def _placeholder(title: str, message: str = "此页面将在后续开发阶段开放。") -> None:
     st.title(title)
     st.info(message)
-
-
-def _data_browser() -> None:
-    _placeholder("数据浏览器")
 
 
 def _ingestion_manager() -> None:
@@ -60,9 +59,15 @@ def main() -> None:
                     render_overview,
                     title="系统总览",
                     icon=":material/dashboard:",
+                    url_path="overview",
                     default=True,
                 ),
-                st.Page(_data_browser, title="数据浏览器", icon=":material/database:"),
+                st.Page(
+                    render_data_browser,
+                    title="数据浏览器",
+                    icon=":material/database:",
+                    url_path="data-browser",
+                ),
                 st.Page(
                     _ingestion_manager,
                     title="Ingestion 管理",
