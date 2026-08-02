@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from src.core.settings import Settings
-from src.core.types import CollectionInfo, DocumentSummary, JsonDict
+from src.core.types import CollectionInfo, DeleteResult, DocumentSummary, JsonDict
 from src.ingestion import DocumentManager
 from src.ingestion.storage import BM25Indexer, ImageStorage
 from src.libs.loader import SQLiteIntegrityStore
@@ -58,6 +58,9 @@ class DataService:
 
     def get_collection_stats(self, collection: str | None = None) -> CollectionInfo:
         return self.document_manager.get_collection_stats(collection)
+
+    def delete_document(self, source_path: str, collection: str) -> DeleteResult:
+        return self.document_manager.delete_document(source_path, collection)
 
 
 def _required_text(config: Mapping[str, Any], key: str, section: str) -> str:

@@ -14,16 +14,15 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.observability.dashboard.pages.data_browser import (  # noqa: E402
     render as render_data_browser,
 )
+from src.observability.dashboard.pages.ingestion_manager import (  # noqa: E402
+    render as render_ingestion_manager,
+)
 from src.observability.dashboard.pages.overview import render as render_overview  # noqa: E402
 
 
 def _placeholder(title: str, message: str = "此页面将在后续开发阶段开放。") -> None:
     st.title(title)
     st.info(message)
-
-
-def _ingestion_manager() -> None:
-    _placeholder("Ingestion 管理")
 
 
 def _ingestion_traces() -> None:
@@ -69,9 +68,10 @@ def main() -> None:
                     url_path="data-browser",
                 ),
                 st.Page(
-                    _ingestion_manager,
+                    render_ingestion_manager,
                     title="Ingestion 管理",
                     icon=":material/upload_file:",
+                    url_path="ingestion",
                 ),
             ],
             "Observability": [

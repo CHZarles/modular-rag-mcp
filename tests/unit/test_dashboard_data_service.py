@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core.settings import Settings
-from core.types import CollectionInfo, DocumentSummary, JsonDict
+from core.types import CollectionInfo, DeleteResult, DocumentSummary, JsonDict
 from observability.dashboard.services import DataService
 
 
@@ -45,6 +45,16 @@ class FakeDocumentManager:
             image_count=sum(int(item.metadata["image_count"]) for item in documents),
         )
 
+    def delete_document(self, source_path: str, collection: str) -> DeleteResult:
+        return DeleteResult(
+            source_path=source_path,
+            collection=collection,
+            deleted_chunks=2,
+            deleted_images=1,
+            removed_bm25=True,
+            removed_integrity_record=True,
+        )
+
 
 def test_data_service_delegates_document_views_and_sorts_collections() -> None:
     manager = FakeDocumentManager()
@@ -54,6 +64,7 @@ def test_data_service_delegates_document_views_and_sorts_collections() -> None:
     assert [item.doc_id for item in service.list_documents("Docs")] == ["doc-a"]
     assert service.get_document_detail("doc-a") is manager.detail
     assert service.get_collection_stats("notes").chunk_count == 1
+    assert service.delete_document("/tmp/a.pdf", "Docs").deleted_chunks == 2
 
 
 def test_data_service_builds_empty_local_stores_from_settings(tmp_path: Path) -> None:
