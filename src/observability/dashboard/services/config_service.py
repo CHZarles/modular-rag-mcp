@@ -112,6 +112,13 @@ class ConfigService:
             ),
         )
 
+    def trace_path(self) -> Path:
+        """Return the same configured JSONL path used by trace producers."""
+        return _project_path(
+            self.settings.observability.get("log_file"),
+            default="./logs/traces.jsonl",
+        )
+
 
 def _text(config: ConfigSection, key: str, default: str = "Not configured") -> str:
     value = config.get(key)

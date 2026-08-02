@@ -2122,7 +2122,7 @@ dashboard:
 | G2 | DocumentManager 实现 | [x] | 2026-08-01 | |
 | G3 | 数据浏览器页面 | [x] | 2026-08-02 | |
 | G4 | Ingestion 管理页面 | [x] | 2026-08-02 | |
-| G5 | Ingestion 追踪页面 | [ ] | | |
+| G5 | Ingestion 追踪页面 | [x] | 2026-08-02 | |
 | G6 | Query 追踪页面 | [ ] | | |
 
 #### 阶段 H：评估体系

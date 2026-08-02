@@ -17,16 +17,15 @@ from src.observability.dashboard.pages.data_browser import (  # noqa: E402
 from src.observability.dashboard.pages.ingestion_manager import (  # noqa: E402
     render as render_ingestion_manager,
 )
+from src.observability.dashboard.pages.ingestion_traces import (  # noqa: E402
+    render as render_ingestion_traces,
+)
 from src.observability.dashboard.pages.overview import render as render_overview  # noqa: E402
 
 
 def _placeholder(title: str, message: str = "此页面将在后续开发阶段开放。") -> None:
     st.title(title)
     st.info(message)
-
-
-def _ingestion_traces() -> None:
-    _placeholder("Ingestion 追踪")
 
 
 def _query_traces() -> None:
@@ -76,9 +75,10 @@ def main() -> None:
             ],
             "Observability": [
                 st.Page(
-                    _ingestion_traces,
+                    render_ingestion_traces,
                     title="Ingestion 追踪",
                     icon=":material/account_tree:",
+                    url_path="ingestion-traces",
                 ),
                 st.Page(_query_traces, title="Query 追踪", icon=":material/search_insights:"),
             ],

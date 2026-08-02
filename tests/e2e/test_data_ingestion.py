@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,19 @@ def test_cli_ingests_directory_skips_unchanged_and_supports_force(
             "SELECT last_generation FROM document_state ORDER BY source_path"
         ).fetchall()
     assert generations == [(2,), (1,)]
+    traces = [
+        json.loads(line)
+        for line in (tmp_path / "logs/traces.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(traces) == 5
+    assert all(trace["trace_type"] == "ingestion" for trace in traces)
+    assert [trace["metadata"]["status"] for trace in traces] == [
+        "success",
+        "success",
+        "skipped",
+        "skipped",
+        "success",
+    ]
 
 
 def test_discover_pdf_files_rejects_unsupported_or_empty_input(tmp_path: Path) -> None:
@@ -144,7 +158,8 @@ rerank:
 evaluation:
   backends: [custom]
 observability:
-  enabled: false
+  enabled: true
+  log_file: {tmp_path / 'logs/traces.jsonl'}
 """
     path = tmp_path / "settings.yaml"
     path.write_text(settings, encoding="utf-8")

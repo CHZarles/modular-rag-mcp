@@ -11,10 +11,15 @@ from typing import Any, Protocol
 import streamlit as st
 
 from src.application.services import IngestionService
+from src.core.trace import TraceCollector
 from src.core.types import DocumentSummary, IngestionRequest, IngestionResult
 from src.ingestion import build_ingestion_pipeline
 from src.observability.dashboard.services import ConfigService, DataService
 from src.observability.dashboard.services.config_service import DEFAULT_SETTINGS_PATH
+from src.observability.ingestion_trace import (
+    create_ingestion_trace_collector,
+    run_traced_ingestion,
+)
 
 _STAGE_LABELS = {
     "integrity": "校验文档",
@@ -41,6 +46,7 @@ def render(
     ingestion_service: IngestionService | None = None,
     settings_path: str | Path | None = None,
     upload_root: str | Path | None = None,
+    trace_collector: TraceCollector | None = None,
 ) -> None:
     """Render upload, progress and coordinated deletion controls."""
     st.title("Ingestion 管理")
@@ -55,7 +61,7 @@ def render(
         )
         selected_path = Path(configured_path).expanduser()
         try:
-            loaded_data, loaded_ingestion, loaded_uploads = _load_services(
+            loaded_data, loaded_ingestion, loaded_uploads, loaded_collector = _load_services(
                 str(selected_path), selected_path.stat().st_mtime_ns
             )
         except Exception as exc:
@@ -65,10 +71,11 @@ def render(
         data = data or loaded_data
         ingestion = ingestion or loaded_ingestion
         uploads = uploads or loaded_uploads
+        trace_collector = trace_collector or loaded_collector
 
     ingest_tab, documents_tab = st.tabs(["摄取", "文档"])
     with ingest_tab:
-        _render_ingestion(data, ingestion, uploads)
+        _render_ingestion(data, ingestion, uploads, trace_collector)
     with documents_tab:
         _render_deletion(data)
 
@@ -77,7 +84,7 @@ def render(
 def _load_services(
     settings_path: str,
     modified_ns: int,
-) -> tuple[DataService, IngestionService, Path]:
+) -> tuple[DataService, IngestionService, Path, TraceCollector | None]:
     del modified_ns
     config = ConfigService.from_path(settings_path)
     storage = config.settings.ingestion.get("storage")
@@ -88,6 +95,7 @@ def _load_services(
         DataService.from_settings(config.settings),
         build_ingestion_pipeline(config.settings),
         uploads,
+        create_ingestion_trace_collector(config.settings),
     )
 
 
@@ -95,6 +103,7 @@ def _render_ingestion(
     data: DataService,
     ingestion: IngestionService,
     upload_root: Path,
+    trace_collector: TraceCollector | None,
 ) -> None:
     collections = data.list_collections()
     options = collections or ["default"]
@@ -130,6 +139,7 @@ def _render_ingestion(
             ingestion,
             update_progress,
             upload_root,
+            trace_collector,
         )
     except Exception as exc:
         progress.empty()
@@ -203,15 +213,18 @@ def _ingest_uploaded_pdf(
     ingestion: IngestionService,
     on_progress: Callable[[str, int, int], None],
     upload_root: Path,
+    trace_collector: TraceCollector | None,
 ) -> IngestionResult:
     source_path = _store_uploaded_pdf(uploaded, upload_root)
-    return ingestion.ingest(
+    return run_traced_ingestion(
+        ingestion,
         IngestionRequest(
             source_path=str(source_path),
             collection=collection,
             force=force,
         ),
-        on_progress=on_progress,
+        trace_collector,
+        on_progress,
     )
 
 

@@ -39,6 +39,8 @@ def test_dashboard_options_are_validated_and_paths_are_project_relative() -> Non
     assert options.traces_dir.is_absolute()
     assert options.traces_dir.name == "logs"
     assert options.refresh_interval == 10
+    assert service.trace_path().is_absolute()
+    assert service.trace_path().name == "traces.jsonl"
 
 
 def test_dashboard_options_reject_invalid_port() -> None:

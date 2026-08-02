@@ -6,5 +6,20 @@ from src.observability.dashboard.services.config_service import (
     DashboardOptions,
 )
 from src.observability.dashboard.services.data_service import DataService
+from src.observability.dashboard.services.trace_service import (
+    TraceReadResult,
+    TraceRecord,
+    TraceService,
+    TraceStage,
+)
 
-__all__ = ["ComponentSummary", "ConfigService", "DashboardOptions", "DataService"]
+__all__ = [
+    "ComponentSummary",
+    "ConfigService",
+    "DashboardOptions",
+    "DataService",
+    "TraceReadResult",
+    "TraceRecord",
+    "TraceService",
+    "TraceStage",
+]

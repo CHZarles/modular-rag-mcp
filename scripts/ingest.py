@@ -16,6 +16,10 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.core.settings import load_settings  # noqa: E402
 from src.core.types import IngestionRequest, IngestionResult  # noqa: E402
 from src.ingestion import build_ingestion_pipeline  # noqa: E402
+from src.observability.ingestion_trace import (  # noqa: E402
+    create_ingestion_trace_collector,
+    run_traced_ingestion,
+)
 
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
 
@@ -53,17 +57,20 @@ def main(
         files = discover_pdf_files(args.path)
         settings = load_settings(str(settings_path))
         pipeline = build_ingestion_pipeline(settings)
+        trace_collector = create_ingestion_trace_collector(settings)
     except Exception as exc:
         print(f"摄取初始化失败: {exc}", file=sys.stderr)
         return 2
 
     results = [
-        pipeline.run(
+        run_traced_ingestion(
+            pipeline,
             IngestionRequest(
                 source_path=str(path),
                 collection=args.collection,
                 force=args.force,
-            )
+            ),
+            trace_collector,
         )
         for path in files
     ]

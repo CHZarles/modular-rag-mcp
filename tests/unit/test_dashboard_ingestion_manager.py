@@ -59,6 +59,7 @@ def test_ingest_uploaded_pdf_persists_stable_source_and_forwards_progress(
         service,  # type: ignore[arg-type]
         lambda stage, step, total: progress.append((stage, step, total)),
         tmp_path / "uploads",
+        None,
     )
 
     assert result.status == "success"
