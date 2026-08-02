@@ -15,7 +15,7 @@ llm:
 embedding:
   provider: minimax
   model: embo-01
-  base_url: https://api.minimax.io/v1
+  base_url: ${OPENAI_BASE_URL}
   api_key: ${MINIMAX_API_KEY}
 
 # Markdown-aware chunking for ingestion.

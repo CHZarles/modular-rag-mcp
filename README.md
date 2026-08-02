@@ -134,8 +134,9 @@ export MINIMAX_GROUP_ID="your-group-id" # 仅旧版账号要求
 ```
 
 `config/settings.yaml` 中的 `${VAR_NAME}` 会在启动时展开。默认的 LLM 和 Embedding 都用
-同一把 MiniMax API Key，但调用的是两套独立接口：聊天使用 OpenAI-compatible Chat API，
-Embedding 使用 MiniMax 原生 `/embeddings` 接口和 `embo-01`。旧版 MiniMax 账号若要求
+同一把 MiniMax API Key 和区域对应的 Base URL，但调用的是两套独立接口：聊天使用
+OpenAI-compatible Chat API，Embedding 使用 MiniMax 原生 `/embeddings` 接口和 `embo-01`。
+中国区账号可将 `OPENAI_BASE_URL` 设为 `https://api.minimaxi.com/v1`。旧版 MiniMax 账号若要求
 GroupId，可在 `embedding` 下增加 `group_id: ${MINIMAX_GROUP_ID}`。
 
 不要把真实密钥写入 Git 或 MCP 配置模板。桌面应用未必会读取交互式 Shell 配置，后文的

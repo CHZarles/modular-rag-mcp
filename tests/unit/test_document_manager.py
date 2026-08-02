@@ -15,7 +15,7 @@ class FakeChromaStore:
                 metadata={
                     "doc_key": "doc-a",
                     "generation": 2,
-                    "source_path": "/tmp/a.pdf",
+                    "source_path": "/documents/a.pdf",
                     "collection": "docs",
                     "chunk_index": 0,
                 },
@@ -27,7 +27,7 @@ class FakeChromaStore:
                 metadata={
                     "doc_key": "doc-a",
                     "generation": 2,
-                    "source_path": "/tmp/a.pdf",
+                    "source_path": "/documents/a.pdf",
                     "collection": "docs",
                     "chunk_index": 1,
                 },
@@ -39,7 +39,7 @@ class FakeChromaStore:
                 metadata={
                     "doc_key": "doc-b",
                     "generation": 1,
-                    "source_path": "/tmp/b.pdf",
+                    "source_path": "/documents/b.pdf",
                     "collection": "notes",
                     "chunk_index": 0,
                 },
@@ -80,15 +80,15 @@ class FakeBM25Indexer:
 class FakeImageStorage:
     def __init__(self) -> None:
         self.images = {
-            ("/tmp/a.pdf", "docs"): [
+            ("/documents/a.pdf", "docs"): [
                 ImageRef(
                     image_id="image-a",
                     path="/tmp/image-a.png",
                     collection="docs",
-                    source_path="/tmp/a.pdf",
+                    source_path="/documents/a.pdf",
                 )
             ],
-            ("/tmp/b.pdf", "notes"): [],
+            ("/documents/b.pdf", "notes"): [],
         }
         self.delete_calls: list[tuple[str, str]] = []
 
@@ -104,9 +104,9 @@ class FakeIntegrityStore:
     def __init__(self) -> None:
         self.active = {"doc-a": 2, "doc-b": 1}
         self.rows: list[JsonDict] = [
-            _row("doc-a", 1, "/tmp/a.pdf", "docs", chunks=1),
-            _row("doc-a", 2, "/tmp/a.pdf", "docs", chunks=2),
-            _row("doc-b", 1, "/tmp/b.pdf", "notes", chunks=1),
+            _row("doc-a", 1, "/documents/a.pdf", "docs", chunks=1),
+            _row("doc-a", 2, "/documents/a.pdf", "docs", chunks=2),
+            _row("doc-b", 1, "/documents/b.pdf", "notes", chunks=1),
         ]
         self.remove_calls: list[tuple[str, str | None]] = []
 
@@ -147,7 +147,7 @@ def test_list_documents_returns_only_active_versions_with_counts() -> None:
 
     assert len(documents) == 1
     assert documents[0].doc_id == "doc-a"
-    assert documents[0].source_path == "/tmp/a.pdf"
+    assert documents[0].source_path == "/documents/a.pdf"
     assert documents[0].title == "a"
     assert documents[0].metadata["generation"] == 2
     assert documents[0].metadata["chunk_count"] == 2
@@ -168,17 +168,17 @@ def test_get_document_detail_returns_ordered_chunks_and_images() -> None:
 def test_delete_document_coordinates_all_stores_and_removes_listing() -> None:
     manager, chroma, bm25, images, integrity = _manager()
 
-    result = manager.delete_document("/tmp/a.pdf", "docs")
+    result = manager.delete_document("/documents/a.pdf", "docs")
 
     assert result.deleted_chunks == 2
     assert result.deleted_images == 1
     assert result.removed_bm25 is True
     assert result.removed_integrity_record is True
     assert result.errors == []
-    assert chroma.delete_calls == [{"source_path": "/tmp/a.pdf", "collection": "docs"}]
-    assert bm25.remove_calls == [("/tmp/a.pdf", "docs")]
-    assert images.delete_calls == [("/tmp/a.pdf", "docs")]
-    assert integrity.remove_calls == [("/tmp/a.pdf", "docs")]
+    assert chroma.delete_calls == [{"source_path": "/documents/a.pdf", "collection": "docs"}]
+    assert bm25.remove_calls == [("/documents/a.pdf", "docs")]
+    assert images.delete_calls == [("/documents/a.pdf", "docs")]
+    assert integrity.remove_calls == [("/documents/a.pdf", "docs")]
     assert manager.list_documents("docs") == []
 
 
@@ -186,15 +186,15 @@ def test_partial_delete_keeps_integrity_record_for_retry() -> None:
     manager, chroma, bm25, images, integrity = _manager()
     chroma.fail_delete = True
 
-    result = manager.delete_document("/tmp/a.pdf", "docs")
+    result = manager.delete_document("/documents/a.pdf", "docs")
 
     assert result.deleted_chunks == 0
     assert result.deleted_images == 1
     assert result.removed_bm25 is True
     assert result.removed_integrity_record is False
     assert result.errors == ["chroma: vector unavailable"]
-    assert bm25.remove_calls == [("/tmp/a.pdf", "docs")]
-    assert images.delete_calls == [("/tmp/a.pdf", "docs")]
+    assert bm25.remove_calls == [("/documents/a.pdf", "docs")]
+    assert images.delete_calls == [("/documents/a.pdf", "docs")]
     assert integrity.remove_calls == []
 
 
@@ -214,7 +214,7 @@ def test_delete_rejects_unsafe_collection_before_touching_stores() -> None:
     manager, chroma, bm25, images, integrity = _manager()
 
     with pytest.raises(ValueError, match="simple name"):
-        manager.delete_document("/tmp/a.pdf", "../docs")
+        manager.delete_document("/documents/a.pdf", "../docs")
 
     assert chroma.delete_calls == []
     assert bm25.remove_calls == []
