@@ -2133,7 +2133,7 @@ dashboard:
 | H2 | CompositeEvaluator 实现 | [x] | 2026-08-02 | |
 | H3 | EvalRunner + Golden Test Set | [x] | 2026-08-02 | |
 | H4 | 评估面板页面 | [x] | 2026-08-02 | |
-| H5 | Recall 回归测试（E2E） | [ ] | | |
+| H5 | Recall 回归测试（E2E） | [x] | 2026-08-02 | |
 
 #### 阶段 I：端到端验收与文档收口
 

@@ -4,7 +4,7 @@
       "case_id": "generation-lifecycle",
       "query": "How does the ingestion generation lifecycle prevent stale data from becoming visible?",
       "expected_chunk_ids": [],
-      "expected_sources": ["generation-lifecycle.md"],
+      "expected_sources": ["generation-lifecycle.pdf"],
       "metadata": {
         "collection": "default",
         "top_k": 5
@@ -14,7 +14,7 @@
       "case_id": "hybrid-retrieval",
       "query": "How are dense and sparse retrieval results combined?",
       "expected_chunk_ids": [],
-      "expected_sources": ["hybrid-retrieval.md"],
+      "expected_sources": ["hybrid-retrieval.pdf"],
       "metadata": {
         "collection": "default",
         "top_k": 5

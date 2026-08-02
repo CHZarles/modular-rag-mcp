@@ -78,6 +78,23 @@ def test_custom_evaluator_returns_zero_for_no_relevant_hit(
     }
 
 
+def test_custom_evaluator_computes_source_level_recall_for_stable_golden_sets() -> None:
+    case = EvaluationCase(
+        case_id="q1",
+        query="where?",
+        metadata={"expected_sources": ["guide.pdf"]},
+    )
+    result = response("other", "golden")
+    result.items[1].metadata["source_path"] = "/documents/guide.pdf"
+
+    assert CustomEvaluator().evaluate(case, result) == {
+        "hit_rate": 0.0,
+        "mrr": 0.0,
+        "source_hit_rate": 1.0,
+        "source_mrr": 0.5,
+    }
+
+
 def test_factory_creates_custom_evaluator_from_settings() -> None:
     settings = Settings(
         knowledge_service={"mode": "local"},
