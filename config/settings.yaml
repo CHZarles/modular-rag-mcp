@@ -15,6 +15,7 @@ llm:
 embedding:
   provider: openai
   model: text-embedding-3-small
+  api_key: ${OPENAI_API_KEY}
 
 # Markdown-aware chunking for ingestion.
 splitter:

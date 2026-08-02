@@ -9,6 +9,10 @@
 - [项目概述](#-项目概述)
 - [分支说明](#-分支说明)
 - [快速开始](#-快速开始)
+- [配置说明](#-配置说明)
+- [MCP 客户端配置](#-mcp-客户端配置)
+- [Dashboard 使用指南](#-dashboard-使用指南)
+- [运行测试](#-运行测试)
 - [谁适合用这个项目 & 怎么用](#-谁适合用这个项目--怎么用)
 - [简历参考](#-简历参考)
 - [常见问题](#-常见问题)
@@ -20,7 +24,7 @@
 
 ### 这个项目是什么
 
-本项目将 RAG 面试中最常见的核心环节——**检索（Hybrid Search + Rerank）**、**多模态视觉处理（Image Captioning）**、**RAG 评估（Ragas + Custom）**、**生成（LLM Response）**——以及当下热门的应用协议 **MCP（Model Context Protocol）** 串联为一个完整的、可运行的工程项目。
+本项目将 RAG 面试中最常见的核心环节——**检索（Hybrid Search + Rerank）**、**多模态视觉处理（Image Captioning）**、**可追溯响应（Context + Citation）**、**RAG 评估（Ragas + Custom）**——以及当下热门的应用协议 **MCP（Model Context Protocol）** 串联为一个完整的、可运行的工程项目。
 
 **项目的一大亮点是极易适配到你自己的业务中**。得益于全链路可插拔架构，你可以快速将它结合到自己已有的项目里，无论你的背景和需求如何，都能找到适合自己的使用方式。具体的使用策略会在后文 [谁适合用这个项目 & 怎么用](#-谁适合用这个项目--怎么用) 中详细展开。
 
@@ -101,14 +105,81 @@
 
 ## 🚀 快速开始
 
-### 1. 克隆项目
+下面的手动流程适用于 macOS、Linux 和 WSL。Python 需要 `3.10+`，示例命令均在项目根
+目录执行。
+
+### 1. 安装依赖
 
 ```bash
 git clone <repo-url>
-cd Modular-RAG-MCP-Server
+cd MODULAR-RAG-MCP-SERVER
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
-### 2. 一键配置（Setup Skill）
+Windows PowerShell 使用 `.venv\Scripts\Activate.ps1` 激活环境。安装完成后，
+`modular-rag-mcp`、Streamlit 和测试工具都会位于同一个虚拟环境中。
+
+### 2. 配置模型凭据
+
+默认配置使用 OpenAI-compatible LLM 和 OpenAI Embedding。先设置环境变量：
+
+```bash
+export MINIMAX_API_KEY="your-minimax-api-key"
+export OPENAI_BASE_URL="https://api.minimax.io/v1"
+export SGPT_MODEL="MiniMax-M2.5"
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+`config/settings.yaml` 中的 `${VAR_NAME}` 会在启动时展开。Embedding 与 LLM 是两个独立
+Provider：MiniMax 的聊天模型不能代替 Embedding API。若使用其他 OpenAI-compatible
+Embedding 服务，同时修改 `embedding.base_url`、`embedding.model` 和
+`embedding.api_key`。
+
+不要把真实密钥写入 Git 或 MCP 配置模板。桌面应用未必会读取交互式 Shell 配置，后文的
+MCP 示例展示了如何显式向子进程传递环境变量。
+
+### 3. 首次摄取
+
+准备一个 PDF，然后执行：
+
+```bash
+python scripts/ingest.py \
+  --path "/absolute/path/to/your-document.pdf" \
+  --collection default
+```
+
+也可以把 `--path` 指向包含 PDF 的目录。再次摄取内容未变化的文件会跳过；需要强制生成新
+版本时增加 `--force`。成功后，本地数据写入 `data/db/`，图片写入 `data/images/`，Trace
+写入 `logs/traces.jsonl`。
+
+### 4. 查询并评估
+
+```bash
+python scripts/query.py \
+  --query "这份文档的核心结论是什么？" \
+  --collection default \
+  --verbose
+
+python scripts/evaluate.py
+```
+
+查询输出包含最终候选、来源和页码；`--verbose` 额外展示 Dense、BM25、RRF 和 Rerank
+贡献。评估命令读取 `evaluation.golden_test_set`，也可用
+`--test-set path/to/golden.json` 覆盖。
+
+### 5. 启动 Dashboard
+
+```bash
+python scripts/start_dashboard.py
+```
+
+浏览器打开 <http://127.0.0.1:8501>。至此 ingest、query、evaluate 和 Dashboard 已形成
+一个可复现的本地闭环。
+
+### 一键配置（可选）
 
 本项目提供了 **Setup Skill** 一键完成所有环境配置，包括：Provider 选择 → API Key 配置 → 依赖安装 → 配置文件生成 → Dashboard 启动。
 
@@ -121,6 +192,184 @@ setup
 Agent 会自动引导你完成全部配置流程。
 
 > 💡 如果不熟悉 Skill 的使用方式，请观看配套笔记中的 **Setup Skill 使用讲解视频**。
+
+---
+
+## ⚙️ 配置说明
+
+运行时统一读取 [`config/settings.yaml`](config/settings.yaml)。Dashboard 和 MCP 子进程还
+支持用 `RAG_SETTINGS_PATH` 指向另一份配置，便于为开发、测试和不同知识库隔离数据。
+
+| 区段 | 关键字段 | 作用 |
+|------|----------|------|
+| `knowledge_service` | `mode` | MCP 使用的知识服务实现；当前主线为 `local` |
+| `llm` | `provider`、`model`、`base_url`、`api_key` | Chunk 精炼、元数据增强和图片描述使用的模型 |
+| `embedding` | `provider`、`model`、`api_key` | 摄取和 Dense 查询使用的向量模型 |
+| `splitter` | `chunk_size`、`chunk_overlap` | PDF 文本切分大小与重叠窗口 |
+| `ingestion` | `batch_size`、`claim_lease_seconds` | 摄取批大小和并发任务租约 |
+| `ingestion.storage` | `integrity_db_path`、`bm25_path`、`image_*` | SQLite、BM25 和图片持久化位置 |
+| `vector_store` | `backend`、`persist_path`、`collection_name` | Dense Vector Store；当前本地实现使用 Chroma |
+| `retrieval` | `enable_dense`、`enable_sparse`、`top_k_*` | 召回通道开关及各阶段候选数量 |
+| `rerank` | `backend`、`top_m`、`timeout_seconds` | 可选精排及失败回退时间预算 |
+| `evaluation` | `backends`、`golden_test_set` | 评估器组合和 Golden Set 路径 |
+| `observability` | `enabled`、`log_file` | Ingestion / Query Trace 的 JSONL 输出 |
+| `dashboard` | `address`、`port`、`refresh_interval` | Dashboard 监听地址与刷新策略 |
+
+常用检索模式：
+
+```yaml
+# 默认混合检索
+retrieval:
+  enable_dense: true
+  enable_sparse: true
+
+# 无 Embedding 服务时仅使用本地 BM25
+retrieval:
+  enable_dense: false
+  enable_sparse: true
+```
+
+至少要启用一个召回通道。`top_k_dense` / `top_k_sparse` 控制粗召回规模，
+`top_k_final` 控制最终返回规模；Rerank 开启时，`top_m` 决定送入精排的候选数量。
+
+---
+
+## 🔌 MCP 客户端配置
+
+先确认虚拟环境中的 Server 能启动：
+
+```bash
+RAG_SETTINGS_PATH="$PWD/config/settings.yaml" modular-rag-mcp
+```
+
+stdio Server 启动后会等待客户端发送 JSON-RPC，请用 `Ctrl+C` 退出。配置中的 `command`
+必须使用绝对路径，避免 GUI 客户端找不到虚拟环境；修改配置或环境变量后需要重启 MCP
+Server。
+
+### GitHub Copilot（VS Code）
+
+在项目中创建 `.vscode/mcp.json`：
+
+```json
+{
+  "servers": {
+    "modular-rag": {
+      "type": "stdio",
+      "command": "/ABSOLUTE/PATH/MODULAR-RAG-MCP-SERVER/.venv/bin/modular-rag-mcp",
+      "env": {
+        "RAG_SETTINGS_PATH": "/ABSOLUTE/PATH/MODULAR-RAG-MCP-SERVER/config/settings.yaml",
+        "MINIMAX_API_KEY": "${input:minimaxApiKey}",
+        "OPENAI_API_KEY": "${input:openaiApiKey}",
+        "OPENAI_BASE_URL": "https://api.minimax.io/v1",
+        "SGPT_MODEL": "MiniMax-M2.5"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "id": "minimaxApiKey",
+      "type": "promptString",
+      "description": "MiniMax API Key",
+      "password": true
+    },
+    {
+      "id": "openaiApiKey",
+      "type": "promptString",
+      "description": "OpenAI Embedding API Key",
+      "password": true
+    }
+  ]
+}
+```
+
+打开 VS Code 的 MCP Server 列表并启动 `modular-rag`。客户端应发现：
+
+- `query_knowledge_hub`
+- `list_collections`
+- `get_document_summary`
+
+### Claude Desktop
+
+编辑 Claude Desktop 配置文件：
+
+- macOS：`~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows：`%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "modular-rag": {
+      "command": "/ABSOLUTE/PATH/MODULAR-RAG-MCP-SERVER/.venv/bin/modular-rag-mcp",
+      "args": [],
+      "env": {
+        "RAG_SETTINGS_PATH": "/ABSOLUTE/PATH/MODULAR-RAG-MCP-SERVER/config/settings.yaml",
+        "MINIMAX_API_KEY": "your-minimax-api-key",
+        "OPENAI_API_KEY": "your-openai-api-key",
+        "OPENAI_BASE_URL": "https://api.minimax.io/v1",
+        "SGPT_MODEL": "MiniMax-M2.5"
+      }
+    }
+  }
+}
+```
+
+Windows 把 `command` 改为 `.venv\\Scripts\\modular-rag-mcp.exe` 的绝对路径。保存后完全退出
+并重启 Claude Desktop。可让客户端执行：“调用 `list_collections`，再在 `default` 集合中
+查询这份文档的核心结论，并保留引用。”
+
+---
+
+## 📊 Dashboard 使用指南
+
+```bash
+python scripts/start_dashboard.py
+
+# 覆盖配置或监听地址
+python scripts/start_dashboard.py \
+  --settings /absolute/path/settings.yaml \
+  --address 127.0.0.1 \
+  --port 8502
+```
+
+| 页面 | 用途 |
+|------|------|
+| 系统总览 | 查看数据资产数量及 LLM、Embedding、Splitter、Store、Reranker、Evaluator 配置 |
+| 数据浏览器 | 按 Collection 浏览 active generation 文档、Chunk 和图片 |
+| Ingestion 管理 | 上传 PDF、查看摄取进度并协调删除跨存储文档 |
+| Ingestion 追踪 | 查看摄取历史、状态、耗时和阶段详情 |
+| Query 追踪 | 对比 Dense / Sparse 候选、阶段耗时和 Rerank 排名变化 |
+| 评估面板 | 选择 Golden Set 与 Evaluator，运行评估并查看指标和用例明细 |
+
+![Dashboard 系统总览](docs/images/dashboard-overview.png)
+
+Dashboard 默认只监听 `127.0.0.1`。对外暴露前应自行增加认证、TLS 和网络访问控制，不要
+直接把本地维护界面绑定到公网地址。
+
+---
+
+## 🧪 运行测试
+
+每次运行 Python 或 pytest 前先激活虚拟环境：
+
+```bash
+source .venv/bin/activate
+
+# 分层运行
+pytest -q tests/unit
+pytest -q tests/integration
+pytest -q tests/e2e
+
+# 全量回归
+pytest -q
+
+# 静态质量检查
+ruff check src scripts tests
+ruff format --check src scripts tests
+mypy src scripts
+```
+
+测试全部使用临时目录，不应依赖 `data/` 中的个人索引。E2E 会启动真实 MCP 子进程和
+Streamlit AppTest，但通过确定性测试 Embedding 避免调用外部模型 API。
 
 ---
 
@@ -337,24 +586,31 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 > **原理说明**：项目的 `src/libs/` 下的 LLM、Embedding、Reranker 等模块都使用工厂模式，新增一个 Provider 只需要：① 新增一个 Provider 类；② 在工厂注册；③ 更新 `settings.yaml` 配置。AI 完全可以自动完成这些步骤。
 
-### 2. 项目评估（Custom Evaluator）与 Cross-Encoder Reranker 部分
+### 2. 为什么提示 `missing api_key` 或调用模型失败？
 
-这两个模块的**框架代码已经搭好，但尚未经过完整测试**，感兴趣的同学可以自行完善：
+先确认变量在**当前进程**中存在，而不只是写在另一个终端的配置文件里：
 
-| 模块 | 状态 | 需要做什么 |
-|------|------|-----------|
-| **自定义评估（Custom Evaluator）** | 框架已有，未测试 | 定义评估方法，准备对应的测试数据集 |
-| **Cross-Encoder Reranker** | 框架已有，未测试 | 需要下载本地重排模型（如 `cross-encoder/ms-marco-MiniLM-L-6-v2`） |
+```bash
+test -n "$MINIMAX_API_KEY" && echo "LLM key loaded"
+test -n "$OPENAI_API_KEY" && echo "Embedding key loaded"
+```
 
-**这些 AI 都能帮你写出来**。把需求描述清楚，AI 可以帮你实现评估方法、准备数据、下载模型并完成集成测试。完成这些扩展对面试也是加分项，体现了你的独立扩展能力。
+然后检查 LLM 与 Embedding 的 `base_url`、`model`、`api_key` 是否属于同一个服务商。常见
+错误是给聊天模型配置了 Embedding 模型名，或认为 MiniMax Chat API 会自动提供
+Embedding。MCP 由桌面应用启动时，还需要在 MCP 配置的 `env` 中显式传入变量。
 
-### 3. 项目报错 / Bug 怎么办？
+### 3. 为什么查询没有结果？
 
-**这不是一个经过广泛测试的生产级项目，而是一个面试导向的实战项目。** 遇到报错是正常的。
+按顺序检查：
 
-- **对面试的影响**：项目的 Bug 对面试几乎没有影响——面试官不会去实际运行你的项目，他们关注的是你对架构、原理和设计决策的理解。
-- **如何修复**：最简单的方式是**把错误信息直接丢给 AI**，绝大多数问题 AI 都能帮你修复。
-- **参考资源**：笔记中推荐的 Tina Huang 的视频里也介绍了这种用 AI 快速修复错误的方法。
+1. 摄取和查询是否使用同一个 `collection`；
+2. MCP / Dashboard 是否通过 `RAG_SETTINGS_PATH` 读取了同一份配置；
+3. `data/db/` 是否可写，摄取输出是否为“成功”而不是“失败”；
+4. Dense 服务不可用时，先设置 `enable_dense: false` 验证 BM25；
+5. 查看 `logs/traces.jsonl` 或 Dashboard Query 追踪，区分“零命中”和“召回通道异常”。
+
+若修改过 Chunk 内容并重新摄取，系统会发布新 generation；查询只展示 active generation，
+旧版本不会混入结果。
 
 ### 4. 想摄取 PDF 以外的文档格式（Word / Markdown / HTML 等）怎么办？
 
@@ -366,16 +622,16 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 ### 5. 如何集成到 AI 工具中（Copilot / Cursor / Claude Code 等）？
 
-本项目是一个 **MCP Server**，可以集成到任何支持 MCP 协议的 AI 工具和 Agent 中。我的演示中已经集成到了 **GitHub Copilot** 和 **Cursor** 中，你同样可以集成到 **Claude Code** 或其他支持 MCP 框架的工具。
+优先使用上面的 [MCP 客户端配置](#-mcp-客户端配置)，并检查：
 
-**如何集成？非常简单——问 AI。**
+- `command` 是虚拟环境中 `modular-rag-mcp` 的绝对路径；
+- `RAG_SETTINGS_PATH` 是绝对路径；
+- 没有 Shell 启动信息或普通日志写入 stdout，stdio stdout 只能承载 JSON-RPC；
+- 修改配置后已重启客户端中的 MCP Server；
+- Server 日志中出现 `Starting modular-rag-mcp`，客户端能列出三个 Tool。
 
-本质上就是给不同的工具写一个 MCP 的配置文件：
-- **Copilot（VS Code）**：让 AI 帮你生成 MCP 配置文件即可
-- **Cursor**：直接导入项目，Cursor 会自动识别
-- **Claude Code / 其他框架**：问 AI 怎么配置，每个工具的配置方式略有不同，但原理都一样
-
-当然，也推荐你去理解 MCP 协议的原理——了解 Server 和 Client 之间是如何通信的、Tool 是怎么注册和调用的。这些在面试中也是加分项。
+不同客户端的外层配置键可能不同，但核心都是同一个 stdio 子进程：客户端写 stdin，Server
+从 stdout 返回 MCP 消息，应用日志写 stderr。
 
 ### 6. 通用建议：善用 AI
 

@@ -241,6 +241,43 @@ MCP Server 是独立进程，不能直接接收 pytest 中的 Python 对象。�
 默认服务仍采用延迟初始化，环境变量在第一次 Tool 调用时读取；若未设置，则回退到
 `config/settings.yaml`。服务创建后继续按进程缓存，因此运行期间切换环境变量不会热加载。
 
+### 桌面客户端为什么要使用绝对可执行路径
+
+VS Code 和 Claude Desktop 启动 MCP Server 时，不保证当前目录是项目根目录，也不保证
+继承用户交互式 Shell 的 `PATH`、虚拟环境和环境变量。若配置只写：
+
+```json
+{"command": "python", "args": ["-m", "src.mcp_server.server"]}
+```
+
+同一份配置可能在终端可用，在桌面客户端中却导入失败，甚至误用系统 Python。当前运行说明
+因此直接指向虚拟环境安装出的 `modular-rag-mcp` 绝对路径，并用绝对
+`RAG_SETTINGS_PATH` 选择配置：
+
+```text
+MCP Client
+  └─ /absolute/project/.venv/bin/modular-rag-mcp
+       ├─ stdin/stdout：MCP JSON-RPC
+       ├─ stderr：应用日志
+       └─ RAG_SETTINGS_PATH：运行时配置与本地索引路径
+```
+
+这样客户端启动不依赖 `cwd`，Python 依赖也固定在项目虚拟环境中。API Key 通过客户端的
+`env` 注入子进程，而不是提交到仓库；VS Code 可以用 password input 延迟询问，Claude
+Desktop 则需要保护本地配置文件权限。
+
+客户端配置需要同时解决三类隔离问题：
+
+| 隔离 | 显式配置 | 避免的问题 |
+|------|----------|------------|
+| Python 环境 | 虚拟环境可执行文件的绝对路径 | 系统 Python 缺包或版本错误 |
+| 应用配置 | `RAG_SETTINGS_PATH` 绝对路径 | 读取错误知识库或默认配置 |
+| Provider 凭据 | 子进程 `env` | GUI 未继承 Shell 环境、密钥误入仓库 |
+
+默认 `KnowledgeService` 会被进程内缓存，所以修改 settings 或环境变量后必须重启该 MCP
+Server。MCP 的 stdout 仍必须保持协议纯净：不能用会输出欢迎语的 Shell wrapper，也不能
+把应用日志改到 stdout，否则客户端会把普通文本当作损坏的 JSON-RPC 消息。
+
 ### 为什么 E2E 查询只启用 BM25
 
 摄取阶段需要生成 Dense Vector，所以父进程注册一个确定性测试 Embedding，并把向量和
