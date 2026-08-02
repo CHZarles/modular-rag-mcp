@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, call
 
@@ -41,7 +43,36 @@ def test_pipeline_runs_normally_without_progress_callback(tmp_path: Path) -> Non
     pipeline.integrity.publish.assert_called_once()
 
 
-def _build_pipeline() -> IngestionPipeline:
+def test_pipeline_renews_claim_while_a_slow_stage_is_running(tmp_path: Path) -> None:
+    class SlowTransform:
+        name = "slow"
+
+        def transform(self, chunks: list[Chunk], trace: object | None = None) -> list[Chunk]:
+            time.sleep(0.09)
+            return chunks
+
+    pipeline = _build_pipeline(
+        transforms=[SlowTransform()],  # type: ignore[list-item]
+        claim_lease_seconds=0.06,
+    )
+    pipeline.integrity.renew_lease.side_effect = lambda claim, seconds: replace(
+        claim,
+        lease_expires_at=time.time() + seconds,
+    )
+    source = tmp_path / "slow.pdf"
+    source.write_text("slow fixture", encoding="utf-8")
+
+    result = pipeline.run(IngestionRequest(source_path=str(source), collection="docs"))
+
+    assert result.status == "success"
+    assert pipeline.integrity.renew_lease.call_count >= 2
+
+
+def _build_pipeline(
+    *,
+    transforms: list[object] | None = None,
+    claim_lease_seconds: float = 900,
+) -> IngestionPipeline:
     claim = ClaimHandle(
         doc_key="doc-key",
         generation=1,
@@ -78,9 +109,10 @@ def _build_pipeline() -> IngestionPipeline:
         integrity=integrity,
         loader=loader,
         chunker=chunker,
-        transforms=[],
+        transforms=transforms or [],  # type: ignore[arg-type]
         batch_processor=batch_processor,
         vector_store=vector_store,
         bm25_store=bm25_store,
         image_store=image_store,
+        claim_lease_seconds=claim_lease_seconds,
     )

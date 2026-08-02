@@ -3,23 +3,27 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Mapping
+import time
+from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Protocol
 
 import streamlit as st
 
-from src.application.services import IngestionService
+from src.core.settings import Settings
 from src.core.trace import TraceCollector
 from src.core.types import DocumentSummary, IngestionRequest, IngestionResult
 from src.ingestion import build_ingestion_pipeline
-from src.observability.dashboard.services import ConfigService, DataService
-from src.observability.dashboard.services.config_service import DEFAULT_SETTINGS_PATH
-from src.observability.ingestion_trace import (
-    create_ingestion_trace_collector,
-    run_traced_ingestion,
+from src.observability.dashboard.services import (
+    ConfigService,
+    DataService,
+    IngestionJob,
+    IngestionJobService,
 )
+from src.observability.dashboard.services.config_service import DEFAULT_SETTINGS_PATH
+from src.observability.ingestion_trace import create_ingestion_trace_collector
 
 _STAGE_LABELS = {
     "integrity": "校验文档",
@@ -31,6 +35,7 @@ _STAGE_LABELS = {
     "complete": "完成",
 }
 _NOTICE_KEY = "ingestion_manager_notice"
+_JOB_KEY = "ingestion_manager_job_id"
 
 
 class UploadedPdf(Protocol):
@@ -43,39 +48,47 @@ class UploadedPdf(Protocol):
 
 def render(
     data_service: DataService | None = None,
-    ingestion_service: IngestionService | None = None,
+    settings: Settings | None = None,
     settings_path: str | Path | None = None,
     upload_root: str | Path | None = None,
     trace_collector: TraceCollector | None = None,
+    job_service: IngestionJobService | None = None,
 ) -> None:
     """Render upload, progress and coordinated deletion controls."""
     st.title("Ingestion 管理")
     _render_notice()
 
     data = data_service
-    ingestion = ingestion_service
+    loaded_settings = settings
     uploads = Path(upload_root).expanduser() if upload_root is not None else None
-    if data is None or ingestion is None or uploads is None:
+    if data is None or loaded_settings is None or uploads is None:
         configured_path = settings_path or os.environ.get(
             "RAG_SETTINGS_PATH", str(DEFAULT_SETTINGS_PATH)
         )
         selected_path = Path(configured_path).expanduser()
         try:
-            loaded_data, loaded_ingestion, loaded_uploads, loaded_collector = _load_services(
+            configured_data, configured_settings, loaded_uploads, loaded_collector = _load_services(
                 str(selected_path), selected_path.stat().st_mtime_ns
             )
         except Exception as exc:
             st.error("摄取服务初始化失败，请检查运行配置。")
             st.caption(f"{type(exc).__name__}: {exc}")
             return
-        data = data or loaded_data
-        ingestion = ingestion or loaded_ingestion
+        data = data or configured_data
+        loaded_settings = loaded_settings or configured_settings
         uploads = uploads or loaded_uploads
         trace_collector = trace_collector or loaded_collector
 
+    jobs = job_service or _load_job_service()
     ingest_tab, documents_tab = st.tabs(["摄取", "文档"])
     with ingest_tab:
-        _render_ingestion(data, ingestion, uploads, trace_collector)
+        _render_ingestion(
+            data,
+            loaded_settings,
+            uploads,
+            trace_collector,
+            jobs,
+        )
     with documents_tab:
         _render_deletion(data)
 
@@ -84,7 +97,7 @@ def render(
 def _load_services(
     settings_path: str,
     modified_ns: int,
-) -> tuple[DataService, IngestionService, Path, TraceCollector | None]:
+) -> tuple[DataService, Settings, Path, TraceCollector | None]:
     del modified_ns
     config = ConfigService.from_path(settings_path)
     storage = config.settings.ingestion.get("storage")
@@ -93,18 +106,28 @@ def _load_services(
     uploads = Path(_required_text(storage, "upload_root", "ingestion.storage")).expanduser()
     return (
         DataService.from_settings(config.settings),
-        build_ingestion_pipeline(config.settings),
+        config.settings,
         uploads,
         create_ingestion_trace_collector(config.settings),
     )
 
 
+@st.cache_resource(show_spinner=False)
+def _load_job_service() -> IngestionJobService:
+    return IngestionJobService(max_workers=1)
+
+
 def _render_ingestion(
     data: DataService,
-    ingestion: IngestionService,
+    settings: Settings,
     upload_root: Path,
     trace_collector: TraceCollector | None,
+    jobs: IngestionJobService,
 ) -> None:
+    current_job = _current_job(jobs)
+    if current_job is not None:
+        _render_job_status(jobs, current_job.job_id)
+
     collections = data.list_collections()
     options = collections or ["default"]
     collection = st.selectbox(
@@ -114,8 +137,18 @@ def _render_ingestion(
         key="ingestion_collection",
     )
     uploaded = st.file_uploader("PDF 文件", type=["pdf"], key="ingestion_pdf")
+    ai_enrichment = st.toggle(
+        "AI 增强",
+        value=_dashboard_ai_enrichment_default(settings),
+        key="ingestion_ai_enrichment",
+    )
     force = st.toggle("强制重新摄取", key="ingestion_force")
-    can_ingest = uploaded is not None and isinstance(collection, str) and bool(collection.strip())
+    can_ingest = (
+        uploaded is not None
+        and isinstance(collection, str)
+        and bool(collection.strip())
+        and (current_job is None or not current_job.active)
+    )
     if not st.button(
         "开始摄取",
         type="primary",
@@ -125,28 +158,62 @@ def _render_ingestion(
         return
 
     assert uploaded is not None and isinstance(collection, str)
-    progress = st.progress(0, text="准备摄取")
-
-    def update_progress(stage: str, step: int, total: int) -> None:
-        label = _STAGE_LABELS.get(stage, stage)
-        progress.progress(step / total, text=f"{label} · {step}/{total}")
-
     try:
-        result = _ingest_uploaded_pdf(
-            uploaded,
-            collection.strip(),
-            force,
-            ingestion,
-            update_progress,
-            upload_root,
+        source_path = _store_uploaded_pdf(uploaded, upload_root)
+        ingestion_settings = _settings_for_ingestion_profile(
+            settings,
+            ai_enrichment=ai_enrichment,
+        )
+        job = jobs.submit(
+            build_ingestion_pipeline(ingestion_settings),
+            IngestionRequest(
+                source_path=str(source_path),
+                collection=collection.strip(),
+                force=force,
+            ),
             trace_collector,
         )
     except Exception as exc:
-        progress.empty()
         st.error("摄取请求执行失败。")
         st.caption(f"{type(exc).__name__}: {exc}")
         return
-    _render_ingestion_result(result)
+    st.session_state[_JOB_KEY] = job.job_id
+    st.rerun()
+
+
+def _current_job(jobs: IngestionJobService) -> IngestionJob | None:
+    job_id = st.session_state.get(_JOB_KEY)
+    if not isinstance(job_id, str):
+        recovered = jobs.latest_active()
+        if recovered is not None:
+            st.session_state[_JOB_KEY] = recovered.job_id
+        return recovered
+    try:
+        return jobs.get(job_id)
+    except KeyError:
+        st.session_state.pop(_JOB_KEY, None)
+        return None
+
+
+@st.fragment(run_every="1s")
+def _render_job_status(jobs: IngestionJobService, job_id: str) -> None:
+    try:
+        job = jobs.get(job_id)
+    except KeyError:
+        st.warning("摄取任务状态已失效，请重新提交。")
+        return
+
+    if job.active:
+        ratio = job.step / job.total if job.total > 0 else 0.0
+        label = _STAGE_LABELS.get(job.stage, job.stage)
+        st.progress(min(max(ratio, 0.0), 1.0), text=f"{label} · {job.step}/{job.total}")
+        elapsed = int(time.time() - job.started_at) if job.started_at is not None else 0
+        st.caption(f"{Path(job.source_path).name} · {elapsed}s")
+        return
+    if job.result is not None:
+        _render_ingestion_result(job.result)
+        return
+    st.error(job.error or "摄取失败。")
 
 
 def _render_deletion(data: DataService) -> None:
@@ -206,28 +273,6 @@ def _render_ingestion_result(result: IngestionResult) -> None:
         st.error(result.error or "摄取失败。")
 
 
-def _ingest_uploaded_pdf(
-    uploaded: UploadedPdf,
-    collection: str,
-    force: bool,
-    ingestion: IngestionService,
-    on_progress: Callable[[str, int, int], None],
-    upload_root: Path,
-    trace_collector: TraceCollector | None,
-) -> IngestionResult:
-    source_path = _store_uploaded_pdf(uploaded, upload_root)
-    return run_traced_ingestion(
-        ingestion,
-        IngestionRequest(
-            source_path=str(source_path),
-            collection=collection,
-            force=force,
-        ),
-        trace_collector,
-        on_progress,
-    )
-
-
 def _store_uploaded_pdf(uploaded: UploadedPdf, upload_root: Path) -> Path:
     filename = Path(uploaded.name).name
     if Path(filename).suffix.lower() != ".pdf":
@@ -250,6 +295,43 @@ def _store_uploaded_pdf(uploaded: UploadedPdf, upload_root: Path) -> Path:
     finally:
         temporary_path.unlink(missing_ok=True)
     return path
+
+
+def _settings_for_ingestion_profile(
+    settings: Settings,
+    *,
+    ai_enrichment: bool,
+) -> Settings:
+    if ai_enrichment:
+        return settings
+
+    ingestion = dict(settings.ingestion)
+    ingestion["chunk_refiner"] = {
+        **_mapping(ingestion.get("chunk_refiner")),
+        "use_llm": False,
+    }
+    ingestion["metadata_enricher"] = {
+        **_mapping(ingestion.get("metadata_enricher")),
+        "use_llm": False,
+    }
+    ingestion["image_captioner"] = {
+        **_mapping(ingestion.get("image_captioner")),
+        "enabled": False,
+    }
+    return replace(settings, ingestion=ingestion)
+
+
+def _dashboard_ai_enrichment_default(settings: Settings) -> bool:
+    value = settings.dashboard.get("ingestion_ai_enrichment_default", False)
+    if not isinstance(value, bool):
+        raise ValueError(
+            "dashboard configuration error: ingestion_ai_enrichment_default must be boolean"
+        )
+    return value
+
+
+def _mapping(value: object) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def _document_label(document: DocumentSummary) -> str:

@@ -87,5 +87,7 @@ dashboard:
   address: 127.0.0.1
   port: 8501
   traces_dir: ./logs
+  # Dashboard 默认走规则增强；需要逐 Chunk/图片调用模型时再显式开启。
+  ingestion_ai_enrichment_default: false
   auto_refresh: true
   refresh_interval: 5

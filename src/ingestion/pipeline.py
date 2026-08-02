@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from threading import Event, Lock, Thread
 from uuid import uuid4
 
 from src.core.trace import TraceContext
@@ -102,6 +103,7 @@ class IngestionPipeline:
         current_stage = "integrity"
         lease_owner = f"{request.request_id or 'ingestion'}:{uuid4().hex}"
         claim: ClaimHandle | None = None
+        heartbeat: _LeaseHeartbeat | None = None
 
         try:
             self._notify("integrity", on_progress)
@@ -150,6 +152,12 @@ class IngestionPipeline:
                 if claim_result.handle is None:  # ClaimResult 自身也校验此不变量。
                     raise RuntimeError("integrity store returned an acquired claim without handle")
                 claim = claim_result.handle
+                heartbeat = _LeaseHeartbeat(
+                    self.integrity,
+                    claim,
+                    self.claim_lease_seconds,
+                )
+                heartbeat.start()
 
                 current_stage = "load"
                 self._notify("load", on_progress)
@@ -295,6 +303,10 @@ class IngestionPipeline:
             # 异常，也只会让本代失败，不会出现“已经 Published 却返回 failed”。
             if claim is None:
                 raise RuntimeError("ingestion pipeline lost its current claim handle")
+            if heartbeat is None:
+                raise RuntimeError("ingestion pipeline lost its lease heartbeat")
+            claim = heartbeat.close()
+            heartbeat = None
             # 三个外部存储都完成后先进入 staged，再用 generation + claim_token CAS 发布。
             # 旧 worker 即使写完自己的旧代，也会在这里被控制面拒绝。
             current_stage = "publish"
@@ -321,6 +333,9 @@ class IngestionPipeline:
             self._record_after_publish(trace, result, pipeline_started)
             return result
         except Exception as exc:
+            if heartbeat is not None:
+                claim = heartbeat.close(raise_on_error=False)
+                heartbeat = None
             error = f"{current_stage} stage failed: {exc}"
             metadata: JsonDict = {
                 key: value
@@ -417,6 +432,56 @@ class IngestionPipeline:
         if on_progress is not None:
             step = self._PROGRESS_STAGES.index(stage) + 1
             on_progress(stage, step, self._TOTAL_STAGES)
+
+
+class _LeaseHeartbeat:
+    """Renew one active claim while slow parsing, model, or storage calls are running."""
+
+    def __init__(
+        self,
+        integrity: FileIntegrityStore,
+        claim: ClaimHandle,
+        lease_seconds: float,
+    ) -> None:
+        self._integrity = integrity
+        self._claim = claim
+        self._lease_seconds = lease_seconds
+        self._interval = min(max(lease_seconds / 3.0, 0.01), 30.0)
+        self._stop = Event()
+        self._lock = Lock()
+        self._error: Exception | None = None
+        self._thread = Thread(
+            target=self._run,
+            name=f"lease-heartbeat-{claim.doc_key[:8]}",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def close(self, *, raise_on_error: bool = True) -> ClaimHandle:
+        self._stop.set()
+        self._thread.join()
+        with self._lock:
+            claim = self._claim
+            error = self._error
+        if error is not None and raise_on_error:
+            raise RuntimeError(f"ingestion lease heartbeat failed: {error}") from error
+        return claim
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval):
+            try:
+                with self._lock:
+                    current = self._claim
+                renewed = self._integrity.renew_lease(current, self._lease_seconds)
+                with self._lock:
+                    self._claim = renewed
+            except Exception as exc:
+                with self._lock:
+                    self._error = exc
+                self._stop.set()
+                return
 
 
 @contextmanager

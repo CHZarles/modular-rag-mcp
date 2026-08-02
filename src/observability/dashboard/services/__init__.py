@@ -7,6 +7,10 @@ from src.observability.dashboard.services.config_service import (
 )
 from src.observability.dashboard.services.data_service import DataService
 from src.observability.dashboard.services.evaluation_service import EvaluationDashboardService
+from src.observability.dashboard.services.ingestion_job_service import (
+    IngestionJob,
+    IngestionJobService,
+)
 from src.observability.dashboard.services.trace_service import (
     TraceReadResult,
     TraceRecord,
@@ -20,6 +24,8 @@ __all__ = [
     "DashboardOptions",
     "DataService",
     "EvaluationDashboardService",
+    "IngestionJob",
+    "IngestionJobService",
     "TraceReadResult",
     "TraceRecord",
     "TraceService",

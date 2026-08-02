@@ -335,12 +335,17 @@ python scripts/start_dashboard.py \
 |------|------|
 | 系统总览 | 查看数据资产数量及 LLM、Embedding、Splitter、Store、Reranker、Evaluator 配置 |
 | 数据浏览器 | 按 Collection 浏览 active generation 文档、Chunk 和图片 |
-| Ingestion 管理 | 上传 PDF、查看摄取进度并协调删除跨存储文档 |
+| Ingestion 管理 | 后台摄取 PDF、实时查看进度并协调删除跨存储文档 |
 | Ingestion 追踪 | 查看摄取历史、状态、耗时和阶段详情 |
 | Query 追踪 | 对比 Dense / Sparse 候选、阶段耗时和 Rerank 排名变化 |
 | 评估面板 | 选择 Golden Set 与 Evaluator，运行评估并查看指标和用例明细 |
 
 ![Dashboard 系统总览](docs/images/dashboard-overview.png)
+
+Dashboard 默认使用快速摄取：保留解析、规则清洗、切块、Dense/BM25 编码和索引写入，
+但不逐 Chunk 调用生成模型。需要 LLM 精炼、语义元数据和图片描述时，在提交前开启
+`AI 增强`。摄取任务在后台运行，切换页面或刷新浏览器不会阻塞任务；同一进程内会恢复
+最近的活动任务及其进度。
 
 Dashboard 默认只监听 `127.0.0.1`。对外暴露前应自行增加认证、TLS 和网络访问控制，不要
 直接把本地维护界面绑定到公网地址。
