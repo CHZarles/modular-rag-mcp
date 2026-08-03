@@ -140,7 +140,7 @@ function ConfigModal({ component, onClose, onSaved }: { component: ComponentSumm
     if (!component) return
     setSaving(true)
     try {
-      const parsed = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, parseField(value, originalValues[key])]))
+      const parsed = Object.fromEntries(Object.entries(values).filter(([key]) => key !== 'api_key').map(([key, value]) => [key, parseField(value, originalValues[key])]))
       await api.updateComponent(component.code, parsed, apiKey || undefined)
       showToast(`${component.label} 配置已保存`, 'success')
       onSaved()

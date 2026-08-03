@@ -253,6 +253,32 @@ def test_put_component_rejects_unknown_fields(tmp_path: Path) -> None:
     assert response.status_code == 400
 
 
+def test_put_component_ignores_redacted_api_key_in_values(tmp_path: Path) -> None:
+    config_service = _config_service(tmp_path)
+    settings_path = config_service.settings_path
+    assert settings_path is not None
+    client = _client(tmp_path, config_service=config_service)
+
+    response = client.put(
+        "/api/components/GEN",
+        json={
+            "values": {
+                "provider": "minimax",
+                "model": "MiniMax-M3",
+                "base_url": "https://api.minimaxi.com/v1",
+                "timeout_seconds": 60,
+                "api_key": "configured",
+            },
+            "api_key": "new-secret",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["values"]["api_key"] == "configured"
+    secrets_path = settings_path.with_name("secrets.local.yaml")
+    assert "new-secret" in secrets_path.read_text(encoding="utf-8")
+
+
 def test_patch_component_enabled_toggles_rerank(tmp_path: Path) -> None:
     config_service = _config_service(tmp_path)
     settings_path = config_service.settings_path

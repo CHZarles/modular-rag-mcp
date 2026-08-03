@@ -253,6 +253,7 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
     ) -> ComponentDetailResponse:  # type: ignore[no-untyped-def]
         current = ctx(request)
         values = dict(payload.values)
+        values.pop(SECRET_FIELD, None)
         try:
             current.config_service.update_component(code, values, api_key=payload.api_key)
         except ValueError as exc:
