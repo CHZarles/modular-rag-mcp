@@ -11,7 +11,6 @@ import {
   Layers3,
   Pencil,
   Plus,
-  RefreshCw,
   Settings2,
   Sparkles,
 } from 'lucide-react'
@@ -89,7 +88,6 @@ export function OverviewPage() {
 
   const indexedCollections = overview.collections.filter((collection) => collection.indexed).length
   return <div className="page-stack">
-    <PageHeader eyebrow="指挥中心" title="欢迎使用模块化 RAG 控制台" description="一站式监控 RAG 流水线、调整 Provider，让每一条知识资产随时可用于检索。" actions={<Button className="button-secondary" onClick={loadOverview}><RefreshCw size={16} /> 刷新</Button>} />
     <section><SectionHeading eyebrow="资产" title="知识资产" description="展示当前工作区内已建索引的全部数据。" /><div className="metric-grid"><MetricCard icon={<FileText size={18} />} label="文档" value={overview.stats.document_count} detail="已建索引的源文件" tone="indigo" /><MetricCard icon={<Layers3 size={18} />} label="Chunk" value={overview.stats.chunk_count} detail="可用于检索的单元" tone="cyan" /><MetricCard icon={<Image size={18} />} label="图片" value={overview.stats.image_count} detail="多模态资产数量" tone="violet" /><MetricCard icon={<Database size={18} />} label="Collection" value={overview.collections.length} detail={`当前已建索引 ${indexedCollections} 个`} tone="emerald" /></div></section>
     <section className="grid-two"><div className="card collection-card"><SectionHeading eyebrow="知识资产" title="Collection 管理" description="在入库前为新数据创建独立的命名空间。" /><form className="collection-form" onSubmit={createCollection}><div className="input-with-icon"><Plus size={17} /><input value={collectionName} onChange={(event) => setCollectionName(event.target.value)} placeholder="例如 product-docs" aria-label="新建 Collection 名称" /></div><Button type="submit" disabled={creating || !collectionName.trim()}>{creating ? '创建中…' : '创建 Collection'}</Button></form><div className="collection-list">{overview.collections.map((collection) => <div className="collection-row" key={collection.name}><div className="collection-name"><span className={`collection-mark ${collection.indexed ? 'collection-mark-indexed' : ''}`}><Database size={14} /></span><strong>{collection.name}</strong></div><Badge tone={collection.indexed ? 'success' : 'neutral'}>{collection.indexed ? '已建索引' : '空'}</Badge></div>)}</div></div><div className="card runtime-card"><SectionHeading eyebrow="运行时" title="流水线状态" description="核心服务已配置完成，可随时处理请求。" /><div className="runtime-summary"><div className="runtime-score"><strong>6</strong><span>个组件在线</span></div><div className="runtime-bars"><div><span>配置完成度</span><ProgressLine value={94} color="indigo" /></div><div><span>索引可用率</span><ProgressLine value={indexedCollections ? 82 : 18} color="cyan" /></div><div><span>可观测性</span><ProgressLine value={76} color="violet" /></div></div></div><div className="runtime-foot"><span><span className="health-dot health-connected" /> 全部系统运行正常</span><span>刚刚更新</span></div></div></section>
     <section><SectionHeading eyebrow="流水线组件" title="运行时配置" description="按需配置各组件 Provider，或开关可选的生成与重排阶段。" /><div className="component-grid">{overview.components.map((component) => <ComponentCard component={component} key={component.code} onEdit={() => setEditing(component)} onToggle={(enabled) => toggleComponent(component, enabled)} />)}</div></section>
