@@ -26,6 +26,12 @@ class LLMFactory:
         cls._providers[key] = factory
 
     @classmethod
+    def available_providers(cls) -> list[str]:
+        """已注册的 Provider 列表，供配置 UI 展示。"""
+        _register_default_providers()
+        return sorted(cls._providers)
+
+    @classmethod
     def unregister(cls, provider: str) -> None:
         """测试或插件卸载时移除 provider。"""
         cls._providers.pop(provider.strip().lower(), None)
@@ -158,11 +164,13 @@ def _register_default_providers() -> None:
     from src.libs.llm.azure_llm import AzureOpenAILLM
     from src.libs.llm.azure_vision_llm import AzureVisionLLM
     from src.libs.llm.deepseek_llm import DeepSeekLLM
+    from src.libs.llm.minimax_llm import MiniMaxLLM
     from src.libs.llm.ollama_llm import OllamaLLM
     from src.libs.llm.openai_llm import OpenAICompatibleLLM
 
     LLMFactory.register("azure", lambda config: AzureOpenAILLM(config))
     LLMFactory.register("deepseek", lambda config: DeepSeekLLM(config))
+    LLMFactory.register("minimax", lambda config: MiniMaxLLM(config))
     LLMFactory.register("ollama", lambda config: OllamaLLM(config))
     LLMFactory.register("openai", lambda config: OpenAICompatibleLLM(config))
     LLMFactory.register_vision_provider("azure", lambda config: AzureVisionLLM(config))

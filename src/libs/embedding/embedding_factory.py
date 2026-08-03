@@ -24,6 +24,12 @@ class EmbeddingFactory:
         cls._providers[key] = factory
 
     @classmethod
+    def available_providers(cls) -> list[str]:
+        """已注册的 Provider 列表，供配置 UI 展示。"""
+        _register_default_providers()
+        return sorted(cls._providers)
+
+    @classmethod
     def unregister(cls, provider: str) -> None:
         """测试或插件卸载时移除 provider。"""
         cls._providers.pop(provider.strip().lower(), None)

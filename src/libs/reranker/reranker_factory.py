@@ -25,6 +25,12 @@ class RerankerFactory:
         cls._backends[key] = factory
 
     @classmethod
+    def available_backends(cls) -> list[str]:
+        """已注册的 Backend 列表，供配置 UI 展示。"""
+        _register_default_backends()
+        return sorted(cls._backends)
+
+    @classmethod
     def unregister(cls, backend: str) -> None:
         """测试或插件卸载时移除 backend。"""
         cls._backends.pop(backend.strip().lower(), None)

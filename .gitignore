@@ -113,3 +113,9 @@ traces.jsonl
 .env.*.local
 secrets.yaml
 nonexistent_traces.jsonl/
+
+# React frontend
+web/node_modules/
+web/dist/
+web/tsbuildinfo
+web/*.tsbuildinfo
