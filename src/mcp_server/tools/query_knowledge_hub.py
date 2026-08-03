@@ -6,8 +6,12 @@ from collections.abc import Callable
 
 from src.core.response import ResponseBuilder
 from src.core.services.knowledge_service import KnowledgeService
-from src.core.types import JsonDict, QueryRequest
+from src.core.trace import TraceCollector, TraceContext
+from src.core.types import JsonDict, QueryRequest, QueryResponse
 from src.mcp_server.tools.base import ToolArgumentError
+from src.observability.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class QueryKnowledgeHubTool:
@@ -40,9 +44,11 @@ class QueryKnowledgeHubTool:
         self,
         get_service: Callable[[], KnowledgeService],
         response_builder: ResponseBuilder | None = None,
+        get_collector: Callable[[], TraceCollector | None] | None = None,
     ) -> None:
         self.get_service = get_service
         self.response_builder = response_builder or ResponseBuilder()
+        self.get_collector = get_collector
 
     def call(self, arguments: JsonDict) -> JsonDict:
         """校验 Tool 参数，调用 KnowledgeService 并构建 MCP 结果。"""
@@ -67,5 +73,45 @@ class QueryKnowledgeHubTool:
             top_k=top_k,
             collection=collection.strip(),
         )
-        response = self.get_service().query(request)
+        response = _run_with_trace(self.get_service, request, self.get_collector)
         return self.response_builder.build_mcp_result(response)
+
+
+def _run_with_trace(
+    get_service: Callable[[], KnowledgeService],
+    request: QueryRequest,
+    get_collector: Callable[[], TraceCollector | None] | None,
+) -> QueryResponse:
+    service = get_service()
+    collector = get_collector() if get_collector is not None else None
+    trace = TraceContext(
+        trace_type="query",
+        metadata={
+            "query": request.query,
+            "collection": request.collection,
+            "top_k": request.top_k,
+        },
+    )
+    try:
+        response = service.query(request, trace=trace)
+    except Exception as exc:
+        trace.metadata.update({"status": "failed", "error": str(exc)})
+        if collector is not None:
+            _collect_safely(collector, trace)
+        raise
+    trace.metadata.update(
+        {
+            "status": "success",
+            "result_count": len(response.items),
+        }
+    )
+    if collector is not None:
+        _collect_safely(collector, trace)
+    return response
+
+
+def _collect_safely(collector: TraceCollector, trace: TraceContext) -> None:
+    try:
+        collector.collect(trace)
+    except Exception as exc:
+        logger.warning("Unable to persist query trace %s: %s", trace.trace_id, exc)

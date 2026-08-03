@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from src.core.types import (
@@ -14,6 +16,17 @@ from src.core.types import (
     RetrievalCandidate,
 )
 from src.mcp_server.tools import QueryKnowledgeHubTool, ToolArgumentError, ToolHandler
+
+
+class _FakeCollector:
+    def __init__(self) -> None:
+        self.records: list[JsonDict] = []
+
+    def collect(self, trace: object) -> None:
+        if hasattr(trace, "to_dict"):
+            self.records.append(trace.to_dict())  # type: ignore[arg-type]
+        else:  # pragma: no cover - collector contracts always supply to_dict
+            self.records.append({"trace_type": getattr(trace, "trace_type", "query")})
 
 
 class FakeKnowledgeService:
@@ -49,6 +62,22 @@ def test_tool_only_calls_knowledge_service_and_returns_cited_mcp_result() -> Non
     assert citation["page"] == 3
     assert citation["chunk_id"] == "chunk-1"
     assert citation["score"] == 0.9
+
+
+def test_tool_passes_trace_when_collector_is_available(tmp_path: Path) -> None:
+    service = FakeKnowledgeService(_response())
+    collector = _FakeCollector()
+    tool = QueryKnowledgeHubTool(lambda: service, get_collector=lambda: collector)
+
+    tool.call({"query": "trace me", "collection": "docs"})
+
+    assert collector.records, "collector should receive the trace"
+    payload = collector.records[-1]
+    assert payload["trace_type"] == "query"
+    assert payload["metadata"]["query"] == "trace me"
+    assert payload["metadata"]["collection"] == "docs"
+    assert payload["metadata"]["status"] == "success"
+    assert payload["metadata"]["result_count"] == 1
 
 
 @pytest.mark.parametrize(

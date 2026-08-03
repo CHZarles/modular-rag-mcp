@@ -56,8 +56,9 @@ def create_mcp_server(
         if knowledge_service is not None
         else _build_default_knowledge_service
     )
+    get_collector = _build_default_trace_collector
     if QueryKnowledgeHubTool.name not in handler.tools:
-        handler.register_tool(QueryKnowledgeHubTool(get_service))
+        handler.register_tool(QueryKnowledgeHubTool(get_service, get_collector=get_collector))
     if ListCollectionsTool.name not in handler.tools:
         handler.register_tool(ListCollectionsTool(get_service))
     if GetDocumentSummaryTool.name not in handler.tools:
@@ -98,6 +99,17 @@ def _build_default_knowledge_service() -> KnowledgeService:
     settings_path = os.environ.get("RAG_SETTINGS_PATH", str(DEFAULT_SETTINGS_PATH))
     settings = load_settings(settings_path)
     return build_knowledge_service(settings)
+
+
+@lru_cache(maxsize=1)
+def _build_default_trace_collector():
+    """配置启用时共享同一个 TraceCollector，所有 MCP 工具共用同一份 JSONL。"""
+    from src.core.settings import load_settings
+    from src.observability.ingestion_trace import create_trace_collector
+
+    settings_path = os.environ.get("RAG_SETTINGS_PATH", str(DEFAULT_SETTINGS_PATH))
+    settings = load_settings(settings_path)
+    return create_trace_collector(settings)
 
 
 async def run_stdio_server(
