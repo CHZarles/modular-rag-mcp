@@ -5,10 +5,8 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Mapping
-from dataclasses import replace
 from pathlib import Path
-from tempfile import NamedTemporaryFile
-from typing import Any, Protocol
+from typing import Any
 
 import streamlit as st
 
@@ -16,6 +14,12 @@ from src.core.settings import Settings
 from src.core.trace import TraceCollector
 from src.core.types import DocumentSummary, IngestionRequest, IngestionResult
 from src.ingestion import build_ingestion_pipeline
+from src.observability.dashboard._ingestion_helpers import (
+    collection_options,
+    dashboard_ai_enrichment_default,
+    settings_for_ingestion_profile,
+    store_uploaded_pdf,
+)
 from src.observability.dashboard.services import (
     ConfigService,
     DataService,
@@ -24,6 +28,8 @@ from src.observability.dashboard.services import (
 )
 from src.observability.dashboard.services.config_service import DEFAULT_SETTINGS_PATH
 from src.observability.ingestion_trace import create_ingestion_trace_collector
+
+__all__ = ["render"]
 
 _STAGE_LABELS = {
     "integrity": "校验文档",
@@ -36,14 +42,6 @@ _STAGE_LABELS = {
 }
 _NOTICE_KEY = "ingestion_manager_notice"
 _JOB_KEY = "ingestion_manager_job_id"
-
-
-class UploadedPdf(Protocol):
-    """The small UploadedFile surface needed by this page."""
-
-    name: str
-
-    def getvalue(self) -> bytes: ...
 
 
 def render(
@@ -143,7 +141,7 @@ def _render_ingestion(
     options = (
         collection_config.known_collections(collections)
         if collection_config is not None
-        else _collection_options(settings, collections)
+        else collection_options(settings, collections)
     )
     collection = st.selectbox(
         "Collection",
@@ -154,7 +152,7 @@ def _render_ingestion(
     uploaded = st.file_uploader("PDF 文件", type=["pdf"], key="ingestion_pdf")
     ai_enrichment = st.toggle(
         "AI 增强",
-        value=_dashboard_ai_enrichment_default(settings),
+        value=dashboard_ai_enrichment_default(settings),
         key="ingestion_ai_enrichment",
     )
     force = st.toggle("强制重新摄取", key="ingestion_force")
@@ -174,8 +172,8 @@ def _render_ingestion(
 
     assert uploaded is not None and isinstance(collection, str)
     try:
-        source_path = _store_uploaded_pdf(uploaded, upload_root)
-        ingestion_settings = _settings_for_ingestion_profile(
+        source_path = store_uploaded_pdf(uploaded, upload_root)
+        ingestion_settings = settings_for_ingestion_profile(
             settings,
             ai_enrichment=ai_enrichment,
         )
@@ -194,17 +192,6 @@ def _render_ingestion(
         return
     st.session_state[_JOB_KEY] = job.job_id
     st.rerun()
-
-
-def _collection_options(settings: Settings, indexed_collections: list[str]) -> list[str]:
-    names = {"default", *indexed_collections}
-    configured = settings.vector_store.get("collection_name")
-    if isinstance(configured, str) and configured.strip():
-        names.add(configured.strip())
-    dashboard_collections = settings.dashboard.get("collections")
-    if isinstance(dashboard_collections, list):
-        names.update(str(item).strip() for item in dashboard_collections if str(item).strip())
-    return sorted(names, key=str.casefold)
 
 
 def _current_job(jobs: IngestionJobService) -> IngestionJob | None:
@@ -299,67 +286,6 @@ def _render_ingestion_result(result: IngestionResult) -> None:
         st.error(result.error or "摄取失败。")
 
 
-def _store_uploaded_pdf(uploaded: UploadedPdf, upload_root: Path) -> Path:
-    filename = Path(uploaded.name).name
-    if Path(filename).suffix.lower() != ".pdf":
-        raise ValueError("只支持 PDF 文件")
-    content = uploaded.getvalue()
-    if not content:
-        raise ValueError("PDF 文件不能为空")
-    upload_root.mkdir(parents=True, exist_ok=True)
-    path = (upload_root / filename).resolve()
-    with NamedTemporaryFile(
-        dir=upload_root,
-        prefix=f".{filename}.",
-        suffix=".uploading",
-        delete=False,
-    ) as temporary:
-        temporary.write(content)
-        temporary_path = Path(temporary.name)
-    try:
-        temporary_path.replace(path)
-    finally:
-        temporary_path.unlink(missing_ok=True)
-    return path
-
-
-def _settings_for_ingestion_profile(
-    settings: Settings,
-    *,
-    ai_enrichment: bool,
-) -> Settings:
-    if ai_enrichment:
-        return settings
-
-    ingestion = dict(settings.ingestion)
-    ingestion["chunk_refiner"] = {
-        **_mapping(ingestion.get("chunk_refiner")),
-        "use_llm": False,
-    }
-    ingestion["metadata_enricher"] = {
-        **_mapping(ingestion.get("metadata_enricher")),
-        "use_llm": False,
-    }
-    ingestion["image_captioner"] = {
-        **_mapping(ingestion.get("image_captioner")),
-        "enabled": False,
-    }
-    return replace(settings, ingestion=ingestion)
-
-
-def _dashboard_ai_enrichment_default(settings: Settings) -> bool:
-    value = settings.dashboard.get("ingestion_ai_enrichment_default", False)
-    if not isinstance(value, bool):
-        raise ValueError(
-            "dashboard configuration error: ingestion_ai_enrichment_default must be boolean"
-        )
-    return value
-
-
-def _mapping(value: object) -> dict[str, Any]:
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
 def _document_label(document: DocumentSummary) -> str:
     collection = document.metadata.get("collection", "unknown")
     return f"{document.title or Path(document.source_path).name} · {collection}"
@@ -370,6 +296,3 @@ def _required_text(config: Mapping[str, Any], key: str, section: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Missing required setting: {section}.{key}")
     return value.strip()
-
-
-__all__ = ["render"]

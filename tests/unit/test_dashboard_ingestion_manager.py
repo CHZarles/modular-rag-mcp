@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 
 from core.settings import Settings
-from observability.dashboard.pages.ingestion_manager import (
-    _collection_options,
-    _settings_for_ingestion_profile,
-    _store_uploaded_pdf,
+from observability.dashboard._ingestion_helpers import (
+    collection_options,
+    settings_for_ingestion_profile,
+    store_uploaded_pdf,
 )
 
 
@@ -34,11 +34,11 @@ def test_store_uploaded_pdf_rejects_invalid_files(
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        _store_uploaded_pdf(upload, tmp_path)
+        store_uploaded_pdf(upload, tmp_path)
 
 
 def test_store_uploaded_pdf_uses_safe_stable_filename(tmp_path: Path) -> None:
-    path = _store_uploaded_pdf(FakeUpload("../guide.pdf", b"pdf-content"), tmp_path)
+    path = store_uploaded_pdf(FakeUpload("../guide.pdf", b"pdf-content"), tmp_path)
 
     assert path == (tmp_path / "guide.pdf").resolve()
     assert path.read_bytes() == b"pdf-content"
@@ -47,13 +47,13 @@ def test_store_uploaded_pdf_uses_safe_stable_filename(tmp_path: Path) -> None:
 def test_fast_profile_disables_model_enrichment_without_mutating_settings() -> None:
     settings = _settings()
 
-    fast = _settings_for_ingestion_profile(settings, ai_enrichment=False)
+    fast = settings_for_ingestion_profile(settings, ai_enrichment=False)
 
     assert fast.ingestion["chunk_refiner"]["use_llm"] is False
     assert fast.ingestion["metadata_enricher"]["use_llm"] is False
     assert fast.ingestion["image_captioner"]["enabled"] is False
     assert settings.ingestion["chunk_refiner"]["use_llm"] is True
-    assert _settings_for_ingestion_profile(settings, ai_enrichment=True) is settings
+    assert settings_for_ingestion_profile(settings, ai_enrichment=True) is settings
 
 
 def test_collection_options_include_configured_dashboard_names() -> None:
@@ -61,7 +61,7 @@ def test_collection_options_include_configured_dashboard_names() -> None:
     settings.vector_store["collection_name"] = "backend-default"
     settings.dashboard["collections"] = ["notes"]
 
-    assert _collection_options(settings, ["papers"]) == [
+    assert collection_options(settings, ["papers"]) == [
         "backend-default",
         "default",
         "notes",
