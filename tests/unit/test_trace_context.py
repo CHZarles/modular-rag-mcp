@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.core.trace import TraceCollector, TraceContext
+from src.core.trace import JSONLTraceCollector, TraceContext
 
 
 def test_trace_context_defaults_to_query_and_records_ordered_stages() -> None:
@@ -77,7 +77,7 @@ def test_to_dict_contains_finished_json_serializable_trace() -> None:
 
 def test_trace_collector_finishes_and_appends_json_lines(tmp_path: Path) -> None:
     traces_path = tmp_path / "nested" / "traces.jsonl"
-    collector = TraceCollector(traces_path)
+    collector = JSONLTraceCollector(traces_path)
     first = TraceContext(trace_type="query")
     second = TraceContext(trace_type="ingestion")
 

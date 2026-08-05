@@ -167,6 +167,7 @@ evaluation:
   backends: [custom]
 observability:
   enabled: true
+  backend: jsonl
   log_file: {tmp_path / 'logs/traces.jsonl'}
 """
     path = tmp_path / "settings.yaml"

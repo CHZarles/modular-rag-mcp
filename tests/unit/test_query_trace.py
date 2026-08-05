@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from core.trace import TraceCollector
+from core.trace import JSONLTraceCollector
 from core.types import QueryRequest, RetrievalCandidate
 from observability.query_trace import run_traced_query
 
@@ -39,7 +39,7 @@ def test_run_traced_query_persists_request_and_final_ranking(tmp_path: Path) -> 
     results = run_traced_query(
         FakeQueryEngine(),  # type: ignore[arg-type]
         QueryRequest("stable identity", collection="docs", top_k=3),
-        TraceCollector(path),
+        JSONLTraceCollector(path),
     )
 
     payload = json.loads(path.read_text(encoding="utf-8"))

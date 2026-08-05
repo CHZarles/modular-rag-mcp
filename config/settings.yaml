@@ -77,9 +77,16 @@ evaluation:
   backends: [custom]
   golden_test_set: ./tests/fixtures/golden_test_set.json
 
-# Trace output is kept under the ignored runtime logs directory.
+# Trace output. SQLite is the production single source of truth (plan §C2.2);
+# JSONL is preserved for rollback and tests. `trace_db_path` and the
+# ingestion integrity DB must not collide.
 observability:
   enabled: true
+  backend: sqlite
+  detail: compact
+  retention_days: 90
+  trace_db_path: ./data/db/traces.db
+  # Only consulted when ``backend: jsonl`` is selected.
   log_file: ./logs/traces.jsonl
 
 # Local maintainer dashboard. It binds to loopback unless explicitly overridden.

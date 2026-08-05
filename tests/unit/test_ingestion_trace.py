@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from core.settings import Settings
-from core.trace import TraceCollector
+from core.trace import JSONLTraceCollector
 from core.types import IngestionRequest, IngestionResult
 from observability.ingestion_trace import (
     create_ingestion_trace_collector,
@@ -41,7 +41,7 @@ class FakeIngestionService:
         )
 
 
-class FailingCollector(TraceCollector):
+class FailingCollector(JSONLTraceCollector):
     def collect(self, trace: Any) -> None:
         raise OSError("disk full")
 
@@ -53,7 +53,7 @@ def test_run_traced_ingestion_persists_result_metadata_and_stages(tmp_path: Path
     result = run_traced_ingestion(
         FakeIngestionService(),
         IngestionRequest("/tmp/guide.pdf", "docs", force=True),
-        TraceCollector(path),
+        JSONLTraceCollector(path),
         lambda stage, step, total: progress.append((stage, step, total)),
     )
 
@@ -86,17 +86,53 @@ def test_trace_persistence_failure_does_not_replace_successful_ingestion() -> No
 
 
 def test_create_collector_honors_observability_switch(tmp_path: Path) -> None:
-    enabled = _settings(tmp_path, enabled=True)
-    disabled = _settings(tmp_path, enabled=False)
+    from src.core.trace import JSONLTraceCollector, SQLiteTraceStore
 
-    collector = create_ingestion_trace_collector(enabled)
+    sqlite_settings = _settings(
+        tmp_path,
+        enabled=True,
+        backend="sqlite",
+        trace_db_path=str(tmp_path / "traces.db"),
+        integrity_db_path=str(tmp_path / "integrity.db"),
+    )
+    jsonl_settings = _settings(
+        tmp_path,
+        enabled=True,
+        backend="jsonl",
+        log_file=str(tmp_path / "traces.jsonl"),
+    )
+    disabled_settings = _settings(tmp_path, enabled=False)
 
-    assert collector is not None
-    assert collector.path == tmp_path / "traces.jsonl"
-    assert create_ingestion_trace_collector(disabled) is None
+    sqlite_collector = create_ingestion_trace_collector(sqlite_settings)
+    jsonl_collector = create_ingestion_trace_collector(jsonl_settings)
+    disabled_collector = create_ingestion_trace_collector(disabled_settings)
+
+    assert isinstance(sqlite_collector, SQLiteTraceStore)
+    assert sqlite_collector.path == tmp_path / "traces.db"
+    assert isinstance(jsonl_collector, JSONLTraceCollector)
+    assert jsonl_collector.path == tmp_path / "traces.jsonl"
+    assert disabled_collector is None
 
 
-def _settings(tmp_path: Path, *, enabled: bool) -> Settings:
+def _settings(
+    tmp_path: Path,
+    *,
+    enabled: bool = True,
+    backend: str | None = None,
+    log_file: str | None = None,
+    trace_db_path: str | None = None,
+    integrity_db_path: str | None = None,
+) -> Settings:
+    observability: dict[str, object] = {"enabled": enabled}
+    if backend is not None:
+        observability["backend"] = backend
+    if log_file is not None:
+        observability["log_file"] = log_file
+    if trace_db_path is not None:
+        observability["trace_db_path"] = trace_db_path
+    ingestion: dict[str, object] = {}
+    if integrity_db_path is not None:
+        ingestion["storage"] = {"integrity_db_path": integrity_db_path}
     return Settings(
         knowledge_service={"mode": "local"},
         llm={"provider": "openai"},
@@ -106,5 +142,6 @@ def _settings(tmp_path: Path, *, enabled: bool) -> Settings:
         retrieval={"sparse_backend": "bm25"},
         rerank={"backend": "none"},
         evaluation={"backends": ["custom"]},
-        observability={"enabled": enabled, "log_file": str(tmp_path / "traces.jsonl")},
+        observability=observability,  # type: ignore[arg-type]
+        ingestion=ingestion,  # type: ignore[arg-type]
     )
