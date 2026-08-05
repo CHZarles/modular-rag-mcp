@@ -78,7 +78,7 @@ flowchart TB
 
   subgraph obs["Observability & Dashboard"]
     trace["TraceContext"]
-    dashboard["Streamlit Dashboard"]
+    dashboard["React + FastAPI Dashboard"]
     eval["Evaluation Module<br/>Ragas / Custom"]
   end
 
@@ -390,7 +390,7 @@ flowchart TB
   image_db --> image_files
 
   trace["TraceContext"] --> trace_logs["logs/traces.jsonl"]
-  dashboard["Streamlit Dashboard"] --> trace_logs
+  dashboard["React + FastAPI Dashboard"] --> trace_logs
   dashboard --> chroma
   dashboard --> image_db
   dashboard --> history

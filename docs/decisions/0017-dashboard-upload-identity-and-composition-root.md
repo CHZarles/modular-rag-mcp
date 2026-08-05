@@ -1,6 +1,7 @@
 # ADR-0017：Dashboard 上传身份与共享摄取装配
 
-- **状态**：当前采用
+- **状态**：Superseded（生产只读定位收敛 / Streamlit 退役，按 docs/plans/0001）
+- **承接方案**：docs/plans/0001-production-readonly-rag-component.md 第 0 节
 - **日期**：2026-08-02
 - **决策范围**：Dashboard 上传文件如何获得稳定文档身份，以及 CLI 与 Dashboard 如何复用同一套 Pipeline 装配
 - **决策关系**：建立在 ADR-0004 的摄取编排、ADR-0005 的 generation 状态机和 ADR-0016 的文档生命周期之上

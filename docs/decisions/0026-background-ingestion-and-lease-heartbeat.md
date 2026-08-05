@@ -1,5 +1,8 @@
 # ADR 0026: Background Dashboard Ingestion and Lease Heartbeats
 
+> **状态**：Superseded（Streamlit 退役后改为 FastAPI lifespan 关闭 Job Service）
+> **承接方案**：docs/plans/0001-production-readonly-rag-component.md C0
+
 ## Context
 
 Streamlit reruns a page in response to each interaction. Running an entire PDF ingestion inside

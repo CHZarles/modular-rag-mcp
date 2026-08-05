@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 
 class EvaluationDashboardService:
-    """Keep evaluator and query-engine assembly out of Streamlit pages."""
+    """Keep evaluator and query-engine assembly out of the API request handlers."""
 
     def __init__(self, settings: Settings, query_engine: QueryEngine) -> None:
         self.settings = settings

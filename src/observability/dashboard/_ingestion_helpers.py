@@ -1,4 +1,4 @@
-"""Shared ingestion helpers used by Streamlit pages and the HTTP API."""
+"""Shared ingestion helpers used by the Dashboard API and other internal callers."""
 
 from __future__ import annotations
 

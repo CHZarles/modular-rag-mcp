@@ -1,6 +1,7 @@
 # ADR-0023：Streamlit Dashboard 的有数据冒烟测试
 
-- **状态**：当前采用
+- **状态**：Superseded（Streamlit 已退役，相关 AppTest 随 entry 一起删除）
+- **承接方案**：docs/plans/0001-production-readonly-rag-component.md C0
 - **日期**：2026-08-02
 - **决策范围**：如何自动验证六个 Dashboard 页面在真实本地数据上可渲染
 - **说明**：本文记录实现知识和测试边界，不修改 `DEV_SPEC.md`

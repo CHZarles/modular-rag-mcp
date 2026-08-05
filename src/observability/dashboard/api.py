@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -161,7 +162,19 @@ def create_app(
     context = _build_context(settings_path, overrides)
     state: dict[str, AppContext] = {"context": context}
 
-    app = FastAPI(title="Modular RAG Dashboard API", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        try:
+            yield
+        finally:
+            context.ingestion_jobs.shutdown(wait=False)
+
+    app = FastAPI(
+        title="Modular RAG Dashboard API",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
+    app.state.ingestion_jobs = context.ingestion_jobs
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),

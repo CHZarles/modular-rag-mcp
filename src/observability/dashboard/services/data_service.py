@@ -14,7 +14,7 @@ from src.libs.vector_store import ChromaStore
 
 
 class DataService:
-    """Expose document browsing without leaking storage assembly into pages."""
+    """Expose document browsing without leaking storage assembly into API handlers."""
 
     def __init__(self, document_manager: DocumentManager) -> None:
         self.document_manager = document_manager

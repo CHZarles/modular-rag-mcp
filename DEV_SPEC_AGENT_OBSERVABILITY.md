@@ -211,7 +211,7 @@ Trace 数据写入由 `TraceSink` 决定：
 | 语言 | Python 3.11+ | 与现有项目一致 |
 | 主存储 | SQLite | 本地优先，零外部服务依赖 |
 | 测试框架 | pytest | 单元、集成、E2E 统一入口 |
-| Dashboard | Streamlit | 复用现有 Dashboard 技术方向 |
+| Dashboard | React + FastAPI | 私有管理控制台技术方向 |
 | 配置 | YAML | 复用 `settings.yaml` 风格 |
 | 观测输出 | TraceSink | SQLite 默认，可选外部观测工具 |
 | 导出 | JSONL | 当前默认训练数据导出格式 |
@@ -772,7 +772,7 @@ unknown
                     ┌────────────────┴────────────────┐
                     ▼                                 ▼
 ┌───────────────────────────────┐     ┌───────────────────────────────┐
-│      Streamlit Dashboard      │     │            Exporters           │
+│      React + FastAPI Dashboard│     │            Exporters           │
 │ Runs / Cache / Feedback /     │     │ JSONL / SFT / Bad Cases /      │
 │ Evaluation / Training Data    │     │ Reward Features / 后续扩展     │
 └───────────────────────────────┘     └───────────────────────────────┘

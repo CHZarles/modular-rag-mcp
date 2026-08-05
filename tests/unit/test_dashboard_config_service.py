@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
 from core.settings import Settings
 from observability.dashboard.services import ConfigService
-from scripts.start_dashboard import APP_PATH, _streamlit_command
 
 
 def test_component_summaries_are_complete_and_do_not_expose_secrets() -> None:
@@ -52,14 +50,6 @@ def test_dashboard_options_reject_invalid_port() -> None:
         ConfigService(settings).dashboard_options()
 
 
-def test_launcher_builds_explicit_headless_streamlit_command() -> None:
-    command = _streamlit_command(port=8601, address="127.0.0.1")
-
-    assert command[:4] == [sys.executable, "-m", "streamlit", "run"]
-    assert str(APP_PATH) in command
-    assert command[command.index("--server.port") + 1] == "8601"
-    assert command[command.index("--server.address") + 1] == "127.0.0.1"
-    assert command[command.index("--server.headless") + 1] == "true"
 
 
 def test_component_update_uses_local_override_and_private_secret(tmp_path: Path) -> None:

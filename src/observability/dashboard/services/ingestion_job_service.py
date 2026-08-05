@@ -1,4 +1,4 @@
-"""Thread-safe background ingestion jobs for the Streamlit control plane."""
+"""Thread-safe background ingestion jobs shared by the Dashboard API."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ class IngestionJob:
 
 
 class IngestionJobService:
-    """Run ingestion outside Streamlit's request thread and expose polling snapshots."""
+    """Run ingestion outside the API request thread and expose polling snapshots."""
 
     def __init__(self, max_workers: int = 1) -> None:
         if isinstance(max_workers, bool) or not isinstance(max_workers, int) or max_workers <= 0:

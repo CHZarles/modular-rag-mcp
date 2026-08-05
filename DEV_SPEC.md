@@ -145,7 +145,7 @@
     - 记录并可视化 RAG 流水线的每一个中间状态：覆盖 Ingestion（加载→切分→增强→编码→存储）与 Query（查询预处理→Dense/Sparse 召回→融合→重排→响应构建）两条完整链路。
     - 开发者可以清晰看到“系统为什么选了这个文档”以及“Rerank 起了什么作用”，从而精准定位坏 Case。
 - **可视化管理平台 (Visual Management Dashboard)**：
-    - 基于 Streamlit 的本地开发者 Web 面板，默认只面向项目维护者/开发者使用，不作为 MCP tool 或对外 API 暴露。
+    - 基于 React + FastAPI 的私有开发者控制台，默认只面向项目维护者/开发者使用，不作为 MCP tool 或对外 API 暴露。
     - 提供六大功能页面：
         - **系统总览**：展示当前可插拔组件配置（LLM/Embedding/Splitter/Reranker）与数据资产统计。
         - **数据浏览器**：查看已索引的文档列表、Chunk 详情（原文、metadata 各字段、关联图片），支持搜索过滤。
@@ -753,11 +753,11 @@ MCP 协议的 Tool 返回格式支持多种内容类型（`content` 数组），
 
 #### 3.4.3 技术方案：结构化日志 + 本地 Web Dashboard
 
-本项目采用 **"结构化日志 + 本地 Web Dashboard"** 作为可观测性的实现方案。
+本项目采用 **"结构化日志 + 私有 Web 控制台"** 作为可观测性的实现方案。
 
 **选型理由**：
 - **零外部依赖**：不依赖 LangSmith、LangFuse 等第三方平台，无需网络连接与账号注册，完全本地化运行。
-- **轻量易部署**：仅需 Python 标准库 + 一个轻量 Web 框架（如 Streamlit），`pip install` 即可使用，无需 Docker 或数据库服务。
+- **轻量易部署**：仅需 Python 标准库 + FastAPI + 一个 React 控制台，`pip install` 即可使用，无需 Docker 或数据库服务。
 - **学习成本低**：结构化日志是通用技能，调试时可直接用 `jq`、`grep` 等命令行工具查询；Dashboard 代码简单直观，便于理解与二次开发。
 - **契合项目定位**：本项目面向本地 MCP Server 入口，小团队共享能力优先通过可配置的数据源/存储后端实现；分布式追踪、多租户隔离、认证与权限不属于项目范围。
 
@@ -773,7 +773,7 @@ Trace Collector (装饰器/回调)
 JSON Lines 日志文件 (logs/traces.jsonl)
     │
     ▼
-本地 Web Dashboard (Streamlit)
+本地 Web 控制台 (React + FastAPI)
     │
     ▼
 按 trace_id 查看各阶段详情与性能指标
@@ -781,7 +781,7 @@ JSON Lines 日志文件 (logs/traces.jsonl)
 
 **核心组件**：
 - **结构化日志层**：基于 Python `logging` + JSON Formatter，将每次请求的 Trace 数据以 JSON Lines 格式追加写入本地文件。每行一条完整的请求记录，包含 `trace_id`、各阶段详情与耗时。
-- **本地 Web Dashboard**：基于 Streamlit 构建的轻量级 Web UI，读取日志文件并提供交互式可视化。核心功能是按 `trace_id` 检索并展示单次请求的完整追踪链路。
+- **私有 Web 控制台**：基于 React 前端 + FastAPI 后端构建的轻量级 Web UI，读取日志文件并提供交互式可视化。核心功能是按 `trace_id` 检索并展示单次请求的完整追踪链路。
 
 #### 3.4.4 追踪机制实现
 
@@ -807,7 +807,7 @@ JSON Lines 日志文件 (logs/traces.jsonl)
 
 #### 3.4.5 Dashboard 功能设计（六页面架构）
 
-Dashboard 基于 Streamlit 构建多页面应用（`st.navigation`），提供六大功能页面：
+私有控制台通过 React 多页面应用（由 FastAPI 提供数据）实现，提供六大功能页面：
 
 **页面 1：系统总览 (Overview)**
 - **组件配置卡片**：读取 `Settings`，展示当前可插拔组件的配置状态：
@@ -829,15 +829,15 @@ Dashboard 基于 Streamlit 构建多页面应用（`st.navigation`），提供�
 
 **页面 3：Ingestion 管理 (Ingestion Manager)**
 - **文件选择与摄取触发**：
-    - 文件上传组件（`st.file_uploader`）或目录路径输入
+    - 文件上传组件（前端表单上传到 FastAPI）或目录路径输入
     - 选择目标集合（下拉选择或新建）
-    - 点击"开始摄取"按钮触发 `IngestionPipeline.run()`
-    - 利用 `on_progress` 回调驱动 Streamlit 进度条（`st.progress`），实时显示当前阶段与处理进度
+    - 点击"开始摄取"按钮触发 `IngestionPipeline.run()`（异步 Job Service）
+    - 利用 `on_progress` 回调驱动前端进度条，实时显示当前阶段与处理进度
 - **文档删除**：
     - 在文档列表中提供"删除"按钮
     - 调用 `DocumentManager.delete_document()` 协调跨存储删除
     - 删除完成后刷新列表
-- **注意**：Pipeline 执行为同步阻塞操作，Streamlit 的 rerun 机制天然支持（进度条在同一 request 中更新）。
+- **注意**：Pipeline 通过 `IngestionJobService` 异步执行，前端轮询 `/api/ingestion/jobs/{id}` 拉取阶段和进度。
 
 **页面 4：Ingestion 追踪 (Ingestion Traces)**
 - **摄取历史列表**：按时间倒序展示 `trace_type == "ingestion"` 的历史记录，显示文件名、集合、总耗时、状态（成功/失败）。
@@ -865,7 +865,7 @@ Dashboard 基于 Streamlit 构建多页面应用（`st.navigation`），提供�
 
 ```
 src/observability/dashboard/
-├── app.py                    # Streamlit 入口，页面导航注册
+├── app.py                    # 历史 Streamlit 入口 (C0 起已删除)
 ├── pages/
 │   ├── overview.py           # 页面 1：系统总览
 │   ├── data_browser.py       # 页面 2：数据浏览器
@@ -902,7 +902,7 @@ observability:
 # Dashboard 管理平台配置
 dashboard:
   enabled: true
-  port: 8501                     # Streamlit 服务端口
+  port: 8765                     # FastAPI Dashboard 控制台端口 (前端 vite dev 或静态构建访问)
   traces_dir: ./logs             # Trace 日志文件目录
   auto_refresh: true             # 是否自动刷新（轮询新 trace）
   refresh_interval: 5            # 自动刷新间隔（秒）
@@ -1443,7 +1443,7 @@ Hybrid Search 命中 Chunk（正文含 "[图片描述: 系统采用三层架构.
 │                                                                                             │
 │    ┌──────────────────────────────────────┐    ┌──────────────────────────────────────┐     │
 │    │          Trace Context               │    │         Web Dashboard                │     │
-│    │   trace_id | stages[] | metrics      │    │        (Streamlit)                   │     │
+│    │   trace_id | stages[] | metrics      │    │       (React + FastAPI)               │     │
 │    │   record_stage() | finish()          │    │    请求列表 | 耗时瀑布图 | 详情展开   │     │
 │    └──────────────────────────────────────┘    └──────────────────────────────────────┘     │
 │                                                                                             │
@@ -1599,7 +1599,7 @@ smart-knowledge-hub/
 │       ├── logger.py                    # 结构化日志 (JSON Formatter)
 │       ├── dashboard/                   # Web Dashboard (可视化管理平台)
 │       │   ├── __init__.py
-│       │   ├── app.py                   # Streamlit 入口 (页面导航注册)
+│       │   ├── (Streamlit 入口已删除)                                          │
 │       │   ├── pages/                   # 六大功能页面
 │       │   │   ├── overview.py          # 系统总览 (组件配置 + 数据统计)
 │       │   │   ├── data_browser.py      # 数据浏览器 (文档/Chunk/图片查看)
@@ -1723,7 +1723,7 @@ smart-knowledge-hub/
 | `ingest.py` | 离线数据摄取入口 | CLI 参数解析，调用 Ingestion Pipeline，支持 `--collection`/`--path`/`--force` |
 | `query.py` | 在线查询测试入口 | CLI 参数解析，调用 HybridSearch + Reranker，支持 `--query`/`--top-k`/`--verbose` |
 | `evaluate.py` | 评估运行入口 | 加载 golden_test_set，运行评估，输出 metrics |
-| `start_dashboard.py` | Dashboard 启动入口 | Streamlit 应用启动 |
+| `start_dashboard_api.py` | Dashboard 启动入口 | FastAPI Dashboard 控制台启动 |
 
 #### 5.3.4 Ingestion Pipeline 层
 
@@ -1762,7 +1762,7 @@ smart-knowledge-hub/
 | `logger.py` | 结构化日志 | JSON Formatter，JSON Lines 输出 |
 | `trace_context.py` | 请求级追踪 | trace_id，trace_type（query/ingestion），阶段耗时记录，`finish()` + `to_dict()` 序列化 |
 | `trace_collector.py` | 追踪收集器 | 收集 trace 并触发持久化到 JSON Lines |
-| `dashboard/app.py` | Dashboard 入口 | Streamlit 多页面应用，`st.navigation` 页面注册 |
+| `dashboard/api.py` | Dashboard 入口 | FastAPI Dashboard 控制台后端 |
 | `dashboard/pages/overview.py` | 系统总览 | 组件配置卡片，数据资产统计 |
 | `dashboard/pages/data_browser.py` | 数据浏览器 | 文档列表，Chunk 详情，图片预览 |
 | `dashboard/pages/ingestion_manager.py` | Ingestion 管理 | 文件上传，摄取触发（进度条），文档删除 |
@@ -1889,7 +1889,7 @@ smart-knowledge-hub/
 Dashboard 是本地开发者工具，不是对外 API 层。它可以读取本地索引、日志和评估结果，也可以在开发环境中触发摄取/删除/评估，但这些能力不注册为 MCP tools，不面向普通 MCP Client 暴露。
 
 ```
-Dashboard (Streamlit UI)
+Dashboard (React + FastAPI UI)
       │
       ├─── 数据浏览 ──────────────────────────────────────────┐
       │                                                       │
@@ -1984,7 +1984,7 @@ observability:
 # Dashboard 管理平台配置
 dashboard:
   enabled: true
-  port: 8501                     # Streamlit 服务端口
+  port: 8765                     # FastAPI Dashboard 控制台端口 (前端 vite dev 或静态构建访问)
   traces_dir: ./logs             # Trace 日志文件目录
   auto_refresh: true             # 是否自动刷新（轮询新 trace）
   refresh_interval: 5            # 自动刷新间隔（秒）
@@ -3159,6 +3159,9 @@ sparse_vectors[2] = c2 的稀疏统计
 
 ## 阶段 G：可视化管理平台 Dashboard（目标：六页面完整可视化管理）
 
+> **状态**：Superseded（Streamlit 退出，详见 docs/plans/0001。C0 已替换为 React + FastAPI 控制台；React `web/` 沿用本阶段的页面拆解，FastAPI 实现位于 `src/observability/dashboard/api.py`。）
+
+
 ### G1：Dashboard 基础架构与系统总览页
 - **目标**：搭建 Streamlit 多页面应用框架，实现系统总览页面（展示组件配置与数据统计）。
 - **前置依赖**：F1-F2（Trace 基础设施）
@@ -3171,7 +3174,7 @@ sparse_vectors[2] = c2 的稀疏统计
   - `app.py` 使用 `st.navigation()` 注册六个页面（未完成的页面显示占位提示）
   - Overview 页面：读取 `Settings` 展示组件卡片，调用 `ChromaStore.get_collection_stats()` 展示数据统计
   - `ConfigService`：封装 Settings 读取，格式化组件配置信息
-- **验收标准**：`streamlit run src/observability/dashboard/app.py` 可启动，总览页展示当前配置信息。
+- **验收标准（历史）**：`streamlit run src/observability/dashboard/app.py` 可启动，总览页展示当前配置信息。
 - **测试方法**：手动运行 `python scripts/start_dashboard.py` 并验证页面渲染。
 
 ### G2：DocumentManager 实现
@@ -3332,14 +3335,7 @@ sparse_vectors[2] = c2 的稀疏统计
 - **测试方法**：`pytest -q tests/e2e/test_mcp_client.py`。
 
 ### I2：E2E：Dashboard 冒烟测试
-- **目标**：验证 Dashboard 各页面在有数据时可正常渲染、无 Python 异常。
-- **修改文件**：
-  - `tests/e2e/test_dashboard_smoke.py`（新增）
-- **实现要点**：
-  - 使用 Streamlit 的 `AppTest` 框架进行自动化冒烟测试
-  - 验证 6 个页面均可加载、不抛异常
-- **验收标准**：所有页面冒烟测试通过。
-- **测试方法**：`pytest -q tests/e2e/test_dashboard_smoke.py`。
+> **状态**：Superseded（C0 删除 Streamlit 入口与 `tests/e2e/test_dashboard_smoke.py`；页面冒烟改为 FastAPI TestClient 覆盖，见 `tests/integration/test_dashboard_api_integration.py`。）
 
 ### I3：完善 README（运行说明 + 测试说明 + MCP 配置 + Dashboard 使用）
 - **目标**：让新用户能在 10 分钟内跑通 ingest + query + dashboard + tests，并能在 Copilot/Claude 中使用。

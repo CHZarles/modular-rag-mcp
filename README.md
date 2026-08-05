@@ -46,7 +46,7 @@
 | **Ingestion Pipeline** | PDF → Markdown → Chunk → Transform → Embedding → Upsert | 全链路数据摄取，支持多模态图片描述（Image Captioning） |
 | **Hybrid Search** | Dense (向量) + Sparse (BM25) + RRF Fusion + Rerank | 粗排召回 + 精排重排的两段式检索架构 |
 | **MCP Server** | 标准 MCP 协议暴露 Tools | `query_knowledge_hub`、`list_collections`、`get_document_summary` |
-| **Dashboard** | Streamlit 六页面管理平台 | 系统总览 / 数据浏览 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
+| **Dashboard** | React + FastAPI 私有管理控制台 | 系统总览 / 数据浏览 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
 | **Evaluation** | Ragas + Custom 评估体系 | 支持 golden test set 回归测试，拒绝"凭感觉"调优 |
 | **Observability** | 全链路白盒化追踪 | Ingestion 与 Query 两条链路的每一个中间状态透明可见 |
 | **Skill 驱动全流程** | 从编写到测试、打包、配置一键完成 | auto-coder / qa-tester / package / setup 等 Skill 覆盖完整开发生命周期（笔记中每个 Skill 的使用和设计思路均有讲解，请参考配套视频） |
@@ -120,7 +120,7 @@ python -m pip install -e ".[dev]"
 ```
 
 Windows PowerShell 使用 `.venv\Scripts\Activate.ps1` 激活环境。安装完成后，
-`modular-rag-mcp`、Streamlit 和测试工具都会位于同一个虚拟环境中。
+`modular-rag-mcp`、私有 Dashboard（React + FastAPI）和测试工具都会位于同一个虚拟环境中。
 
 ### 2. 配置模型凭据
 
@@ -155,6 +155,20 @@ python scripts/ingest.py \
 也可以把 `--path` 指向包含 PDF 的目录。再次摄取内容未变化的文件会跳过；需要强制生成新
 版本时增加 `--force`。成功后，本地数据写入 `data/db/`，图片写入 `data/images/`，Trace
 写入 `logs/traces.jsonl`。
+
+从群晖批量导入时，先在 DSM 的“控制面板 → 终端机和 SNMP”中启用 SSH，并确保该用户有
+源目录的读取权限。脚本会通过 `rsync` 只同步 PDF 到本地缓存，再调用同一套摄取流水线：
+
+```bash
+python scripts/import_synology.py \
+  --host nas.local \
+  --user your-user \
+  --remote-path "/volume1/documents" \
+  --collection synology
+```
+
+首次连接可能要求确认主机指纹并输入群晖密码；长期使用建议配置 SSH 密钥。再次执行只同步
+变化文件，摄取层也会跳过内容未变化的 PDF。可以先加 `--dry-run` 预览。
 
 ### 4. 查询并评估
 
@@ -377,7 +391,7 @@ mypy src scripts
 ```
 
 测试全部使用临时目录，不应依赖 `data/` 中的个人索引。E2E 会启动真实 MCP 子进程和
-Streamlit AppTest，但通过确定性测试 Embedding 避免调用外部模型 API。
+FastAPI TestClient，并通过确定性测试 Embedding 避免调用外部模型 API。
 
 ---
 
