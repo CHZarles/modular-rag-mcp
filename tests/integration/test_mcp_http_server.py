@@ -23,6 +23,7 @@ import socket
 import threading
 from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -310,3 +311,180 @@ async def test_http_concurrent_clients_with_distinct_headers_isolate_contexts(
     assert seen_sessions == {f"session-{i}" for i in range(n)}
     request_ids = [entry.request_id for entry in captured]
     assert len(set(request_ids)) == n
+
+
+
+def _write_settings_yaml(tmp_path: Path, observability_enabled: str, trace_db: Path | None) -> Path:
+    settings_path = tmp_path / "settings.yaml"
+    trace_line = (
+        f"  trace_db_path: {trace_db}\n" if trace_db is not None else ""
+    )
+    settings_path.write_text(
+        "knowledge_service:\n  mode: local\n"
+        "llm:\n  provider: openai\n"
+        "embedding:\n  provider: hash\n  dimension: 8\n"
+        "splitter:\n  provider: recursive\n  chunk_size: 32\n  chunk_overlap: 4\n"
+        f"vector_store:\n  backend: chroma\n  persist_path: {tmp_path}/vector\n"
+        "retrieval:\n  sparse_backend: bm25\n  top_k_dense: 5\n  top_k_sparse: 5\n  top_k_final: 3\n"
+        "rerank:\n  backend: none\n  top_m: 5\n  timeout_seconds: 5\n"
+        "evaluation:\n  backends: [custom]\n"
+        f"observability:\n  enabled: {observability_enabled}\n{trace_line}",
+        encoding="utf-8",
+    )
+    return settings_path
+
+
+# --- Health endpoints (plan §5.7 / §C4) -----------------------------------
+
+
+@pytest.fixture
+def mcp_http_app(tmp_path: Path) -> Iterator[tuple[str, _ContextCapturingService, Path]]:
+    """Build the full HTTP app (MCP + /health/*) and expose its base URL."""
+    from src.mcp_server.http_server import build_app
+
+    service = _ContextCapturingService()
+    settings_path = _write_settings_yaml(tmp_path, "false", None)
+    app = build_app(knowledge_service=service, settings_path=settings_path)
+    port = _free_port()
+    runner = _UvicornThread(app, host="127.0.0.1", port=port)
+    runner.start()
+    try:
+        yield f"http://127.0.0.1:{runner.port}", service, settings_path
+    finally:
+        runner.stop()
+
+
+@pytest.mark.anyio
+async def test_health_live_returns_ok_without_building_knowledge_service(
+    mcp_http_app: tuple[str, _ContextCapturingService, Path],
+) -> None:
+    base_url, service, _settings_path = mcp_http_app
+
+    async with httpx.AsyncClient(base_url=base_url, timeout=5.0) as client:
+        response = await client.get("/health/live")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    # ``live`` must not call into the KnowledgeService; the fake would have
+    # raised if any Tool was invoked. (No assertion on captures — only Tools
+    # touch the service, and live never reaches them.)
+    assert service.captured == []
+
+
+@pytest.mark.anyio
+async def test_health_ready_reports_all_ok(mcp_http_app: tuple[str, _ContextCapturingService, Path]) -> None:
+    base_url, _service, _settings = mcp_http_app
+
+    async with httpx.AsyncClient(base_url=base_url, timeout=5.0) as client:
+        response = await client.get("/health/ready")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["checks"] == {
+        "settings": "ok",
+        "knowledge_store": "ok",
+        "trace_store": "ok",
+    }
+
+
+@pytest.mark.anyio
+async def test_health_ready_reports_503_when_settings_invalid(
+    tmp_path: Path,
+) -> None:
+    from src.mcp_server.http_server import build_app
+
+    service = _ContextCapturingService()
+    missing_settings = tmp_path / "missing.yaml"
+    app = build_app(knowledge_service=service, settings_path=missing_settings)
+    port = _free_port()
+    runner = _UvicornThread(app, host="127.0.0.1", port=port)
+    runner.start()
+    try:
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}", timeout=5.0
+        ) as client:
+            response = await client.get("/health/ready")
+    finally:
+        runner.stop()
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "unavailable"
+    assert body["checks"] == {"settings": "settings_invalid"}
+    # No path / exception text leaks onto the wire.
+    serialized = response.text
+    assert str(missing_settings) not in serialized
+    assert "FileNotFoundError" not in serialized
+
+
+@pytest.mark.anyio
+async def test_health_ready_reports_degraded_when_trace_store_unwritable(
+    tmp_path: Path,
+) -> None:
+    from src.core.trace import SQLiteTraceStore
+    from src.mcp_server.http_server import build_app
+
+    service = _ContextCapturingService()
+    settings_path = _write_settings_yaml(tmp_path, "true", tmp_path / "traces.db")
+
+    # Build a writable store, then chmod the DB file so check_writable fails.
+    db_path = tmp_path / "traces.db"
+    SQLiteTraceStore(db_path, auto_purge=False)
+    db_path.chmod(0o400)
+    try:
+        store = SQLiteTraceStore(db_path, auto_purge=False)
+    except Exception:
+        # The store may fail to bootstrap on a read-only file; in that case
+        # the probe still has to mark trace_store as unwritable.
+        store = None
+
+    try:
+        app = build_app(
+            knowledge_service=service,
+            trace_store=store,
+            settings_path=settings_path,
+        )
+        port = _free_port()
+        runner = _UvicornThread(app, host="127.0.0.1", port=port)
+        runner.start()
+        try:
+            async with httpx.AsyncClient(
+                base_url=f"http://127.0.0.1:{port}", timeout=5.0
+            ) as client:
+                response = await client.get("/health/ready")
+        finally:
+            runner.stop()
+    finally:
+        db_path.chmod(0o644)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "degraded"
+    assert body["checks"]["trace_store"] == "unwritable"
+    assert body["checks"]["settings"] == "ok"
+    assert body["checks"]["knowledge_store"] == "ok"
+
+
+@pytest.mark.anyio
+async def test_health_endpoints_do_not_invoke_llm_or_embedding(
+    mcp_http_app: tuple[str, _ContextCapturingService, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``ready`` must NOT touch LLM/Embedding — mock proof per plan §C4."""
+    from src.libs.embedding import embedding_factory
+    from src.libs.llm import llm_factory
+
+    base_url, _service, _settings = mcp_http_app
+
+    def _fail(_settings: object) -> object:
+        raise AssertionError("LLM/Embedding factory must not run during readiness")
+
+    monkeypatch.setattr(llm_factory, "build_llm", _fail, raising=False)
+    monkeypatch.setattr(embedding_factory, "build_embedding", _fail, raising=False)
+
+    async with httpx.AsyncClient(base_url=base_url, timeout=5.0) as client:
+        response = await client.get("/health/ready")
+
+    # The readiness probe completes without invoking any provider factory.
+    assert response.status_code == 200
