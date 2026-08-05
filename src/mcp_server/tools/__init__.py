@@ -1,6 +1,10 @@
-"""MCP Tool 适配器契约。"""
+"""MCP Tool adapter contract package."""
 
-from src.mcp_server.tools.base import ToolArgumentError, ToolHandler
+from src.mcp_server.tools.base import (
+    ToolArgumentError,
+    ToolExecutionError,
+    ToolHandler,
+)
 from src.mcp_server.tools.get_document_summary import GetDocumentSummaryTool
 from src.mcp_server.tools.list_collections import ListCollectionsTool
 from src.mcp_server.tools.query_knowledge_hub import QueryKnowledgeHubTool
@@ -10,5 +14,6 @@ __all__ = [
     "ListCollectionsTool",
     "QueryKnowledgeHubTool",
     "ToolArgumentError",
+    "ToolExecutionError",
     "ToolHandler",
 ]

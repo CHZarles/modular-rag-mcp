@@ -1,4 +1,4 @@
-"""MCP 主查询 Tool：把协议参数转换成 KnowledgeService 请求。"""
+"""Primary MCP query Tool: routes parameters through the KnowledgeService."""
 
 from __future__ import annotations
 
@@ -8,33 +8,53 @@ from src.core.response import ResponseBuilder
 from src.core.services.knowledge_service import KnowledgeService
 from src.core.trace import TraceCollector, TraceContext
 from src.core.types import JsonDict, QueryRequest, QueryResponse
-from src.mcp_server.tools.base import ToolArgumentError
+from src.mcp_server.tools.base import (
+    MAX_QUERY_CHARS,
+    MAX_TOP_K,
+    ToolArgumentError,
+    ToolExecutionError,
+    validate_identifier,
+    validate_query,
+    validate_top_k,
+)
 from src.observability.logger import get_logger
 
 logger = get_logger(__name__)
 
+_QUERY_PROPERTY: JsonDict = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": MAX_QUERY_CHARS,
+    "description": "要查询的问题",
+}
+_TOP_K_PROPERTY: JsonDict = {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": MAX_TOP_K,
+    "default": 5,
+    "description": "最多返回的相关片段数",
+}
+_COLLECTION_PROPERTY: JsonDict = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 128,
+    "default": "default",
+    "description": "限定查询的知识集合",
+}
+_ALLOWED_ARGUMENTS: frozenset[str] = frozenset({"query", "top_k", "collection"})
+
 
 class QueryKnowledgeHubTool:
-    """通过稳定应用服务执行查询，不接触具体 Retriever 或存储实现。"""
+    """Execute a query through the stable knowledge-service facade."""
 
     name = "query_knowledge_hub"
     description = "查询本地知识库，返回带来源引用的相关内容"
     input_schema: JsonDict = {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "minLength": 1, "description": "要查询的问题"},
-            "top_k": {
-                "type": "integer",
-                "minimum": 1,
-                "default": 5,
-                "description": "最多返回的相关片段数",
-            },
-            "collection": {
-                "type": "string",
-                "minLength": 1,
-                "default": "default",
-                "description": "限定查询的知识集合",
-            },
+            "query": _QUERY_PROPERTY,
+            "top_k": _TOP_K_PROPERTY,
+            "collection": _COLLECTION_PROPERTY,
         },
         "required": ["query"],
         "additionalProperties": False,
@@ -51,29 +71,25 @@ class QueryKnowledgeHubTool:
         self.get_collector = get_collector
 
     def call(self, arguments: JsonDict) -> JsonDict:
-        """校验 Tool 参数，调用 KnowledgeService 并构建 MCP 结果。"""
-        unknown = sorted(set(arguments) - {"query", "top_k", "collection"})
+        """Validate Tool inputs, run the service, and build an MCP result."""
+        unknown = sorted(set(arguments) - _ALLOWED_ARGUMENTS)
         if unknown:
             raise ToolArgumentError(f"unsupported arguments: {', '.join(unknown)}")
 
-        query = arguments.get("query")
-        if not isinstance(query, str) or not query.strip():
-            raise ToolArgumentError("query must be a non-empty string")
-
-        top_k = arguments.get("top_k", 5)
-        if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k <= 0:
-            raise ToolArgumentError("top_k must be a positive integer")
-
-        collection = arguments.get("collection", "default")
-        if not isinstance(collection, str) or not collection.strip():
-            raise ToolArgumentError("collection must be a non-empty string")
-
-        request = QueryRequest(
-            query=query.strip(),
-            top_k=top_k,
-            collection=collection.strip(),
+        query = validate_query(arguments.get("query"))
+        top_k = validate_top_k(arguments.get("top_k"))
+        collection = validate_identifier(
+            arguments.get("collection", "default"), field="collection"
         )
-        response = _run_with_trace(self.get_service, request, self.get_collector)
+
+        request = QueryRequest(query=query, top_k=top_k, collection=collection)
+        try:
+            response = _run_with_trace(self.get_service, request, self.get_collector)
+        except ToolExecutionError:
+            raise
+        except Exception:
+            logger.exception("query_knowledge_hub execution failed")
+            raise ToolExecutionError("query_failed") from None
         return self.response_builder.build_mcp_result(response)
 
 
@@ -111,7 +127,12 @@ def _run_with_trace(
 
 
 def _collect_safely(collector: TraceCollector, trace: TraceContext) -> None:
+    """Forward traces without letting collector failures abort the query."""
     try:
         collector.collect(trace)
-    except Exception as exc:
-        logger.warning("Unable to persist query trace %s: %s", trace.trace_id, exc)
+    except Exception:
+        logger.warning("trace collector rejected an entry", exc_info=True)
+
+
+
+__all__ = ["QueryKnowledgeHubTool"]

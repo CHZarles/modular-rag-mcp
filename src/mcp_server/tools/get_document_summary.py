@@ -6,7 +6,14 @@ from collections.abc import Callable
 
 from src.core.services.knowledge_service import KnowledgeService
 from src.core.types import DocumentSummary, JsonDict
-from src.mcp_server.tools.base import ToolArgumentError
+from src.mcp_server.tools.base import (
+    ToolArgumentError,
+    public_citation_metadata,
+    public_source_label,
+    validate_identifier,
+)
+
+_ALLOWED_ARGUMENTS: frozenset[str] = frozenset({"doc_id"})
 
 
 class GetDocumentSummaryTool:
@@ -20,6 +27,7 @@ class GetDocumentSummaryTool:
             "doc_id": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 128,
                 "description": "摄取后生成的稳定文档 ID",
             }
         },
@@ -31,24 +39,22 @@ class GetDocumentSummaryTool:
         self.get_service = get_service
 
     def call(self, arguments: JsonDict) -> JsonDict:
-        """Validate the document ID and distinguish not-found from server failures."""
-        unknown = sorted(set(arguments) - {"doc_id"})
+        """Validate the document ID and surface not-found vs internal failures."""
+        unknown = sorted(set(arguments) - _ALLOWED_ARGUMENTS)
         if unknown:
             raise ToolArgumentError(f"unsupported arguments: {', '.join(unknown)}")
 
-        doc_id = arguments.get("doc_id")
-        if not isinstance(doc_id, str) or not doc_id.strip():
-            raise ToolArgumentError("doc_id must be a non-empty string")
-        normalized_id = doc_id.strip()
+        doc_id = validate_identifier(arguments.get("doc_id"), field="doc_id")
 
         try:
-            document = self.get_service().get_document_summary(normalized_id)
+            document = self.get_service().get_document_summary(doc_id)
         except KeyError:
-            return _not_found_result(normalized_id)
+            return _not_found_result(doc_id)
 
+        public_document = _public_document_summary(document)
         return {
-            "content": [{"type": "text", "text": _markdown(document)}],
-            "structuredContent": {"document": document.to_dict()},
+            "content": [{"type": "text", "text": _markdown(public_document)}],
+            "structuredContent": {"document": public_document.to_dict()},
         }
 
 
@@ -67,7 +73,7 @@ def _markdown(document: DocumentSummary) -> str:
             summary,
             "",
             f"- 文档 ID：`{document.doc_id}`",
-            f"- 来源：`{document.source_path}`",
+            f"- 来源：`{public_source_label(document.source_path)}`",
             f"- 标签：{tags}",
         ]
     )
@@ -81,6 +87,20 @@ def _not_found_result(doc_id: str) -> JsonDict:
         },
         "isError": True,
     }
+
+
+def _public_document_summary(document: DocumentSummary) -> DocumentSummary:
+    """Return a summary with only the wire-safe metadata fields."""
+    sanitized = public_citation_metadata(dict(document.metadata))
+    sanitized.pop("source_path", None)
+    return DocumentSummary(
+        doc_id=document.doc_id,
+        source_path=public_source_label(document.source_path),
+        title=document.title,
+        summary=document.summary,
+        tags=list(document.tags),
+        metadata=sanitized,
+    )
 
 
 __all__ = ["GetDocumentSummaryTool"]

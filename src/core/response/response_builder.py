@@ -1,14 +1,19 @@
-"""构建领域层查询响应。"""
+"""Build query responses that stay inside the wire-safe public boundary."""
 
 from __future__ import annotations
 
 from src.core.response.multimodal_assembler import build_mcp_image_content
 from src.core.types import Citation, JsonDict, QueryRequest, QueryResponse, RetrievalCandidate
+from src.core.wire_safety import (
+    public_citation_metadata,
+    public_source_label,
+    sanitize_wire_string,
+)
 from src.ports.response import CitationGenerator, MultimodalAssembler
 
 
 class ResponseBuilder:
-    """统一组装答案、引用、检索项和多模态内容。"""
+    """Assemble answers, citations, retrieval items, and multimodal content."""
 
     def __init__(
         self,
@@ -50,7 +55,7 @@ class ResponseBuilder:
         return response
 
     def build_mcp_result(self, response: QueryResponse) -> JsonDict:
-        """把领域响应转换为 MCP Tool 可直接返回的文本和结构化内容。"""
+        """Convert a domain response to MCP text + wire-safe structured content."""
         answer = _answer_for_mcp(response)
         content: list[JsonDict] = [
             {"type": "text", "text": _markdown(answer, response.citations)}
@@ -64,13 +69,13 @@ class ResponseBuilder:
                     _structured_citation(citation) for citation in response.citations
                 ],
                 "request_id": response.request_id,
-                "metadata": dict(response.metadata),
+                "metadata": public_citation_metadata(response.metadata),
             },
         }
 
 
 def _default_answer(candidates: list[RetrievalCandidate]) -> str:
-    """在生成式回答尚未接入时返回可读的检索上下文。"""
+    """Fallback answer while a generative answer is not yet wired."""
     if not candidates:
         return "No relevant context found."
     lines = ["Retrieved context:"]
@@ -92,17 +97,21 @@ def _markdown(answer: str, citations: list[Citation]) -> str:
     lines = [answer, "", "### 引用"]
     for index, citation in enumerate(citations, start=1):
         page = f"，第 {citation.page} 页" if citation.page is not None else ""
-        lines.append(f"[{index}] {citation.source_path or '未知来源'}{page}")
+        label = public_source_label(citation.source_path)
+        lines.append(f"[{index}] {label}{page}")
     return "\n".join(lines)
 
 
 def _structured_citation(citation: Citation) -> JsonDict:
     return {
         "id": citation.citation_id,
-        "source": citation.source_path,
+        "source": public_source_label(citation.source_path),
         "page": citation.page,
         "chunk_id": citation.chunk_id,
         "score": citation.score,
-        "text": citation.text,
-        "metadata": dict(citation.metadata),
+        "text": sanitize_wire_string(citation.text),
+        "metadata": public_citation_metadata(citation.metadata),
     }
+
+
+__all__ = ["ResponseBuilder"]

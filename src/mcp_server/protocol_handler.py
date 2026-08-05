@@ -1,4 +1,4 @@
-"""把应用 Tool 适配到官方 MCP SDK 的协议处理器。"""
+"""Bridge registered Tool adapters into the official MCP SDK wire format."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from typing import Any
 from mcp import types
 
 from src.core.types import JsonDict
-from src.mcp_server.tools import ToolArgumentError, ToolHandler
+from src.mcp_server.tools import ToolArgumentError, ToolExecutionError, ToolHandler
+from src.mcp_server.tools.base import sanitize_wire_string
 from src.observability.logger import get_logger
 
 logger = get_logger(__name__)
@@ -18,10 +19,11 @@ logger = get_logger(__name__)
 
 @dataclass
 class ProtocolHandler:
-    """管理 Tool Schema、调用路由和稳定的 JSON-RPC 错误语义。
+    """Manage Tool Schemas, dispatch calls, and produce stable JSON-RPC errors.
 
-    原始 JSON 解析、协议版本协商和 initialize wire 响应继续交给官方 SDK；本类只处理
-    项目需要控制的应用层能力，避免重复实现 MCP 协议栈。
+    The official SDK still owns JSON parsing, capability negotiation, and the
+    initialize wire response. This class only owns the application-level mapping
+    that the project must control directly.
     """
 
     server_name: str
@@ -29,7 +31,7 @@ class ProtocolHandler:
     tools: dict[str, ToolHandler] = field(default_factory=dict)
 
     def register_tool(self, tool: ToolHandler) -> None:
-        """注册一个 Tool，并在启动阶段拒绝重名或无效 Schema。"""
+        """Register a Tool, rejecting duplicates or invalid Schemas at startup."""
         name = tool.name.strip()
         description = tool.description.strip()
         if not name:
@@ -43,14 +45,14 @@ class ProtocolHandler:
         self.tools[name] = tool
 
     def handle_initialize(self, params: Mapping[str, Any] | None = None) -> JsonDict:
-        """返回与 SDK initialize 响应一致的服务能力摘要，便于直接测试和内省。"""
+        """Return a capabilities summary that mirrors the SDK initialize response."""
         return {
             "serverInfo": {"name": self.server_name, "version": self.server_version},
             "capabilities": {"tools": {"listChanged": False}},
         }
 
     def handle_tools_list(self) -> types.ListToolsResult:
-        """把已注册 Tool 转换为 MCP ``tools/list`` 的稳定 Schema。"""
+        """Render registered Tools as the stable ``tools/list`` payload."""
         return types.ListToolsResult(
             tools=[
                 types.Tool(
@@ -67,40 +69,72 @@ class ProtocolHandler:
         name: str,
         arguments: JsonDict | None,
     ) -> types.CallToolResult | types.ErrorData:
-        """路由 Tool 调用，并把边界异常转换为标准 JSON-RPC 错误。"""
+        """Route a Tool call and map boundary failures to stable wire errors.
+
+        Error envelopes intentionally carry only the Tool name and a stable
+        ``component_code`` (see plan §5.4). All raw exception text is logged to
+        stderr where operators can read it; the wire never sees internals.
+        """
         tool = self.tools.get(name)
         if tool is None:
-            return types.ErrorData(
+            return _wire_error(
                 code=types.METHOD_NOT_FOUND,
-                message="Tool not found",
-                data={"name": name},
+                component_code="tool_not_found",
+                name=name,
+                message="Unknown tool",
             )
 
         try:
-            # KnowledgeService 查询可能包含网络和磁盘 I/O，不能阻塞 SDK 的异步协议循环。
             raw_result = await asyncio.to_thread(tool.call, dict(arguments or {}))
         except ToolArgumentError as exc:
             logger.warning("Invalid arguments for tool %s: %s", name, exc)
-            return types.ErrorData(
+            return _wire_error(
                 code=types.INVALID_PARAMS,
+                component_code="invalid_params",
+                name=name,
                 message="Invalid tool arguments",
-                data={"name": name, "reason": str(exc)},
+            )
+        except ToolExecutionError as exc:
+            logger.error(
+                "Tool %s failed with component code %s", name, exc.component_code
+            )
+            return _wire_error(
+                code=types.INTERNAL_ERROR,
+                component_code=exc.component_code,
+                name=name,
+                message="Internal server error",
             )
         except Exception:
-            # 完整异常只进入 stderr 日志；wire 响应不能泄漏堆栈、密钥或内部路径。
             logger.exception("Tool %s failed", name)
-            return types.ErrorData(
+            return _wire_error(
                 code=types.INTERNAL_ERROR,
+                component_code="internal_error",
+                name=name,
                 message="Internal server error",
-                data={"name": name},
             )
 
         try:
             return types.CallToolResult.model_validate(raw_result)
         except Exception:
             logger.exception("Tool %s returned an invalid MCP result", name)
-            return types.ErrorData(
+            return _wire_error(
                 code=types.INTERNAL_ERROR,
+                component_code="internal_error",
+                name=name,
                 message="Internal server error",
-                data={"name": name},
             )
+
+
+def _wire_error(
+    *,
+    code: int,
+    component_code: str,
+    name: str,
+    message: str,
+) -> types.ErrorData:
+    """Compose the wire envelope with only the public-safe fields."""
+    return types.ErrorData(
+        code=code,
+        message=sanitize_wire_string(message),
+        data={"name": name, "component_code": component_code},
+    )

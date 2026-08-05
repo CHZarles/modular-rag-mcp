@@ -57,12 +57,21 @@ def test_tool_returns_readable_and_structured_document_summary() -> None:
 
     assert isinstance(tool, ToolHandler)
     assert service.summary_requests == ["doc-1"]
-    assert result["structuredContent"] == {"document": document.to_dict()}
+    public_document = {
+        "doc_id": "doc-1",
+        "source_path": "rag-guide.pdf",
+        "title": "RAG Guide",
+        "summary": "A practical guide to hybrid retrieval.",
+        "tags": ["rag", "retrieval"],
+        "metadata": {"collection": "docs"},
+    }
+    assert result["structuredContent"] == {"document": public_document}
     text = result["content"][0]["text"]
     assert "# RAG Guide" in text
     assert "A practical guide to hybrid retrieval." in text
     assert "rag、retrieval" in text
-    assert "/knowledge/rag-guide.pdf" in text
+    assert "rag-guide.pdf" in text
+    assert "/knowledge/" not in text
 
 
 def test_tool_formats_missing_optional_summary_fields() -> None:

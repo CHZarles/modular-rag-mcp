@@ -51,7 +51,9 @@ def test_official_client_queries_real_index_over_stdio(tmp_path: Path) -> None:
     assert result.structured_content is not None
     citations = result.structured_content["citations"]
     assert citations
-    assert citations[0]["source"] == str(document_path.resolve())
+    # Plan §C1: wire exposes only the public file label, never the absolute path.
+    assert citations[0]["source"] == document_path.name
+    assert "/" not in citations[0]["source"]
     assert "generation fence" in citations[0]["text"].lower()
 
 
