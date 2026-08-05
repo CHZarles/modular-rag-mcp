@@ -1,4 +1,8 @@
-"""Bridge registered Tool adapters into the official MCP SDK wire format."""
+"""Bridge registered Tool adapters into the official MCP SDK wire format.
+
+This module owns the application-level envelope (Tools, errors, request
+identity). JSON parsing and capability negotiation stay with the SDK.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,13 @@ from typing import Any
 from mcp import types
 
 from src.core.types import JsonDict
+from src.mcp_server.request_context import (
+    InvalidRequestHeaderError,
+    RequestContext,
+    bind_request_context,
+    request_context_from_headers,
+    reset_request_context,
+)
 from src.mcp_server.tools import ToolArgumentError, ToolExecutionError, ToolHandler
 from src.mcp_server.tools.base import sanitize_wire_string
 from src.observability.logger import get_logger
@@ -19,12 +30,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class ProtocolHandler:
-    """Manage Tool Schemas, dispatch calls, and produce stable JSON-RPC errors.
-
-    The official SDK still owns JSON parsing, capability negotiation, and the
-    initialize wire response. This class only owns the application-level mapping
-    that the project must control directly.
-    """
+    """Manage Tool Schemas, dispatch calls, and produce stable JSON-RPC errors."""
 
     server_name: str
     server_version: str
@@ -68,12 +74,19 @@ class ProtocolHandler:
         self,
         name: str,
         arguments: JsonDict | None,
+        *,
+        request_headers: Mapping[str, str] | None = None,
+        request_context: RequestContext | None = None,
     ) -> types.CallToolResult | types.ErrorData:
         """Route a Tool call and map boundary failures to stable wire errors.
 
-        Error envelopes intentionally carry only the Tool name and a stable
-        ``component_code`` (see plan §5.4). All raw exception text is logged to
-        stderr where operators can read it; the wire never sees internals.
+        ``request_headers`` is the raw HTTP Header mapping for the MCP HTTP
+        transport. ``request_context`` is a pre-built identity container used
+        by Stdio (where no Header surface exists) and by integration tests.
+
+        The active ``RequestContext`` is bound to a :class:`ContextVar` for
+        the entire ``asyncio.to_thread`` dispatch so the Tool worker reads
+        the right actor/session/request_id, then reset in ``finally``.
         """
         tool = self.tools.get(name)
         if tool is None:
@@ -84,34 +97,55 @@ class ProtocolHandler:
                 message="Unknown tool",
             )
 
+        if request_context is None:
+            try:
+                request_context = request_context_from_headers(request_headers)
+            except InvalidRequestHeaderError as exc:
+                return _wire_error(
+                    code=types.INVALID_PARAMS,
+                    component_code="invalid_request_header",
+                    name=name,
+                    message=str(exc),
+                )
+
+        token = bind_request_context(request_context)
         try:
-            raw_result = await asyncio.to_thread(tool.call, dict(arguments or {}))
-        except ToolArgumentError as exc:
-            logger.warning("Invalid arguments for tool %s: %s", name, exc)
-            return _wire_error(
-                code=types.INVALID_PARAMS,
-                component_code="invalid_params",
-                name=name,
-                message="Invalid tool arguments",
-            )
-        except ToolExecutionError as exc:
-            logger.error(
-                "Tool %s failed with component code %s", name, exc.component_code
-            )
-            return _wire_error(
-                code=types.INTERNAL_ERROR,
-                component_code=exc.component_code,
-                name=name,
-                message="Internal server error",
-            )
-        except Exception:
-            logger.exception("Tool %s failed", name)
-            return _wire_error(
-                code=types.INTERNAL_ERROR,
-                component_code="internal_error",
-                name=name,
-                message="Internal server error",
-            )
+            try:
+                raw_result = await asyncio.to_thread(
+                    tool.call, dict(arguments or {})
+                )
+            except ToolArgumentError as exc:
+                logger.warning(
+                    "Invalid arguments for tool %s: %s", name, exc
+                )
+                return _wire_error(
+                    code=types.INVALID_PARAMS,
+                    component_code="invalid_params",
+                    name=name,
+                    message="Invalid tool arguments",
+                )
+            except ToolExecutionError as exc:
+                logger.error(
+                    "Tool %s failed with component code %s",
+                    name,
+                    exc.component_code,
+                )
+                return _wire_error(
+                    code=types.INTERNAL_ERROR,
+                    component_code=exc.component_code,
+                    name=name,
+                    message="Internal server error",
+                )
+            except Exception:
+                logger.exception("Tool %s failed", name)
+                return _wire_error(
+                    code=types.INTERNAL_ERROR,
+                    component_code="internal_error",
+                    name=name,
+                    message="Internal server error",
+                )
+        finally:
+            reset_request_context(token)
 
         try:
             return types.CallToolResult.model_validate(raw_result)

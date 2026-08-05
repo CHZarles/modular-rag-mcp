@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -74,7 +74,11 @@ def create_mcp_server(
         context: ServerRequestContext[ServerContext],
         params: types.CallToolRequestParams,
     ) -> types.CallToolResult:
-        result = await handler.handle_tools_call(params.name, params.arguments)
+        result = await handler.handle_tools_call(
+            params.name,
+            params.arguments,
+            request_headers=_extract_request_headers(context),
+        )
         if isinstance(result, types.ErrorData):
             # 抛出 SDK 识别的异常后，transport 才会生成标准 JSON-RPC error envelope。
             raise MCPError.from_error_data(result)
@@ -128,6 +132,23 @@ async def run_stdio_server(
             )
     finally:
         logger.info("Stopped %s", SERVER_NAME)
+
+
+def _extract_request_headers(context: ServerRequestContext[ServerContext]) -> Mapping[str, str] | None:
+    """Return the raw HTTP Headers for the MCP HTTP transport.
+
+    Streamable HTTP attaches the inbound FastAPI ``Request`` to
+    ``ServerRequestContext.request``. Stdio leaves ``context.request``
+    ``None``; in that case the protocol handler falls back to a synthetic
+    request id (plan §5.5 / FR-13).
+    """
+    request = context.request
+    if request is None:
+        return None
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        return None
+    return {key: value for key, value in headers.items()}
 
 
 def main() -> int:
