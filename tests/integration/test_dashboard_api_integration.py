@@ -126,3 +126,61 @@ observability:
     path = tmp_path / "settings.yaml"
     path.write_text(content, encoding="utf-8")
     return path
+
+
+
+def test_api_traces_endpoint_reads_from_sqlite_store(tmp_path: Path) -> None:
+    """``/api/traces/{type}`` reads from the configured SQLite store."""
+    from datetime import datetime, timedelta, timezone
+
+    from src.core.trace import SQLiteTraceStore, TraceContext
+
+    settings_path = _write_settings(tmp_path)
+    store = SQLiteTraceStore(tmp_path / "traces.db", auto_purge=False)
+
+    base = datetime(2026, 8, 2, 1, 0, tzinfo=timezone.utc)
+    for index in range(3):
+        trace = TraceContext(trace_type="query")
+        trace.trace_id = f"trace-{index}"
+        trace.started_at = (base + timedelta(minutes=index)).isoformat()
+        trace.metadata.update({"status": "success"})
+        trace.record_stage(
+            "embed",
+            {"method": "dense", "provider": "local"},
+            elapsed_ms=1.0,
+        )
+        trace._finish_mono = trace._start_mono + 0.001  # type: ignore[attr-defined]
+        trace.finished_at = (base + timedelta(minutes=index, milliseconds=1)).isoformat()
+        store.collect(trace)
+
+    app = create_app(
+        settings_path=settings_path,
+        service_overrides={"trace_service": __import__(
+            "src.observability.dashboard.services", fromlist=["TraceService"]
+        ).TraceService(store)},
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/traces/query")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trace_type"] == "query"
+    assert payload["malformed_line_count"] == 0
+    assert len(payload["traces"]) == 3
+    # Newest first.
+    assert [trace["trace_id"] for trace in payload["traces"]] == [
+        "trace-2",
+        "trace-1",
+        "trace-0",
+    ]
+
+
+def test_api_traces_endpoint_rejects_unknown_trace_type(tmp_path: Path) -> None:
+    settings_path = _write_settings(tmp_path)
+    app = create_app(settings_path=settings_path)
+    client = TestClient(app)
+
+    response = client.get("/api/traces/evaluation")
+
+    assert response.status_code == 400
+    assert "evaluation" in response.json()["detail"]

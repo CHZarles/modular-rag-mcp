@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -360,26 +359,38 @@ def test_delete_missing_document_returns_404(tmp_path: Path) -> None:
 
 
 def test_traces_endpoint_returns_records(tmp_path: Path) -> None:
-    trace_path = tmp_path / "traces.jsonl"
-    trace_path.write_text(
-        "\n".join(
-            [
-                json.dumps(_trace_payload()),
-                json.dumps(_trace_payload(trace_type="query")),
-                "{malformed json",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    # Plan §C2.4: SQLite is the read source; the API filters by trace_type
+    # and always reports malformed_line_count=0.
+    from datetime import datetime, timedelta, timezone
+
+    from src.core.trace import SQLiteTraceStore, TraceContext
+
+    store = SQLiteTraceStore(tmp_path / "traces.db", auto_purge=False)
+    base = datetime(2026, 8, 2, 1, 0, tzinfo=timezone.utc)
+    for index, kind in enumerate(("ingestion", "query")):
+        trace = TraceContext(trace_type=kind)
+        trace.trace_id = f"trace-{kind}"
+        trace.started_at = (base + timedelta(minutes=index)).isoformat()
+        trace.metadata.update({"status": "success"})
+        trace.record_stage(
+            "embed",
+            {"method": "dense", "provider": "local"},
+            elapsed_ms=1.0,
+        )
+        trace._finish_mono = trace._start_mono + 0.001  # type: ignore[attr-defined]
+        trace.finished_at = (base + timedelta(minutes=index, milliseconds=1)).isoformat()
+        store.collect(trace)
+
     config_service = _config_service(tmp_path)
-    trace_service = TraceService(trace_path)
+    trace_service = TraceService(store)
     client = _client(tmp_path, config_service=config_service, trace_service=trace_service)
     response = client.get("/api/traces/ingestion")
     assert response.status_code == 200
     payload = response.json()
     assert payload["trace_type"] == "ingestion"
-    assert payload["malformed_line_count"] == 1
+    assert payload["malformed_line_count"] == 0
     assert len(payload["traces"]) == 1
+    assert payload["traces"][0]["trace_id"] == "trace-ingestion"
 
 
 def test_evaluation_options_returns_backends_and_sets(tmp_path: Path) -> None:

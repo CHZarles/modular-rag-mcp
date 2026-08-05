@@ -243,10 +243,25 @@ class ConfigService:
         )
 
     def trace_path(self) -> Path:
-        """Return the same configured JSONL path used by trace producers."""
+        """Return the legacy JSONL trace path (kept for backwards compat).
+
+        Production no longer writes to this file — the SQLite Trace store
+        owns the audit surface (plan §C2.2) — but downstream tooling may
+        still reference the path when falling back to a local file.
+        """
         return _project_path(
             self.settings.observability.get("log_file"),
             default="./logs/traces.jsonl",
+        )
+
+    def trace_db_path(self) -> Path:
+        """Return the configured SQLite Trace DB path (plan §6.4)."""
+        raw = self.settings.observability.get("trace_db_path")
+        if isinstance(raw, str) and raw.strip():
+            return _project_path(raw, default="./data/db/traces.db")
+        return _project_path(
+            self.settings.observability.get("trace_db_path"),
+            default="./data/db/traces.db",
         )
 
 

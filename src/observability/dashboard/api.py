@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.application.services import IngestionService
 from src.core.settings import Settings
+from src.core.trace import SQLiteTraceStore  # noqa: E402  (plan §C2.4)
 from src.core.types import (
     EvaluationReport,
     IngestionRequest,
@@ -85,6 +86,27 @@ def _safe_build(label: str, factory: Any, settings: Settings) -> Any:
         raise RuntimeError(f"dashboard api could not build {label}: {exc}") from exc
 
 
+def _build_trace_store(config_service: ConfigService) -> SQLiteTraceStore:
+    """Construct a SQLiteTraceStore pointing at the configured DB path.
+
+    Honours ``observability.trace_db_path`` and the same retention /
+    detail knobs the production collector uses (plan §C2.2 + §C2.4).
+    """
+    observability = config_service.settings.observability
+    retention_days = observability.get("retention_days", 90)
+    if not isinstance(retention_days, int) or isinstance(retention_days, bool):
+        retention_days = 90
+    detail = observability.get("detail", "compact")
+    if detail not in {"compact", "debug"}:
+        detail = "compact"
+    return SQLiteTraceStore(
+        config_service.trace_db_path(),
+        retention_days=retention_days,
+        detail=detail,  # type: ignore[arg-type]
+        auto_purge=False,
+    )
+
+
 def _safe_resolve_upload_root(settings: Settings) -> Path | None:
     storage = settings.ingestion.get("storage")
     if not isinstance(storage, Mapping):
@@ -119,7 +141,7 @@ def _build_context(
         evaluation_service = _safe_build(
             "evaluation_service", EvaluationDashboardService.from_settings, settings
         )
-    trace_service = overrides.get("trace_service") or TraceService(config_service.trace_path())
+    trace_service = overrides.get("trace_service") or TraceService(_build_trace_store(config_service))
     ingestion_jobs = overrides.get("ingestion_jobs") or IngestionJobService(max_workers=1)
     ingestion_factory = overrides.get("ingestion_factory") or build_ingestion_pipeline
     upload_root_override = overrides.get("upload_root")
@@ -398,7 +420,13 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
     @app.get("/api/traces/{trace_type}", response_model=TraceListResponse)
     def list_traces(trace_type: str, request: Request) -> TraceListResponse:  # type: ignore[no-untyped-def]
         current = ctx(request)
-        snapshot = current.trace_service.read_traces(trace_type)
+        try:
+            snapshot = current.trace_service.read_traces(trace_type)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
         return TraceListResponse(
             trace_type=trace_type,
             traces=[_trace_payload(trace) for trace in snapshot.traces],
