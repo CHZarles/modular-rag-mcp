@@ -18,6 +18,7 @@ class TraceContext:
     """记录一次请求的阶段数据与单调时钟耗时。"""
 
     trace_type: Literal["query", "ingestion", "evaluation", "management"] = "query"
+    detail: Literal["compact", "debug"] = "compact"
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     finished_at: str | None = None
@@ -89,3 +90,79 @@ class TraceContext:
             "stages": list(self.stages),
             "metadata": dict(self.metadata),
         }
+
+    def to_persisted_dict(self) -> JsonDict:
+        """Return the audit-ready dict that goes into ``payload_json``.
+
+        Differences from :meth:`to_dict`:
+
+        * Always pins ``schema_version=1`` (plan §6.4).
+        * Adds the ``detail`` flag so operators can later tell whether the
+          row was written in compact or debug mode without re-reading config.
+        * Applies the compact / debug stage filtering mandated by plan §6.3.
+          ``compact`` strips per-stage ``candidates`` arrays (and the
+          top-level ``data.details.candidates`` slot used by hybrid search).
+          ``debug`` retains them but caps each list at 20 entries so a deep
+          candidate history cannot bloat a single row.
+        """
+        payload = self.to_dict()
+        payload["schema_version"] = 1
+        payload["detail"] = self.detail
+        payload["stages"] = _filter_stages(payload.get("stages"), self.detail)
+        return payload
+
+
+def _filter_stages(stages: object, detail: Literal["compact", "debug"]) -> list[JsonDict]:
+    if not isinstance(stages, list):
+        return []
+    if detail == "compact":
+        return [_strip_candidates(stage) for stage in stages if isinstance(stage, dict)]
+    return [_cap_candidates(stage, limit=20) for stage in stages if isinstance(stage, dict)]
+
+
+def _strip_candidates(stage: JsonDict) -> JsonDict:
+    """Drop per-stage candidate lists while keeping status / counts / timing."""
+    data = stage.get("data")
+    if not isinstance(data, dict):
+        return dict(stage)
+    cleaned_data = _drop_candidates_key(data)
+    return {**stage, "data": cleaned_data}
+
+
+def _cap_candidates(stage: JsonDict, *, limit: int) -> JsonDict:
+    data = stage.get("data")
+    if not isinstance(data, dict):
+        return dict(stage)
+    return {**stage, "data": _cap_candidates_key(data, limit=limit)}
+
+
+def _drop_candidates_key(data: JsonDict) -> JsonDict:
+    cleaned: JsonDict = {}
+    for key, value in data.items():
+        if key == "candidates":
+            continue
+        if key == "details" and isinstance(value, dict) and "candidates" in value:
+            nested = {k: v for k, v in value.items() if k != "candidates"}
+            cleaned[key] = nested
+            continue
+        cleaned[key] = value
+    return cleaned
+
+
+def _cap_candidates_key(data: JsonDict, *, limit: int) -> JsonDict:
+    cleaned: JsonDict = {}
+    for key, value in data.items():
+        if key == "candidates" and isinstance(value, list):
+            cleaned[key] = value[:limit]
+            continue
+        if key == "details" and isinstance(value, dict):
+            nested: JsonDict = {}
+            for nested_key, nested_value in value.items():
+                if nested_key == "candidates" and isinstance(nested_value, list):
+                    nested[nested_key] = nested_value[:limit]
+                else:
+                    nested[nested_key] = nested_value
+            cleaned[key] = nested
+            continue
+        cleaned[key] = value
+    return cleaned

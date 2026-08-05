@@ -69,7 +69,7 @@ def test_tool_passes_trace_when_collector_is_available(tmp_path: Path) -> None:
     collector = _FakeCollector()
     tool = QueryKnowledgeHubTool(lambda: service, get_collector=lambda: collector)
 
-    tool.call({"query": "trace me", "collection": "docs"})
+    result = tool.call({"query": "trace me", "collection": "docs"})
 
     assert collector.records, "collector should receive the trace"
     payload = collector.records[-1]
@@ -78,6 +78,43 @@ def test_tool_passes_trace_when_collector_is_available(tmp_path: Path) -> None:
     assert payload["metadata"]["collection"] == "docs"
     assert payload["metadata"]["status"] == "success"
     assert payload["metadata"]["result_count"] == 1
+    # Trace_id is stamped onto the structuredContent so MCP clients can
+    # correlate the response with the persisted SQLite row.
+    trace_id = result["structuredContent"]["trace_id"]
+    assert trace_id == payload["trace_id"]
+
+
+def test_tool_returns_response_with_trace_id_in_structured_content() -> None:
+    service = FakeKnowledgeService(_response())
+    tool = QueryKnowledgeHubTool(lambda: service)
+
+    result = tool.call({"query": "  Generation Fence  ", "collection": "docs"})
+
+    # Trace_id is always stamped so the wire shape is stable regardless of
+    # whether the collector is wired; the SQLite row simply is not written
+    # when the collector is None.
+    trace_id = result["structuredContent"]["trace_id"]
+    assert isinstance(trace_id, str) and trace_id
+    # request_id still comes from the response so the wire shape is stable.
+    assert result["structuredContent"]["request_id"] == "req-1"
+
+
+def test_tool_collector_failure_does_not_break_query() -> None:
+    class _ExplodingCollector:
+        def collect(self, trace: object) -> None:
+            raise RuntimeError("collector down")
+
+    service = FakeKnowledgeService(_response())
+    tool = QueryKnowledgeHubTool(
+        lambda: service,
+        get_collector=lambda: _ExplodingCollector(),
+    )
+
+    result = tool.call({"query": "hi", "collection": "docs"})
+
+    # Response shape is unchanged; trace_id still stamped.
+    assert result["content"][0]["type"] == "text"
+    assert result["structuredContent"]["trace_id"] is not None
 
 
 @pytest.mark.parametrize(
@@ -96,6 +133,22 @@ def test_tool_rejects_invalid_arguments(arguments: JsonDict) -> None:
 
     with pytest.raises(ToolArgumentError):
         tool.call(arguments)
+
+
+def test_tool_maps_service_exception_to_stable_component_code() -> None:
+    class _RaisingService(FakeKnowledgeService):
+        def query(self, request: QueryRequest, trace: object | None = None) -> QueryResponse:
+            self.requests.append(request)
+            raise LookupError("missing collection")
+
+    from src.mcp_server.tools.base import ToolExecutionError
+
+    tool = QueryKnowledgeHubTool(lambda: _RaisingService(_response()))
+
+    with pytest.raises(ToolExecutionError) as excinfo:
+        tool.call({"query": "hi", "collection": "docs"})
+
+    assert excinfo.value.component_code == "query_failed"
 
 
 def _response() -> QueryResponse:

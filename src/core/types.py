@@ -255,7 +255,12 @@ class QueryRequest(SerializableDataclass):
 
 @dataclass(frozen=True)
 class QueryResponse(SerializableDataclass):
-    """包含答案、引用、候选项和图片的统一查询响应。"""
+    """包含答案、引用、候选项和图片的统一查询响应。
+
+    ``trace_id`` 由 ``QueryKnowledgeHubTool`` 在持久化 Query Trace 之后
+    通过 :func:`dataclasses.replace` 写入，便于 MCP 客户端把响应与
+    SQLite 行一一对应（plan §C2.3 / §6.2）。
+    """
 
     answer: str
     citations: list[Citation]
@@ -263,6 +268,7 @@ class QueryResponse(SerializableDataclass):
     images: list[ImagePayload] = field(default_factory=list)
     request_id: str | None = None
     metadata: JsonDict = field(default_factory=dict)
+    trace_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: JsonDict) -> QueryResponse:

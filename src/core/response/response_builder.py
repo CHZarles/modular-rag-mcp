@@ -69,6 +69,7 @@ class ResponseBuilder:
                     _structured_citation(citation) for citation in response.citations
                 ],
                 "request_id": response.request_id,
+                "trace_id": response.trace_id,
                 "metadata": public_citation_metadata(response.metadata),
             },
         }

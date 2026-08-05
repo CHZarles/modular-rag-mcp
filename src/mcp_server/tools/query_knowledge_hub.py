@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from src.core.response import ResponseBuilder
 from src.core.services.knowledge_service import KnowledgeService
 from src.core.trace import TraceCollector, TraceContext
 from src.core.types import JsonDict, QueryRequest, QueryResponse
+from src.mcp_server.request_context import current_request_context
 from src.mcp_server.tools.base import (
     MAX_QUERY_CHARS,
     MAX_TOP_K,
@@ -18,6 +20,11 @@ from src.mcp_server.tools.base import (
     validate_top_k,
 )
 from src.observability.logger import get_logger
+from src.observability.query_trace import (
+    build_query_trace_metadata,
+    classify_error_code,
+    sanitize_results,
+)
 
 logger = get_logger(__name__)
 
@@ -108,22 +115,37 @@ def _run_with_trace(
             "top_k": request.top_k,
         },
     )
+    request_context = current_request_context()
     try:
         response = service.query(request, trace=trace)
     except Exception as exc:
-        trace.metadata.update({"status": "failed", "error": str(exc)})
+        trace.metadata = build_query_trace_metadata(
+            request,
+            request_context,
+            status="failed",
+            error_code=classify_error_code(exc),
+            result_count=0,
+            results=[],
+        )
         if collector is not None:
             _collect_safely(collector, trace)
-        raise
-    trace.metadata.update(
-        {
-            "status": "success",
-            "result_count": len(response.items),
-        }
+        # The wire must never see raw exception text (plan §6.7).
+        logger.exception("query_knowledge_hub service raised: %s", exc)
+        raise ToolExecutionError("query_failed") from None
+    sanitized = sanitize_results(response.items)
+    trace.metadata = build_query_trace_metadata(
+        request,
+        request_context,
+        status="success",
+        error_code=None,
+        result_count=len(response.items),
+        results=sanitized,
     )
     if collector is not None:
         _collect_safely(collector, trace)
-    return response
+    # Stamp trace_id onto the response so the caller can correlate it with
+    # the SQLite row without leaking the trace object through the service.
+    return replace(response, trace_id=trace.trace_id)
 
 
 def _collect_safely(collector: TraceCollector, trace: TraceContext) -> None:

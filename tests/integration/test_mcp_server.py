@@ -243,7 +243,11 @@ def test_query_knowledge_hub_runs_through_official_mcp_session() -> None:
     assert result.is_error is False
     assert isinstance(result.content[0], types.TextContent)
     assert result.content[0].text == "未找到相关知识库内容。"
-    assert result.structured_content == {
+    structured = dict(result.structured_content)
+    # trace_id is a fresh UUID per request; assert shape + presence, not value.
+    trace_id = structured.pop("trace_id")
+    assert isinstance(trace_id, str) and trace_id
+    assert structured == {
         "answer": "未找到相关知识库内容。",
         "citations": [],
         "request_id": None,
@@ -342,6 +346,71 @@ def test_mcp_server_uses_remote_base64_without_reading_remote_image_path() -> No
     assert isinstance(result.content[1], types.ImageContent)
     assert result.content[1].mime_type == "image/jpeg"
     assert base64.b64decode(result.content[1].data, validate=True) == image_bytes
+
+
+def test_query_knowledge_hub_response_trace_id_correlates_with_sqlite_row(
+    tmp_path: Path,
+) -> None:
+    """End-to-end: trace_id in structuredContent matches the persisted row."""
+    from src.core.trace import SQLiteTraceStore
+    from src.mcp_server.protocol_handler import ProtocolHandler
+    from src.mcp_server.tools import QueryKnowledgeHubTool
+
+    store = SQLiteTraceStore(tmp_path / "traces.db", auto_purge=False)
+    service = FakeKnowledgeService()
+
+    # Build a server with a custom protocol handler that wires the SQLite
+    # store directly — bypasses the production settings-based factory.
+    handler = ProtocolHandler(SERVER_NAME, SERVER_VERSION)
+    from src.mcp_server.tools import (
+        GetDocumentSummaryTool,
+        ListCollectionsTool,
+    )
+    handler.register_tool(
+        QueryKnowledgeHubTool(
+            get_service=lambda: service,
+            get_collector=lambda: store,
+        )
+    )
+    handler.register_tool(ListCollectionsTool(lambda: service))
+    handler.register_tool(GetDocumentSummaryTool(lambda: service))
+
+    async def scenario() -> Any:
+        server = create_mcp_server(service, protocol_handler=handler)
+        client_send, server_receive = anyio.create_memory_object_stream[Any](10)
+        server_send, client_receive = anyio.create_memory_object_stream[Any](10)
+        result: types.CallToolResult | None = None
+        async with client_send, server_receive, server_send, client_receive:
+            async with anyio.create_task_group() as task_group:
+                async def run_server() -> None:
+                    await server.run(
+                        server_receive,
+                        server_send,
+                        server.create_initialization_options(),
+                    )
+
+                task_group.start_soon(run_server)
+                async with ClientSession(client_receive, client_send) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "query_knowledge_hub",
+                        {"query": "lease", "collection": "docs"},
+                    )
+                task_group.cancel_scope.cancel()
+        if result is None:
+            raise AssertionError("tool did not return a result")
+        return result
+
+    final = anyio.run(scenario)
+
+    trace_id = final.structured_content["trace_id"]  # type: ignore[attr-defined]
+    assert isinstance(trace_id, str) and trace_id
+
+    rows = store.list_recent("query", limit=1)
+    assert len(rows) == 1
+    assert rows[0]["trace_id"] == trace_id
+    assert rows[0]["metadata"]["status"] == "success"
+    assert rows[0]["metadata"]["result_count"] == 0
 
 
 def test_mcp_response_skips_uri_only_and_invalid_base64_images() -> None:

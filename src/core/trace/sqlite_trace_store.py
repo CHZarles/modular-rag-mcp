@@ -275,9 +275,25 @@ class SQLiteTraceStore:
 
 
 def _serialise_trace(trace: TraceContext, *, detail: TraceDetail) -> JsonDict:
-    payload = trace.to_dict()
+    """Produce the audit-ready dict that goes into ``payload_json``.
+
+    The compact / debug filtering now lives in
+    :meth:`TraceContext.to_persisted_dict` so the rule is owned by the
+    trace itself; this helper just enforces schema_version + detail
+    consistency and validates the metadata shape.
+    """
+    if hasattr(trace, "to_persisted_dict"):
+        payload = trace.to_persisted_dict()
+    else:  # pragma: no cover - defensive: every TraceContext has the method
+        payload = trace.to_dict()
+        payload["schema_version"] = _SCHEMA_VERSION
+        payload["detail"] = detail
+        payload["stages"] = payload.get("stages", [])
+    if payload.get("detail") != detail:
+        raise TraceStoreError(
+            f"trace detail {payload.get('detail')!r} does not match store detail {detail!r}"
+        )
     payload["schema_version"] = _SCHEMA_VERSION
-    payload["detail"] = detail
     metadata = payload.setdefault("metadata", {})
     if not isinstance(metadata, dict):
         raise TraceStoreError("trace metadata must be an object")
