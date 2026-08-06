@@ -123,6 +123,7 @@ data/db/
 
 # PostgreSQL recall dataset whitelist — curated corpus + golden eval set
 # are checked in so the recall test runs offline.
+!data/README.md
 !data/corpus/LICENSE
 !data/corpus/corpus.jsonl
 !data/eval/golden.jsonl
