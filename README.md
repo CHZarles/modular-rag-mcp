@@ -17,6 +17,7 @@
 - [简历参考](#-简历参考)
 - [常见问题](#-常见问题)
 - [后续安排](#-后续安排)
+- [近期变更（plan 0001）](#-近期变更plan-0001)
 
 ---
 
@@ -590,6 +591,50 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 > **4. 方法比模板更重要**：整个简历编写的思路是我的——包括放大策略、四段式结构（背景 → 目标 → 过程 → 结果 → 技术栈）、亮点匹配逻辑等，这些都沉淀在 Resume Writer Skill 里。如果你有自己更信任的简历模板，或者你对项目做了扩展修改，完全可以去修改 Skill 本身来适配。**学会这套"用 Skill 沉淀方法论、让 AI 按规则执行"的逻辑，比简历本身更有价值**——这个思路可以复用到你未来任何项目的简历编写中。
 >
 > **5. 强烈建议写上 Skill 驱动全流程**：我个人的意见是，**Skill 驱动全流程开发这个闭环，适合写在任何人的简历上**。Skill 是当下非常热门的方向，已经是面试中的必考内容，很多公司内部也在研究如何用 Skill 加速项目构建。讲清楚你是如何使用 Skill 完成整个项目从编码 → 测试 → 修复 → 配置 → 打包的完整闭环，这本身就是一个比较创新和前沿的亮点，面试官会对此印象深刻。关于 Skill 相关内容在面试中怎么讲、怎么回答追问，我后面也会提供一些例子给大家参考。
+
+---
+
+## 🆕 近期变更（plan 0001）
+
+`mac-local` 分支按 [docs/plans/0001](./docs/plans/0001-production-readonly-rag-component.md)
+落地了一轮「内网只读组件」增量，目标是让上层业务系统能直接接入而不是 demo-only。
+旧的「Streamlit + JSONL」实现已退役，详细决策见 [ADR 0027](./docs/decisions/0027-readonly-component-and-preference-trace.md)。
+
+**架构差异速览**
+
+| 维度 | 旧实现 | plan 0001 后 |
+|---|---|---|
+| MCP 传输 | stdio only | stdio + Streamable HTTP |
+| 请求身份 | 无 | `X-Request-ID` / `X-RAG-Actor-Key` / `X-RAG-Session-ID` Header（FR-04/13） |
+| Trace 持久化 | `logs/traces.jsonl` | `data/db/traces.db`（SQLite WAL） |
+| Query Trace 载荷 | 完整候选正文 | compact 模式：剥离 candidates（§6.7）；debug 模式封顶 20 |
+| Dashboard | Streamlit 多页面 | React + FastAPI 控制台（`web/` + `src/observability/dashboard/api.py`） |
+| 健康检查 | 无 | `/health/live` + `/health/ready`（§5.7） |
+| 手动清理 Trace | 无 | `python scripts/purge_traces.py --before / --actor-key` |
+| 评估基线 | mock | PostgreSQL 16 教程语料，hybrid recall@5 ≥ 80%（94.29% 当前） |
+
+**怎么验**：
+
+```bash
+# 启动 MCP HTTP
+python scripts/start_dashboard_api.py  # 或者直接 python -m src.mcp_server.http_server
+
+# 健康检查
+curl http://127.0.0.1:8766/health/live    # {"status": "ok"}
+curl http://127.0.0.1:8766/health/ready   # {"status": "ready"|"degraded", "checks": {...}}
+
+# 跑回归评估
+.venv/bin/pytest tests/integration/test_postgres_recall.py -v
+
+# 手动清理 trace
+python scripts/purge_traces.py --actor-key <key> --dry-run
+```
+
+**未动**：教学 / Skill / 简历 / 学习路线章节全部保留，本轮只动了「运行面」。
+
+---
+
+## ❓ 常见问题
 
 ---
 

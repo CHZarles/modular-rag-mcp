@@ -3382,6 +3382,43 @@ sparse_vectors[2] = c2 的稀疏统计
 
 
 
+## 6.10 Plan 0001 增量（2026-08）
+
+[docs/plans/0001-production-readonly-rag-component.md](./docs/plans/0001-production-readonly-rag-component.md)
+按 C0 → C4 顺序把项目从「本地演示工具」升级为「内网只读 MCP 组件」。
+决策落档见 [ADR 0027](./docs/decisions/0027-readonly-component-and-preference-trace.md)。
+
+**架构差异速览**：
+
+| 维度 | 旧实现 | plan 0001 后 |
+|---|---|---|
+| MCP 传输 | stdio only | stdio + Streamable HTTP（`src/mcp_server/http_server.py`） |
+| 请求身份 | 无 | `X-Request-ID` / `X-RAG-Actor-Key` / `X-RAG-Session-ID`（`src/mcp_server/request_context.py`） |
+| Trace 持久化 | `logs/traces.jsonl` | `data/db/traces.db`（`SQLiteTraceStore`，WAL） |
+| Query Trace 载荷 | 完整候选正文 | compact 模式剥离 candidates（§6.7）；debug 模式封顶 20 |
+| Tool 错误契约 | 自由 | 5 个稳定 component code（§C1） |
+| Dashboard | Streamlit 多页面 | React + FastAPI（`web/` + `src/observability/dashboard/api.py`） |
+| 健康检查 | 无 | `/health/live` + `/health/ready`（§5.7，本地 probe 不触 Provider） |
+| 手动清理 Trace | 无 | `scripts/purge_traces.py --before / --actor-key` |
+| 评估基线 | mock | PostgreSQL 16 教程语料 + recall@5 ≥ 80% |
+
+**本节与旧章节的关系**：上文 §3.4 / §阶段 F / §阶段 G 中「JSON Lines Trace
+持久化」「Streamlit Dashboard 六页面」等内容描述的是 plan 0001 之前的实现，
+仍然有效作为教学示例，但**生产部署请按 plan 0001 + ADR 0027 为准**。
+
+**当前评估基线**：
+
+| 路径 | recall@5 |
+|---|---|
+| hybrid (dense + BM25 + RRF) | 94.29 % |
+| dense-only | 65.71 % |
+| sparse-only | 100.00 % |
+
+**未落地**：`scripts/smoke_mcp_load.py`（受控负载）、ADR 0027 / README /
+DEV_SPEC 之外的同步文档；本地无部署目标故跳过。
+
+---
+
 ## 7. 可扩展性与未来展望
 
 ### 7.1 部署边界与后端扩展
