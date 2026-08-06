@@ -255,3 +255,97 @@ def test_each_golden_query_has_at_least_one_expected_section() -> None:
         assert case["expected_keywords"], (
             f"golden query {case['query']!r} has no expected_keywords"
         )
+
+
+
+# --- Ablation: regression signal validation --------------------------------
+
+
+class _DenseOnlyRetriever(_Retriever):
+    """Hybrid retriever with the BM25 route disabled."""
+
+    def __init__(self, chunks: list[dict[str, object]], tmp_path: Path) -> None:
+        super().__init__(chunks, tmp_path)
+        self._bm25 = None  # type: ignore[assignment]
+
+    def query(self, text: str, *, top_k: int = TOP_K) -> list[str]:
+        vector = self._embedder.embed([text])[0]
+        hits = self._dense.query(vector, top_k=top_k)
+        return [
+            str((hit.metadata or {}).get("section_id"))
+            for hit in hits
+            if (hit.metadata or {}).get("section_id") is not None
+        ][:top_k]
+
+
+class _SparseOnlyRetriever(_Retriever):
+    """Hybrid retriever with the dense route disabled."""
+
+    def __init__(self, chunks: list[dict[str, object]], tmp_path: Path) -> None:
+        super().__init__(chunks, tmp_path)
+        self._dense = None  # type: ignore[assignment]
+
+    def query(self, text: str, *, top_k: int = TOP_K) -> list[str]:
+        from src.ingestion.embedding import tokenize
+
+        hits = self._bm25.query(tokenize(text), top_k=top_k)
+        return [
+            self._chunk_sections[hit.id]
+            for hit in hits
+            if hit.id in self._chunk_sections
+        ][:top_k]
+
+
+def _recall(retriever, golden) -> float:
+    passed = 0
+    for case in golden:
+        top = retriever.query(str(case["query"]))
+        expected = set(case["expected_section_ids"])
+        min_relevant = int(case.get("min_relevant", 1))  # type: ignore[arg-type]
+        if sum(1 for section in top if section in expected) >= min_relevant:
+            passed += 1
+    return passed / len(golden)
+
+
+def test_ablation_dense_only_drops_recall_below_hybrid(
+    tmp_path_factory: pytest.TmpPathFactory,
+) -> None:
+    """With BM25 disabled, recall@5 must be noticeably worse than hybrid."""
+    chunks = _load_chunks()
+    golden = _load_golden()
+    hybrid = _Retriever(chunks, tmp_path_factory.mktemp("hybrid"))
+    dense_only = _DenseOnlyRetriever(chunks, tmp_path_factory.mktemp("dense_only"))
+
+    hybrid_rate = _recall(hybrid, golden)
+    dense_only_rate = _recall(dense_only, golden)
+
+    # The exact gap depends on corpus; we only assert the direction and a
+    # reasonable absolute floor so a future refactor that silently breaks
+    # one route cannot pass the test by accident.
+    assert dense_only_rate < hybrid_rate, (
+        f"dense-only ({dense_only_rate:.2%}) should underperform "
+        f"hybrid ({hybrid_rate:.2%}) — the regression signal is gone"
+    )
+    assert dense_only_rate < 0.80, (
+        f"dense-only recall@{TOP_K} = {dense_only_rate:.2%}, "
+        "expected < 0.80 so disabling BM25 surfaces as a regression"
+    )
+
+
+def test_ablation_sparse_only_still_meets_recall_floor(
+    tmp_path_factory: pytest.TmpPathFactory,
+) -> None:
+    """BM25 alone should comfortably clear the 80% floor on this corpus."""
+    chunks = _load_chunks()
+    golden = _load_golden()
+    sparse_only = _SparseOnlyRetriever(chunks, tmp_path_factory.mktemp("sparse_only"))
+
+    sparse_rate = _recall(sparse_only, golden)
+
+    # BM25 with the project's tokeniser is a strong baseline for natural
+    # language queries against well-formed reference text; assert it stays
+    # above the floor so disabling dense does not blow the budget either.
+    assert sparse_rate >= 0.80, (
+        f"sparse-only recall@{TOP_K} = {sparse_rate:.2%}, "
+        "expected >= 0.80 so the floor is not BM25-only by accident"
+    )
