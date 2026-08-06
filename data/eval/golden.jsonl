@@ -1,0 +1,35 @@
+{"query": "How do I create a new database in PostgreSQL?", "expected_section_ids": ["tutorial-createdb"], "expected_keywords": ["createdb", "CREATE DATABASE"], "min_relevant": 1}
+{"query": "What's the difference between smallint, integer, and bigint?", "expected_section_ids": ["datatype-numeric"], "expected_keywords": ["smallint", "integer", "bigint"], "min_relevant": 1}
+{"query": "When should I use numeric vs real vs double precision?", "expected_section_ids": ["datatype-numeric"], "expected_keywords": ["numeric", "real", "double precision"], "min_relevant": 1}
+{"query": "How do I do an INNER JOIN in PostgreSQL?", "expected_section_ids": ["tutorial-join"], "expected_keywords": ["JOIN", "ON"], "min_relevant": 1}
+{"query": "What's a foreign key and how do I add one?", "expected_section_ids": ["tutorial-fk"], "expected_keywords": ["REFERENCES", "FOREIGN KEY", "references"], "min_relevant": 1}
+{"query": "How do transactions work? What does BEGIN and COMMIT do?", "expected_section_ids": ["tutorial-transactions"], "expected_keywords": ["BEGIN", "COMMIT", "transaction"], "min_relevant": 1}
+{"query": "What are window functions in PostgreSQL?", "expected_section_ids": ["tutorial-window"], "expected_keywords": ["OVER", "PARTITION", "window"], "min_relevant": 1}
+{"query": "How do I write a GROUP BY query with HAVING?", "expected_section_ids": ["tutorial-agg"], "expected_keywords": ["GROUP BY", "HAVING"], "min_relevant": 1}
+{"query": "How do I count rows with COUNT?", "expected_section_ids": ["tutorial-agg"], "expected_keywords": ["count", "COUNT"], "min_relevant": 1}
+{"query": "What aggregate functions does PostgreSQL support?", "expected_section_ids": ["tutorial-agg"], "expected_keywords": ["sum", "avg", "max", "min", "count"], "min_relevant": 1}
+{"query": "How do I update rows in a table?", "expected_section_ids": ["tutorial-update"], "expected_keywords": ["UPDATE", "SET"], "min_relevant": 1}
+{"query": "How do I delete rows from a table?", "expected_section_ids": ["tutorial-delete"], "expected_keywords": ["DELETE", "WHERE"], "min_relevant": 1}
+{"query": "How do I create a view?", "expected_section_ids": ["tutorial-views"], "expected_keywords": ["CREATE VIEW", "view"], "min_relevant": 1}
+{"query": "How does table inheritance work in PostgreSQL?", "expected_section_ids": ["tutorial-inheritance"], "expected_keywords": ["INHERITS", "inheritance"], "min_relevant": 1}
+{"query": "How do I select specific columns from a table?", "expected_section_ids": ["tutorial-select"], "expected_keywords": ["SELECT", "FROM"], "min_relevant": 1}
+{"query": "How do I filter rows with WHERE?", "expected_section_ids": ["tutorial-select"], "expected_keywords": ["WHERE", "SELECT"], "min_relevant": 1}
+{"query": "How do I use ORDER BY to sort results?", "expected_section_ids": ["tutorial-select"], "expected_keywords": ["ORDER BY"], "min_relevant": 1}
+{"query": "How do I insert rows into a table?", "expected_section_ids": ["tutorial-populate"], "expected_keywords": ["INSERT", "INTO"], "min_relevant": 1}
+{"query": "How do I create a new table?", "expected_section_ids": ["tutorial-table"], "expected_keywords": ["CREATE TABLE"], "min_relevant": 1}
+{"query": "What data types are available for text in PostgreSQL?", "expected_section_ids": ["datatype-character"], "expected_keywords": ["varchar", "char", "text"], "min_relevant": 1}
+{"query": "What's the difference between varchar and text?", "expected_section_ids": ["datatype-character"], "expected_keywords": ["varchar", "text"], "min_relevant": 1}
+{"query": "What types of indexes does PostgreSQL support?", "expected_section_ids": ["indexes-types"], "expected_keywords": ["B-tree", "Hash", "GIN", "index"], "min_relevant": 1}
+{"query": "What is a B-tree index?", "expected_section_ids": ["indexes-types"], "expected_keywords": ["B-tree", "btree"], "min_relevant": 1}
+{"query": "What is a GIN index used for?", "expected_section_ids": ["indexes-types"], "expected_keywords": ["GIN", "Generalized Inverted"], "min_relevant": 1}
+{"query": "When should I use a multicolumn index?", "expected_section_ids": ["indexes-multicolumn"], "expected_keywords": ["multicolumn", "composite", "index"], "min_relevant": 1}
+{"query": "What's the client/server model in PostgreSQL?", "expected_section_ids": ["tutorial-arch"], "expected_keywords": ["client", "server", "process"], "min_relevant": 1}
+{"query": "How do I connect to a database with psql?", "expected_section_ids": ["tutorial-accessdb"], "expected_keywords": ["psql", "database"], "min_relevant": 1}
+{"query": "What are the basic SQL concepts I need to know?", "expected_section_ids": ["tutorial-concepts"], "expected_keywords": ["table", "row", "column"], "min_relevant": 1}
+{"query": "How do I write a SELECT statement with joins across multiple tables?", "expected_section_ids": ["tutorial-join"], "expected_keywords": ["JOIN", "FROM", "SELECT"], "min_relevant": 2}
+{"query": "What's the difference between ROLLBACK and COMMIT in a transaction?", "expected_section_ids": ["tutorial-transactions"], "expected_keywords": ["ROLLBACK", "COMMIT"], "min_relevant": 1}
+{"query": "How do I do a self-join in PostgreSQL?", "expected_section_ids": ["tutorial-join"], "expected_keywords": ["JOIN", "alias"], "min_relevant": 1}
+{"query": "What's a SERIAL data type?", "expected_section_ids": ["datatype-numeric"], "expected_keywords": ["serial", "SERIAL"], "min_relevant": 1}
+{"query": "How do I use PARTITION BY in window functions?", "expected_section_ids": ["tutorial-window"], "expected_keywords": ["PARTITION BY", "OVER"], "min_relevant": 1}
+{"query": "How do I write a CROSS JOIN?", "expected_section_ids": ["tutorial-join"], "expected_keywords": ["JOIN", "CROSS"], "min_relevant": 1}
+{"query": "What's the difference between numeric and decimal?", "expected_section_ids": ["datatype-numeric"], "expected_keywords": ["numeric", "decimal"], "min_relevant": 1}
