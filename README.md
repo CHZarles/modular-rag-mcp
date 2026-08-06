@@ -62,7 +62,7 @@
 
 **📡 MCP 生态集成**：遵循 Model Context Protocol 标准，可直接对接 GitHub Copilot、Claude Desktop 等 MCP Client，零前端开发，一次开发处处可用。
 
-**📊 可视化管理 + 自动化评估**：Streamlit Dashboard 提供完整的数据管理与链路追踪能力，集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
+**📊 可视化管理 + 自动化评估**：React + FastAPI 控制台（`web/` + `src/observability/dashboard/api.py`）提供全链路可观测能力（系统总览 / 数据浏览 / Ingestion 追踪 / 查询追踪 / 评估面板），集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
 
 **🧪 三层测试体系**：Unit / Integration / E2E 分层测试，覆盖独立模块逻辑、模块间交互、完整链路（MCP Client / Dashboard）。
 
