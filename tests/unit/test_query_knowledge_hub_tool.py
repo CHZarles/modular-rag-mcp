@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from src.core.types import (
-    Citation,
     CollectionInfo,
     DocumentSummary,
     JsonDict,
@@ -57,11 +56,11 @@ def test_tool_only_calls_knowledge_service_and_returns_cited_mcp_result() -> Non
     ]
     assert result["content"][0]["type"] == "text"
     assert "[1]" in result["content"][0]["text"]
-    citation = result["structuredContent"]["citations"][0]
-    assert citation["source"] == "manual.pdf"
-    assert citation["page"] == 3
-    assert citation["chunk_id"] == "chunk-1"
-    assert citation["score"] == 0.9
+    item = result["structuredContent"]["results"][0]
+    assert item["source"] == "manual.pdf"
+    assert item["page"] == 3
+    assert item["chunk_id"] == "chunk-1"
+    assert item["score"] == 0.9
 
 
 def test_tool_passes_trace_when_collector_is_available(tmp_path: Path) -> None:
@@ -160,17 +159,7 @@ def _response() -> QueryResponse:
         source="fusion",
         rank=1,
     )
-    citation = Citation(
-        citation_id="c1",
-        chunk_id="chunk-1",
-        source_path="manual.pdf",
-        page=3,
-        text="Generation fencing prevents stale publication.",
-        score=0.9,
-    )
     return QueryResponse(
-        answer="Generation fencing blocks stale workers.",
-        citations=[citation],
-        items=[candidate],
+        results=[candidate],
         request_id="req-1",
     )

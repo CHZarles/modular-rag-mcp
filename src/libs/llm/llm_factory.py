@@ -174,6 +174,7 @@ def _register_default_providers() -> None:
     LLMFactory.register("ollama", lambda config: OllamaLLM(config))
     LLMFactory.register("openai", lambda config: OpenAICompatibleLLM(config))
     LLMFactory.register_vision_provider("azure", lambda config: AzureVisionLLM(config))
+    LLMFactory.register_vision_provider("minimax", lambda config: MiniMaxLLM(config))
     LLMFactory.register_vision_provider(
         "openai", lambda config: OpenAICompatibleLLM(config)
     )

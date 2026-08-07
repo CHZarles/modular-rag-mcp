@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from src.core.index_fingerprint import IndexFingerprintGuard
 from src.core.settings import Settings
 from src.ingestion.chunking import DocumentChunker
 from src.ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
@@ -27,6 +28,7 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
         _required_text(storage, "integrity_db_path", "ingestion.storage")
     )
     vector_store = create_vector_store(settings)
+    index_guard = _index_guard(settings, vector_store)
     bm25_store = BM25Indexer(
         _required_text(storage, "bm25_path", "ingestion.storage"),
         generation_store=integrity,
@@ -59,7 +61,19 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
             "claim_lease_seconds",
             "ingestion",
         ),
+        index_dimension_validator=(
+            index_guard.ensure_dimension if index_guard is not None else None
+        ),
     )
+
+
+def _index_guard(settings: Settings, vector_store: Any) -> IndexFingerprintGuard | None:
+    if str(settings.vector_store.get("backend", "")).strip().lower() != "chroma":
+        return None
+    stats = vector_store.get_collection_stats()
+    guard = IndexFingerprintGuard(settings, existing_records=stats.chunk_count)
+    guard.verify_config()
+    return guard
 
 
 def _required_text(config: Mapping[str, Any], key: str, section: str) -> str:

@@ -38,10 +38,10 @@ ingestion:
     image_root: ./data/images
     upload_root: ./data/uploads
   chunk_refiner:
-    use_llm: true
+    use_llm: false
   # 为每个 Chunk 生成语义 title、summary 和 tags；失败时自动使用规则结果。
   metadata_enricher:
-    use_llm: true
+    use_llm: false
   # MiniMax M3 通过现有 OpenAI-compatible 接口接收图片，无需独立 Vision Provider。
   image_captioner:
     enabled: true
@@ -53,9 +53,9 @@ vector_store:
   collection_name: default
   distance_metric: cosine
 
-# Dense and sparse candidates are fused with reciprocal rank fusion.
+# PostgreSQL baseline currently proves BM25-only; enable dense after a dataset shows a gain.
 retrieval:
-  enable_dense: true
+  enable_dense: false
   enable_sparse: true
   sparse_backend: bm25
   fusion_algorithm: rrf

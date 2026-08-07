@@ -4,14 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from src.core.types import Citation, ImagePayload, QueryRequest, QueryResponse, RetrievalCandidate
-
-
-@runtime_checkable
-class CitationGenerator(Protocol):
-    """从候选项生成引用记录。"""
-
-    def generate(self, candidates: list[RetrievalCandidate]) -> list[Citation]: ...
+from src.core.types import ImagePayload, QueryRequest, QueryResponse, RetrievalCandidate
 
 
 @runtime_checkable

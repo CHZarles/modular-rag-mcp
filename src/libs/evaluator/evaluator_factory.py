@@ -7,7 +7,6 @@ from typing import Any
 
 from src.libs.evaluator.custom_evaluator import CustomEvaluator
 from src.observability.evaluation.composite_evaluator import CompositeEvaluator
-from src.observability.evaluation.ragas_evaluator import RagasEvaluator
 from src.ports.evaluation import BaseEvaluator
 
 EvaluatorBackendFactory = Callable[[Mapping[str, Any]], BaseEvaluator]
@@ -92,7 +91,6 @@ def _backend_names(config: Mapping[str, Any]) -> list[str]:
 
 EvaluatorFactory.register("custom", lambda config: CustomEvaluator())
 EvaluatorFactory.register("custom_metrics", lambda config: CustomEvaluator())
-EvaluatorFactory.register("ragas", lambda config: RagasEvaluator())
 
 __all__ = [
     "EvaluatorBackendFactory",

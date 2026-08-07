@@ -26,7 +26,7 @@ class CustomEvaluator:
         first_relevant_rank = next(
             (
                 rank
-                for rank, item in enumerate(response.items, start=1)
+                for rank, item in enumerate(response.results, start=1)
                 if item.chunk_id in golden_ids
             ),
             None,
@@ -48,7 +48,7 @@ def _source_metrics(case: EvaluationCase, response: QueryResponse) -> dict[str, 
     first_rank = next(
         (
             rank
-            for rank, item in enumerate(response.items, 1)
+            for rank, item in enumerate(response.results, 1)
             if _candidate_source_name(item.metadata) in expected
         ),
         None,

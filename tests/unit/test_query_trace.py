@@ -18,7 +18,6 @@ import pytest
 from src.core.response import ResponseBuilder
 from src.core.trace import SQLiteTraceStore, TraceContext
 from src.core.types import (
-    Citation,
     JsonDict,
     QueryRequest,
     QueryResponse,
@@ -124,22 +123,7 @@ def _candidate(
 
 
 def _response_with_items(items: list[RetrievalCandidate]) -> QueryResponse:
-    citations = [
-        Citation(
-            citation_id=f"c{i}",
-            chunk_id=item.chunk_id,
-            source_path="manual.pdf",
-            page=1,
-            text="snippet",
-            score=item.score,
-        )
-        for i, item in enumerate(items, start=1)
-    ]
-    return QueryResponse(
-        answer="answer",
-        citations=citations,
-        items=items,
-    )
+    return QueryResponse(results=items)
 
 
 # --- normalize_query ------------------------------------------------------
@@ -428,7 +412,7 @@ def test_debug_trace_payload_caps_stage_candidates_at_20() -> None:
 
 
 def test_query_response_carries_trace_id_in_structured_content() -> None:
-    response = QueryResponse(answer="hi", citations=[], items=[])
+    response = QueryResponse(results=[])
     response = replace(response, trace_id="trace-xyz")
     payload = ResponseBuilder().build_mcp_result(response)
     assert payload["structuredContent"]["trace_id"] == "trace-xyz"

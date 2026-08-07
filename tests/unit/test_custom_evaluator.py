@@ -48,9 +48,7 @@ def candidate(chunk_id: str, rank: int) -> RetrievalCandidate:
 
 def response(*chunk_ids: str) -> QueryResponse:
     return QueryResponse(
-        answer="",
-        citations=[],
-        items=[candidate(chunk_id, rank) for rank, chunk_id in enumerate(chunk_ids, start=1)],
+        results=[candidate(chunk_id, rank) for rank, chunk_id in enumerate(chunk_ids, start=1)],
     )
 
 
@@ -85,7 +83,7 @@ def test_custom_evaluator_computes_source_level_recall_for_stable_golden_sets() 
         metadata={"expected_sources": ["guide.pdf"]},
     )
     result = response("other", "golden")
-    result.items[1].metadata["source_path"] = "/documents/guide.pdf"
+    result.results[1].metadata["source_path"] = "/documents/guide.pdf"
 
     assert CustomEvaluator().evaluate(case, result) == {
         "hit_rate": 0.0,
@@ -102,8 +100,8 @@ def test_custom_evaluator_normalizes_source_basename_and_case_across_platforms()
         metadata={"expected_sources": [r"C:\golden\GUIDE.PDF"]},
     )
     result = response("first", "matching")
-    result.items[0].metadata["source_path"] = "/documents/other.pdf"
-    result.items[1].metadata["source"] = "/runtime/guide.pdf"
+    result.results[0].metadata["source_path"] = "/documents/other.pdf"
+    result.results[1].metadata["source"] = "/runtime/guide.pdf"
 
     assert CustomEvaluator().evaluate(case, result) == {
         "hit_rate": 0.0,

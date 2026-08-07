@@ -49,12 +49,12 @@ def test_official_client_queries_real_index_over_stdio(tmp_path: Path) -> None:
     assert result.is_error is False
     assert isinstance(result.content[0], types.TextContent)
     assert result.structured_content is not None
-    citations = result.structured_content["citations"]
-    assert citations
+    results = result.structured_content["results"]
+    assert results
     # Plan §C1: wire exposes only the public file label, never the absolute path.
-    assert citations[0]["source"] == document_path.name
-    assert "/" not in citations[0]["source"]
-    assert "generation fence" in citations[0]["text"].lower()
+    assert results[0]["source"] == document_path.name
+    assert "/" not in results[0]["source"]
+    assert "generation fence" in results[0]["text"].lower()
 
 
 async def _query_over_stdio(settings_path: Path) -> types.CallToolResult:

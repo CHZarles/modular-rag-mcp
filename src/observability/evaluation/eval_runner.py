@@ -50,8 +50,8 @@ class EvalRunner:
                     "case_id": case.case_id,
                     "query": case.query,
                     "expected_chunk_ids": list(case.expected_chunk_ids),
-                    "retrieved_chunk_ids": [item.chunk_id for item in response.items],
-                    "retrieved_sources": [_source(item) for item in response.items],
+                    "retrieved_chunk_ids": [item.chunk_id for item in response.results],
+                    "retrieved_sources": [_source(item) for item in response.results],
                     "metrics": {name: float(value) for name, value in metrics.items()},
                 }
             )
@@ -92,9 +92,7 @@ class EvalRunner:
             )
         )
         return QueryResponse(
-            answer="",
-            citations=[],
-            items=candidates,
+            results=candidates,
             request_id=case.case_id,
             metadata={"evaluation_case_id": case.case_id},
         )

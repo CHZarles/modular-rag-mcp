@@ -88,6 +88,15 @@ def test_vision_factory_falls_back_to_text_llm_config() -> None:
     assert llm.model == "fallback"
 
 
+def test_vision_factory_supports_minimax_multimodal_models() -> None:
+    llm = create_vision_llm(
+        {"provider": "minimax", "model": "MiniMax-M3", "api_key": "test"}
+    )
+
+    assert llm.provider == "minimax"
+    assert llm.model == "MiniMax-M3"
+
+
 @pytest.mark.parametrize(
     "image",
     [

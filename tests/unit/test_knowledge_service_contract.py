@@ -44,9 +44,7 @@ class FakeResponseBuilder:
         trace: object | None = None,
     ) -> QueryResponse:
         return QueryResponse(
-            answer="统一响应",
-            citations=[],
-            items=candidates,
+            results=candidates,
             request_id=request.request_id,
             metadata={"collection": request.collection},
         )
@@ -78,11 +76,10 @@ def test_fake_can_replace_knowledge_service_without_real_backends() -> None:
         )
     )
 
-    assert response.answer == "统一响应"
-    assert response.items[0].chunk_id == "chunk-1"
+    assert response.results[0].chunk_id == "chunk-1"
     assert response.request_id == "req-1"
     # to_dict 的结果能直接交给 JSON/MCP/HTTP 边界，不泄漏 dataclass 实例。
-    assert json.loads(json.dumps(response.to_dict(), ensure_ascii=False))["items"][0][
+    assert json.loads(json.dumps(response.to_dict(), ensure_ascii=False))["results"][0][
         "chunk_id"
     ] == "chunk-1"
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -68,6 +68,7 @@ class IngestionPipeline:
         bm25_store: BM25IndexStore,
         image_store: ImageStore,
         claim_lease_seconds: float = 900,
+        index_dimension_validator: Callable[[int], None] | None = None,
     ) -> None:
         if claim_lease_seconds <= 0:
             raise ValueError("ingestion pipeline configuration error: claim lease must be positive")
@@ -81,6 +82,7 @@ class IngestionPipeline:
         self.bm25_store = bm25_store
         self.image_store = image_store
         self.claim_lease_seconds = claim_lease_seconds
+        self.index_dimension_validator = index_dimension_validator
 
     def ingest(
         self,
@@ -243,6 +245,8 @@ class IngestionPipeline:
                     dense_vectors, sparse_vectors = self.batch_processor.process(
                         chunks, trace=trace
                     )
+                    if dense_vectors and self.index_dimension_validator is not None:
+                        self.index_dimension_validator(len(dense_vectors[0]))
                     stage_details.update(
                         {
                             "dense_vector_count": len(dense_vectors),

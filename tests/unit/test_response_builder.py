@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from src.core.response import ResponseBuilder
-from src.core.types import Citation, QueryResponse, RetrievalCandidate
+from src.core.types import QueryResponse, RetrievalCandidate
 
 
-def test_build_mcp_result_contains_markdown_markers_and_structured_citations() -> None:
+def test_build_mcp_result_contains_retrieval_text_and_structured_results() -> None:
     candidate = RetrievalCandidate(
         chunk_id="chunk-1",
         text="Lease generations fence stale workers.",
@@ -16,18 +16,7 @@ def test_build_mcp_result_contains_markdown_markers_and_structured_citations() -
         rank=1,
     )
     response = QueryResponse(
-        answer="Use a generation token.",
-        citations=[
-            Citation(
-                citation_id="c1",
-                chunk_id="chunk-1",
-                source_path="manual.pdf",
-                page=2,
-                text=candidate.text,
-                score=0.8,
-            )
-        ],
-        items=[candidate],
+        results=[candidate],
         request_id="req-1",
         metadata={"collection": "docs"},
     )
@@ -37,18 +26,20 @@ def test_build_mcp_result_contains_markdown_markers_and_structured_citations() -
     assert result["content"] == [
         {
             "type": "text",
-            "text": "Use a generation token.\n\n### 引用\n[1] manual.pdf，第 2 页",
+            "text": "检索结果：\n\n[1] manual.pdf，第 2 页\nLease generations fence stale workers.",
         }
     ]
-    assert result["structuredContent"]["citations"] == [
+    assert result["structuredContent"]["results"] == [
         {
-            "id": "c1",
+            "rank": 1,
+            "chunk_id": "chunk-1",
+            "text": candidate.text,
+            "score": 0.8,
+            "score_kind": "rerank",
             "source": "manual.pdf",
             "page": 2,
-            "chunk_id": "chunk-1",
-            "score": 0.8,
-            "text": candidate.text,
             "metadata": {},
+            "images": [],
         }
     ]
     assert result["structuredContent"]["request_id"] == "req-1"
@@ -56,12 +47,10 @@ def test_build_mcp_result_contains_markdown_markers_and_structured_citations() -
 
 def test_build_mcp_result_returns_friendly_text_for_empty_results() -> None:
     response = QueryResponse(
-        answer="No relevant context found.",
-        citations=[],
-        items=[],
+        results=[],
     )
 
     result = ResponseBuilder().build_mcp_result(response)
 
     assert result["content"][0]["text"] == "未找到相关知识库内容。"
-    assert result["structuredContent"]["citations"] == []
+    assert result["structuredContent"]["results"] == []

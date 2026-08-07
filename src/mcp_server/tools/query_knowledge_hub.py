@@ -132,13 +132,13 @@ def _run_with_trace(
         # The wire must never see raw exception text (plan §6.7).
         logger.exception("query_knowledge_hub service raised: %s", exc)
         raise ToolExecutionError("query_failed") from None
-    sanitized = sanitize_results(response.items)
+    sanitized = sanitize_results(response.results)
     trace.metadata = build_query_trace_metadata(
         request,
         request_context,
         status="success",
         error_code=None,
-        result_count=len(response.items),
+        result_count=len(response.results),
         results=sanitized,
     )
     if collector is not None:

@@ -18,7 +18,7 @@ from src.core.types import JsonDict
 # before the data crosses the network boundary, regardless of how it was
 # assigned internally.
 PUBLIC_CITATION_METADATA_KEYS: Final[frozenset[str]] = frozenset(
-    {"collection", "title", "tags"}
+    {"collection", "section", "tags", "title"}
 )
 
 _ABSOLUTE_PATH_RE = re.compile(

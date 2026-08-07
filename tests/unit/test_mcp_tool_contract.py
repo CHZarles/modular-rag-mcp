@@ -12,14 +12,12 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 from mcp import types
 
 from src.core.response import ResponseBuilder
 from src.core.types import (
-    Citation,
     CollectionInfo,
     DocumentSummary,
     JsonDict,
@@ -66,44 +64,31 @@ class _FakeService:
 
 
 def _citation_response(*, source_path: str, include_extra_metadata: bool = True) -> QueryResponse:
+    metadata = {
+        "source_path": source_path,
+        "page": 3,
+        "collection": "docs",
+    }
+    if include_extra_metadata:
+        metadata.update(
+            {
+                "title": "RAG Manual",
+                "tags": ["rag", "fence"],
+                "rank": 1,
+                "source": "fusion",
+                "internal_claim": "GEN-2026-08",
+            }
+        )
     candidate = RetrievalCandidate(
         chunk_id="chunk-1",
         text="Generation fencing prevents stale publication.",
-        metadata={
-            "source_path": source_path,
-            "page": 3,
-            "collection": "docs",
-            "title": "RAG Manual",
-            "tags": ["rag", "fence"],
-            "rank": 1,
-            "source": "fusion",
-            "internal_claim": "GEN-2026-08",
-        },
+        metadata=metadata,
         score=0.91,
         source="fusion",
         rank=1,
     )
-    citation_metadata: dict[str, Any] = {
-        "rank": 1,
-        "source": "fusion",
-        "collection": "docs",
-        "title": "RAG Manual",
-        "tags": ["rag", "fence"],
-        "internal_claim": "GEN-2026-08",
-    } if include_extra_metadata else {"collection": "docs"}
-    citation = Citation(
-        citation_id="c1",
-        chunk_id="chunk-1",
-        source_path=source_path,
-        page=3,
-        text=candidate.text,
-        score=0.91,
-        metadata=citation_metadata,
-    )
     return QueryResponse(
-        answer="Use a generation fence.",
-        citations=[citation],
-        items=[candidate],
+        results=[candidate],
         request_id="req-1",
     )
 
@@ -307,7 +292,7 @@ def test_response_builder_redacts_absolute_source_in_citation() -> None:
     response = _citation_response(source_path="/Users/private/secret.pdf")
 
     result = ResponseBuilder().build_mcp_result(response)
-    citation = result["structuredContent"]["citations"][0]
+    citation = result["structuredContent"]["results"][0]
 
     assert citation["source"] == "secret.pdf"
     assert "Users" not in citation["source"]
@@ -319,9 +304,9 @@ def test_response_builder_filters_citation_metadata_to_public_whitelist() -> Non
     response = _citation_response(source_path="/knowledge/rag.pdf", include_extra_metadata=True)
 
     result = ResponseBuilder().build_mcp_result(response)
-    metadata = result["structuredContent"]["citations"][0]["metadata"]
+    metadata = result["structuredContent"]["results"][0]["metadata"]
 
-    assert set(metadata) <= {"collection", "title", "tags"}
+    assert set(metadata) <= {"collection", "section", "title", "tags"}
     assert "internal_claim" not in metadata
     assert "rank" not in metadata
     assert metadata.get("collection") == "docs"

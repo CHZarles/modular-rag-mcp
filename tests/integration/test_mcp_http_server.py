@@ -76,9 +76,7 @@ class _ContextCapturingService:
                 )
             )
         return QueryResponse(
-            answer=f"captured:{ctx.actor_key or 'anonymous'}",
-            citations=[],
-            items=[],
+            results=[],
             request_id=ctx.request_id,
         )
 

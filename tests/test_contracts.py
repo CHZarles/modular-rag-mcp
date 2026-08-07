@@ -50,16 +50,14 @@ class TestCoreContracts(unittest.TestCase):
             rank=1,
         )
         response = QueryResponse(
-            answer="answer",
-            citations=[],
-            items=[candidate],
+            results=[candidate],
             images=[ImagePayload(image_id="img-1", mime_type="image/png", uri="img.png")],
             request_id="req-1",
         )
 
         restored = QueryResponse.from_dict(response.to_dict())
 
-        self.assertEqual(restored.items[0].chunk_id, "chunk-1")
+        self.assertEqual(restored.results[0].chunk_id, "chunk-1")
         self.assertEqual(restored.images[0].image_id, "img-1")
         self.assertEqual(restored.request_id, "req-1")
 
@@ -372,8 +370,8 @@ class TestQueryAndResponse(unittest.TestCase):
         response = ResponseBuilder().build(request, candidates)
 
         self.assertEqual([candidate.chunk_id for candidate in candidates], ["a", "b"])
-        self.assertEqual(response.items[0].source, "fusion")
-        self.assertEqual(response.citations[0].chunk_id, "a")
+        self.assertEqual(response.results[0].source, "fusion")
+        self.assertEqual(response.results[0].chunk_id, "a")
         self.assertEqual(response.metadata["candidate_count"], 2)
 
 

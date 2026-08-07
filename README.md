@@ -1,6 +1,6 @@
 # Modular RAG MCP Server
 
-> 一个可插拔、可观测的模块化 RAG（检索增强生成）服务框架，通过 MCP（Model Context Protocol）协议对外暴露工具接口，支持 Copilot / Claude 等 AI 助手直接调用。同时也是一份专为**大模型相关岗位学习与面试求职**设计的实战项目与配套教学资源。
+> 一个可插拔、可观测的模块化知识检索服务，通过 MCP（Model Context Protocol）返回候选 Chunk、来源、分数和关联图片，支持 Copilot / Claude 等 AI 助手直接调用。同时也是一份专为**大模型相关岗位学习与面试求职**设计的实战项目与配套教学资源。
 
 ---
 
@@ -25,7 +25,7 @@
 
 ### 这个项目是什么
 
-本项目将 RAG 面试中最常见的核心环节——**检索（Hybrid Search + Rerank）**、**多模态视觉处理（Image Captioning）**、**可追溯响应（Context + Citation）**、**RAG 评估（Ragas + Custom）**——以及当下热门的应用协议 **MCP（Model Context Protocol）** 串联为一个完整的、可运行的工程项目。
+本项目聚焦 RAG 的检索部分：**混合检索（Dense + BM25 + RRF）**、**多模态视觉处理（Image Captioning）**、**可追溯候选结果**和 **Hit@K / MRR 检索评估**，并通过 **MCP（Model Context Protocol）** 对外提供能力。它不生成答案，调用方直接获得带来源和分数的候选 Chunk。
 
 **项目的一大亮点是极易适配到你自己的业务中**。得益于全链路可插拔架构，你可以快速将它结合到自己已有的项目里，无论你的背景和需求如何，都能找到适合自己的使用方式。具体的使用策略会在后文 [谁适合用这个项目 & 怎么用](#-谁适合用这个项目--怎么用) 中详细展开。
 
@@ -48,7 +48,7 @@
 | **Hybrid Search** | Dense (向量) + Sparse (BM25) + RRF Fusion + Rerank | 粗排召回 + 精排重排的两段式检索架构 |
 | **MCP Server** | 标准 MCP 协议暴露 Tools | `query_knowledge_hub`、`list_collections`、`get_document_summary` |
 | **Dashboard** | React + FastAPI 私有管理控制台 | 系统总览 / 数据浏览 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
-| **Evaluation** | Ragas + Custom 评估体系 | 支持 golden test set 回归测试，拒绝"凭感觉"调优 |
+| **Evaluation** | 真实检索链路评估 | 对比 BM25 / Dense / Hybrid，使用 Hit@5 和 MRR@5 门禁 |
 | **Observability** | 全链路白盒化追踪 | Ingestion 与 Query 两条链路的每一个中间状态透明可见 |
 | **Skill 驱动全流程** | 从编写到测试、打包、配置一键完成 | auto-coder / qa-tester / package / setup 等 Skill 覆盖完整开发生命周期（笔记中每个 Skill 的使用和设计思路均有讲解，请参考配套视频） |
 
@@ -62,7 +62,7 @@
 
 **📡 MCP 生态集成**：遵循 Model Context Protocol 标准，可直接对接 GitHub Copilot、Claude Desktop 等 MCP Client，零前端开发，一次开发处处可用。
 
-**📊 可视化管理 + 自动化评估**：React + FastAPI 控制台（`web/` + `src/observability/dashboard/api.py`）提供全链路可观测能力（系统总览 / 数据浏览 / Ingestion 追踪 / 查询追踪 / 评估面板），集成 Ragas 等评估框架，建立基于数据的迭代反馈回路。
+**📊 可视化管理 + 自动化评估**：React + FastAPI 控制台（`web/` + `src/observability/dashboard/api.py`）提供全链路可观测能力（系统总览 / 数据浏览 / Ingestion 追踪 / 查询追踪 / 评估面板），并通过 Golden Set 和真实 Embedding 建立检索回归门禁。
 
 **🧪 三层测试体系**：Unit / Integration / E2E 分层测试，覆盖独立模块逻辑、模块间交互、完整链路（MCP Client / Dashboard）。
 
@@ -385,6 +385,9 @@ pytest -q tests/e2e
 # 全量回归
 pytest -q
 
+# 联网检索准确率评估（使用 settings 中的真实 Embedding 和 Vision Provider）
+python scripts/evaluate_retrieval.py
+
 # 静态质量检查
 ruff check src scripts tests
 ruff format --check src scripts tests
@@ -393,6 +396,8 @@ mypy src scripts
 
 测试全部使用临时目录，不应依赖 `data/` 中的个人索引。E2E 会启动真实 MCP 子进程和
 FastAPI TestClient，并通过确定性测试 Embedding 避免调用外部模型 API。
+`evaluate_retrieval.py` 不属于默认 pytest；它会实际调用生产配置的 Provider，并在生产配置
+所选策略的 Hit@5 低于 90% 或 MRR@5 低于 0.80 时返回非零退出码。
 
 ---
 

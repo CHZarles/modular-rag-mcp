@@ -97,4 +97,4 @@ def _case() -> EvaluationCase:
 
 
 def _response() -> QueryResponse:
-    return QueryResponse(answer="answer", citations=[], items=[])
+    return QueryResponse(results=[])

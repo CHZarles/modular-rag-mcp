@@ -90,10 +90,10 @@ def test_default_local_factory_builds_query_response_from_config(tmp_path: Path)
         QueryRequest(query="lease generation", collection="docs", request_id="req-1")
     )
 
-    assert "A generation token fences stale workers." in response.answer
-    assert response.items[0].chunk_id == "chunk-1"
-    assert response.items[0].source == "fusion"
-    assert response.citations[0].page == 2
+    assert response.results[0].text == "A generation token fences stale workers."
+    assert response.results[0].chunk_id == "chunk-1"
+    assert response.results[0].source == "fusion"
+    assert response.results[0].metadata["page"] == 2
     assert response.request_id == "req-1"
     assert response.metadata == {
         "collection": "docs",

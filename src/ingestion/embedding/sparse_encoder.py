@@ -7,6 +7,7 @@ import unicodedata
 from collections import Counter
 from typing import Any
 
+from src.core.index_fingerprint import TOKENIZER_VERSION
 from src.core.types import Chunk, JsonDict
 
 _TOKEN_PATTERN = re.compile(
@@ -48,4 +49,4 @@ def tokenize(text: str) -> list[str]:
     return tokens
 
 
-__all__ = ["SparseEncoder", "tokenize"]
+__all__ = ["SparseEncoder", "TOKENIZER_VERSION", "tokenize"]

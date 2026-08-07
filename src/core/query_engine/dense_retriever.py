@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from src.core.types import JsonDict, RetrievalCandidate, SearchHit
 from src.ports.ingestion import (
     BaseEmbedding,
@@ -25,6 +27,7 @@ class DenseRetriever:
         *,
         generation_store: GenerationStateStore | None = None,
         overfetch_factor: int = 5,
+        dimension_validator: Callable[[int], None] | None = None,
     ) -> None:
         if overfetch_factor <= 0:
             raise ValueError("dense retriever overfetch_factor must be positive")
@@ -32,6 +35,7 @@ class DenseRetriever:
         self.vector_store = vector_store
         self.generation_store = generation_store
         self.overfetch_factor = overfetch_factor
+        self.dimension_validator = dimension_validator
 
     def retrieve(
         self,
@@ -54,6 +58,8 @@ class DenseRetriever:
             raise ValueError("dense retriever embedding count must equal one")
         if not vectors[0]:
             raise ValueError("dense retriever query embedding must not be empty")
+        if self.dimension_validator is not None:
+            self.dimension_validator(len(vectors[0]))
         requested_top_k = top_k * self.overfetch_factor if self.generation_store else top_k
         hits = self.vector_store.query(
             vectors[0], top_k=requested_top_k, filters=filters, trace=trace

@@ -39,7 +39,7 @@ class FakeKnowledgeService:
 
     def query(self, request: QueryRequest, trace: object | None = None) -> QueryResponse:
         self.requests.append(request)
-        return QueryResponse(answer="fake", citations=[], items=[])
+        return QueryResponse(results=[])
 
     def list_collections(self) -> list[CollectionInfo]:
         return []
@@ -248,8 +248,7 @@ def test_query_knowledge_hub_runs_through_official_mcp_session() -> None:
     trace_id = structured.pop("trace_id")
     assert isinstance(trace_id, str) and trace_id
     assert structured == {
-        "answer": "未找到相关知识库内容。",
-        "citations": [],
+        "results": [],
         "request_id": None,
         "metadata": {},
     }
@@ -317,9 +316,7 @@ def test_mcp_server_uses_remote_base64_without_reading_remote_image_path() -> No
         def query(self, request: QueryRequest, trace: object | None = None) -> QueryResponse:
             self.requests.append(request)
             return QueryResponse(
-                answer="Remote answer.",
-                citations=[],
-                items=[candidate],
+                results=[candidate],
                 images=[
                     ImagePayload(
                         image_id="remote-1",
@@ -415,9 +412,7 @@ def test_query_knowledge_hub_response_trace_id_correlates_with_sqlite_row(
 
 def test_mcp_response_skips_uri_only_and_invalid_base64_images() -> None:
     response = QueryResponse(
-        answer="Text remains available.",
-        citations=[],
-        items=[
+        results=[
             RetrievalCandidate(
                 chunk_id="chunk-1",
                 text="Text remains available.",
@@ -444,4 +439,10 @@ def test_mcp_response_skips_uri_only_and_invalid_base64_images() -> None:
 
     result = ResponseBuilder().build_mcp_result(response)
 
-    assert result["content"] == [{"type": "text", "text": "Text remains available."}]
+    assert result["content"] == [
+        {
+            "type": "text",
+            "text": "检索结果：\n\n[1] unknown\nText remains available.",
+        }
+    ]
+    assert result["structuredContent"]["results"][0]["images"] == []

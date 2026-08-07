@@ -3,7 +3,6 @@
 from .types import (
     Chunk,
     ChunkRecord,
-    Citation,
     ClaimHandle,
     ClaimResult,
     ClaimStatus,
@@ -33,7 +32,6 @@ from .types import (
 __all__ = [
     "Chunk",
     "ChunkRecord",
-    "Citation",
     "ClaimHandle",
     "ClaimResult",
     "ClaimStatus",

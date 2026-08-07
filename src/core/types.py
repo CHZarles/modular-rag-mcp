@@ -201,23 +201,6 @@ class RetrievalCandidate(RetrievalResult):
 
 
 @dataclass(frozen=True)
-class Citation(SerializableDataclass):
-    """面向最终响应的可追溯引用。"""
-
-    citation_id: str
-    chunk_id: str
-    source_path: str
-    page: int | None
-    text: str
-    score: float
-    metadata: Metadata = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, data: JsonDict) -> Citation:
-        return cls(**data)
-
-
-@dataclass(frozen=True)
 class ImagePayload(SerializableDataclass):
     """响应中的图片内容或资源地址。"""
 
@@ -255,16 +238,14 @@ class QueryRequest(SerializableDataclass):
 
 @dataclass(frozen=True)
 class QueryResponse(SerializableDataclass):
-    """包含答案、引用、候选项和图片的统一查询响应。
+    """包含检索结果和关联图片的统一查询响应。
 
     ``trace_id`` 由 ``QueryKnowledgeHubTool`` 在持久化 Query Trace 之后
     通过 :func:`dataclasses.replace` 写入，便于 MCP 客户端把响应与
     SQLite 行一一对应（plan §C2.3 / §6.2）。
     """
 
-    answer: str
-    citations: list[Citation]
-    items: list[RetrievalCandidate]
+    results: list[RetrievalCandidate]
     images: list[ImagePayload] = field(default_factory=list)
     request_id: str | None = None
     metadata: JsonDict = field(default_factory=dict)
@@ -274,13 +255,9 @@ class QueryResponse(SerializableDataclass):
     def from_dict(cls, data: JsonDict) -> QueryResponse:
         # 嵌套对象可能来自 JSON，因此在构造响应前恢复为强类型领域对象。
         payload = dict(data)
-        payload["citations"] = [
-            item if isinstance(item, Citation) else Citation.from_dict(item)
-            for item in payload.get("citations", [])
-        ]
-        payload["items"] = [
+        payload["results"] = [
             item if isinstance(item, RetrievalCandidate) else RetrievalCandidate.from_dict(item)
-            for item in payload.get("items", [])
+            for item in payload.get("results", [])
         ]
         payload["images"] = [
             item if isinstance(item, ImagePayload) else ImagePayload.from_dict(item)

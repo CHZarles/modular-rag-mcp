@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from src.core.index_fingerprint import IndexFingerprintGuard
 from src.core.query_engine import (
     DenseRetriever,
     ExactMetadataFilter,
@@ -113,13 +114,19 @@ def build_local_query_engine(
         if top_m is not None:
             fusion_top_k = max(fusion_top_k, top_m)
 
+    vector_store = create_vector_store(settings) if enable_dense else None
+    index_guard = _index_guard(settings, vector_store) if vector_store is not None else None
+
     return HybridQueryEngine(
         query_processor=QueryProcessor(),
         dense_retriever=(
             DenseRetriever(
                 create_embedding(settings),
-                create_vector_store(settings),
+                vector_store,
                 generation_store=integrity,
+                dimension_validator=(
+                    index_guard.validate_dimension if index_guard is not None else None
+                ),
             )
             if enable_dense
             else None
@@ -145,6 +152,15 @@ def build_local_query_engine(
             enable_sparse=enable_sparse,
         ),
     )
+
+
+def _index_guard(settings: Settings, vector_store: Any) -> IndexFingerprintGuard | None:
+    if str(settings.vector_store.get("backend", "")).strip().lower() != "chroma":
+        return None
+    stats = vector_store.get_collection_stats()
+    guard = IndexFingerprintGuard(settings, existing_records=stats.chunk_count)
+    guard.verify_config()
+    return guard
 
 
 def _required_mapping(
