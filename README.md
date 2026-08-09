@@ -360,7 +360,7 @@ python scripts/start_dashboard_api.py \
 |------|------|
 | 系统总览 | 查看数据资产数量及 LLM、Embedding、Splitter、Store、Reranker、Evaluator 配置 |
 | 数据浏览器 | 按 Collection 浏览 active generation 文档、Chunk 和图片 |
-| 知识检索 | 按 Collection 和 Top K 检索知识片段，展示分数、引用元数据及关联图片 |
+| 知识检索 | 按 Collection 和 Top K 检索知识片段，展示各召回阶段分数、引用元数据及关联图片 |
 | Ingestion 管理 | 后台摄取 PDF、实时查看进度并协调删除跨存储文档 |
 | Ingestion 追踪 | 查看摄取历史、状态、耗时和阶段详情 |
 | Query 追踪 | 对比 Dense / Sparse 候选、阶段耗时和 Rerank 排名变化 |

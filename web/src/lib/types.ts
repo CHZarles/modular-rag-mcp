@@ -148,12 +148,24 @@ export interface QueryImageReference {
   content_index: number
 }
 
+export interface QueryScoreStage {
+  stage: 'dense' | 'bm25' | 'fusion' | 'rerank'
+  status: 'hit' | 'not_recalled' | 'success' | 'skipped' | 'fallback' | 'ranking_only' | 'unavailable' | 'error'
+  rank: number | null
+  score: number | null
+  score_kind: string
+  rrf_contribution: number | null
+  k: number | null
+  backend: string | null
+}
+
 export interface QueryResult {
   rank: number
   chunk_id: string
   text: string
   score: number
   score_kind: string
+  score_stages: QueryScoreStage[]
   source: string
   page: number | null
   metadata: Record<string, JsonValue>

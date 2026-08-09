@@ -1,9 +1,9 @@
-import { ChevronDown, Image, LoaderCircle, Search } from 'lucide-react'
+import { Activity, ChevronDown, Image, LoaderCircle, Search } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Button, EmptyState, ErrorState, Badge } from '../components/ui'
 import { api } from '../lib/api'
 import { getErrorMessage } from '../lib/format'
-import type { JsonValue, QueryResponse, QueryResult } from '../lib/types'
+import type { JsonValue, QueryResponse, QueryResult, QueryScoreStage } from '../lib/types'
 import { queryImageDataUrl } from '../lib/view-model'
 import { PageHeader } from '../layouts/AppShell'
 
@@ -75,10 +75,33 @@ function ResultCard({ result, content }: { result: QueryResult; content: QueryRe
   return <article className="card query-result-card">
     <header className="query-result-header"><span className="query-rank">{result.rank}</span><div><strong>{result.source || '未知来源'}</strong><span>{result.page === null ? '页码未记录' : `第 ${result.page} 页`}</span></div><div className="query-score"><Badge tone="info">{result.score_kind}</Badge><strong>{formatScore(result.score)}</strong></div></header>
     <p className="query-result-text">{result.text}</p>
+    <ScoreStages stages={result.score_stages} />
     <dl className="query-citation-grid"><div><dt>Chunk ID</dt><dd title={result.chunk_id}>{result.chunk_id}</dd></div><div><dt>来源</dt><dd>{result.source || '—'}</dd></div><div><dt>页码</dt><dd>{result.page ?? '—'}</dd></div></dl>
     {metadata.length ? <details className="query-metadata"><summary>引用元数据</summary><dl>{metadata.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{formatMetadata(value)}</dd></div>)}</dl></details> : null}
     {images.length ? <div className="query-images"><div className="query-images-heading"><Image size={15} /><span>{images.length} 张关联图片</span></div><div>{images.map((item, index) => <figure key={`${item.image_id}-${index}`}><img src={item.url} alt={`${result.source || '检索结果'}关联图片`} loading="lazy" /><figcaption>{item.image_id}</figcaption></figure>)}</div></div> : null}
   </article>
+}
+
+const stageLabels: Record<QueryScoreStage['stage'], string> = {
+  dense: 'Dense',
+  bm25: 'BM25',
+  fusion: 'RRF',
+  rerank: 'Rerank',
+}
+
+const statusLabels: Record<QueryScoreStage['status'], string> = {
+  hit: '已召回',
+  not_recalled: '未召回',
+  success: '已计算',
+  skipped: '未启用',
+  fallback: '已回退',
+  ranking_only: '仅排序',
+  unavailable: '无数据',
+  error: '异常',
+}
+
+function ScoreStages({ stages }: { stages: QueryScoreStage[] }) {
+  return <div className="query-score-breakdown"><div className="query-score-heading"><Activity size={15} /><span>阶段分数</span></div><div className="query-score-grid">{stages.map((stage) => <div className="query-score-stage" key={stage.stage}><div><strong>{stageLabels[stage.stage]}</strong><Badge tone={stage.status === 'hit' || stage.status === 'success' ? 'success' : stage.status === 'fallback' ? 'warning' : stage.status === 'error' ? 'danger' : 'neutral'}>{statusLabels[stage.status]}</Badge></div><span>{stage.score === null ? '—' : formatScore(stage.score)}</span><small>{[stage.score_kind !== 'none' ? stage.score_kind : null, stage.rank === null ? null : `Rank ${stage.rank}`, stage.k === null ? null : `k=${stage.k}`].filter(Boolean).join(' · ') || '无数值分数'}</small>{stage.rrf_contribution === null ? null : <small>RRF 贡献 {formatScore(stage.rrf_contribution)}</small>}{stage.backend ? <small>{stage.backend}</small> : null}</div>)}</div></div>
 }
 
 function formatScore(score: number): string {
