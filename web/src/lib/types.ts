@@ -117,6 +117,40 @@ export interface EvaluationReport {
   metadata: Record<string, JsonValue>
 }
 
+export interface HotpotQABenchmarkSummary {
+  dataset: string
+  corpus_count: number
+  query_count: number
+  available: boolean
+}
+
+export interface BenchmarkMetrics {
+  case_count: number
+  hit_at_5: number
+  mrr_at_5: number
+  misses: string[]
+}
+
+export interface HotpotQABenchmarkReport {
+  dataset: string
+  embedding: {
+    provider: string | null
+    model: string | null
+    dimension: number
+  }
+  retrieval: Record<string, JsonValue>
+  chunk_count: number
+  strategies: Record<string, BenchmarkMetrics>
+  image_cases: BenchmarkMetrics
+  gate: {
+    strategy: string
+    min_hit_at_5: number
+    min_mrr_at_5: number
+    min_image_hit_at_5: number
+  }
+  passed: boolean
+}
+
 export interface IngestionOptions {
   collections: string[]
   ai_enrichment_default: boolean

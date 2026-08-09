@@ -7,6 +7,8 @@ import type {
   EvaluationOptions,
   EvaluationReport,
   HealthResponse,
+  HotpotQABenchmarkReport,
+  HotpotQABenchmarkSummary,
   IngestionJob,
   IngestionOptions,
   Overview,
@@ -81,6 +83,11 @@ export const api = {
   runEvaluation: (testSetPath: string, backends: string[]) => request<EvaluationReport>('/api/evaluation/runs', {
     method: 'POST',
     ...jsonBody({ test_set_path: testSetPath, backends }),
+  }),
+  getHotpotQABenchmark: () => request<HotpotQABenchmarkSummary>('/api/evaluation/benchmarks/hotpotqa'),
+  runHotpotQABenchmark: (includeImages: boolean) => request<HotpotQABenchmarkReport>('/api/evaluation/benchmarks/hotpotqa', {
+    method: 'POST',
+    ...jsonBody({ include_images: includeImages }),
   }),
   getIngestionOptions: () => request<IngestionOptions>('/api/ingestion/options'),
   submitIngestion: (file: File, collection: string, force: boolean, aiEnrichment: boolean) => {

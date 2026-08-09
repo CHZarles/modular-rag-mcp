@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from core.settings import Settings
 from core.types import QueryRequest, RetrievalCandidate
@@ -45,6 +48,36 @@ def test_evaluation_service_lists_configuration_and_runs_selected_backend(
     assert service.available_backends() == ["custom"]
     assert golden.resolve() in service.golden_test_sets()
     assert report.metrics == {"hit_rate": 1.0, "mrr": 1.0}
+
+
+def test_evaluation_service_runs_hotpotqa_with_saved_settings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings_path = tmp_path / "settings.yaml"
+    settings_path.write_text("evaluation:\n  backends: [custom]\n", encoding="utf-8")
+    calls: list[tuple[Path, bool]] = []
+
+    def run_benchmark(path: Path, *, include_images: bool) -> dict[str, object]:
+        calls.append((path, include_images))
+        return {"dataset": "hotpotqa", "passed": True}
+
+    monkeypatch.setattr(
+        sys.modules[EvaluationDashboardService.__module__],
+        "_run_benchmark_process",
+        run_benchmark,
+    )
+    service = EvaluationDashboardService(
+        _settings("golden.json"),
+        FakeQueryEngine(),  # type: ignore[arg-type]
+        settings_path,
+    )
+
+    report = service.run_hotpotqa_benchmark(include_images=False)
+
+    assert report == {"dataset": "hotpotqa", "passed": True}
+    assert calls == [(settings_path.resolve(), False)]
+    assert service.hotpotqa_summary()["query_count"] == 120
 
 
 def _settings(golden_path: str) -> Settings:

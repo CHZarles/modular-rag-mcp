@@ -11,6 +11,7 @@ import {
   Layers3,
   Pencil,
   Plus,
+  Search,
   Settings2,
   Sparkles,
 } from 'lucide-react'
@@ -26,6 +27,7 @@ const componentIcons: Record<string, typeof Sparkles> = {
   GEN: Sparkles,
   EMB: Activity,
   SPLIT: Layers3,
+  RET: Search,
   RANK: Gauge,
   STORE: Database,
   EVAL: CircleDot,
@@ -35,6 +37,7 @@ const componentColors: Record<string, string> = {
   GEN: 'indigo',
   EMB: 'cyan',
   SPLIT: 'violet',
+  RET: 'cyan',
   RANK: 'amber',
   STORE: 'emerald',
   EVAL: 'rose',

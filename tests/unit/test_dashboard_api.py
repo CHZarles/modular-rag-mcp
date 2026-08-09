@@ -86,6 +86,16 @@ class FakeEvaluationService:
     backends: list[str] = field(default_factory=lambda: ["custom"])
     test_sets: list[Path] = field(default_factory=list)
     report: EvaluationReport | None = None
+    benchmark_summary: JsonDict = field(
+        default_factory=lambda: {
+            "dataset": "hotpotqa",
+            "corpus_count": 1194,
+            "query_count": 120,
+            "available": True,
+        }
+    )
+    benchmark_report: JsonDict | None = None
+    benchmark_calls: list[bool] = field(default_factory=list)
 
     def available_backends(self) -> list[str]:
         return list(self.backends)
@@ -97,6 +107,15 @@ class FakeEvaluationService:
         if self.report is None:
             raise ValueError("no backend selected")
         return self.report
+
+    def hotpotqa_summary(self) -> JsonDict:
+        return dict(self.benchmark_summary)
+
+    def run_hotpotqa_benchmark(self, *, include_images: bool = True) -> JsonDict:
+        self.benchmark_calls.append(include_images)
+        if self.benchmark_report is None:
+            raise RuntimeError("benchmark unavailable")
+        return dict(self.benchmark_report)
 
 
 @dataclass
@@ -288,7 +307,7 @@ def test_overview_aggregates_components_collections_and_stats(tmp_path: Path) ->
     assert response.status_code == 200
     payload = response.json()
     codes = [component["code"] for component in payload["components"]]
-    assert codes == ["GEN", "EMB", "SPLIT", "RANK", "STORE", "EVAL"]
+    assert codes == ["GEN", "EMB", "SPLIT", "RET", "RANK", "STORE", "EVAL"]
     assert {entry["name"] for entry in payload["collections"]} >= {"default"}
     assert payload["stats"]["document_count"] == 1
 
@@ -504,6 +523,60 @@ def test_evaluation_runs_rejects_empty_backends(tmp_path: Path) -> None:
         json={"test_set_path": "golden.json", "backends": []},
     )
     assert response.status_code == 400
+
+
+def test_hotpotqa_benchmark_endpoints_return_dataset_and_strategy_metrics(
+    tmp_path: Path,
+) -> None:
+    evaluation_service = FakeEvaluationService(
+        benchmark_report={
+            "dataset": "hotpotqa",
+            "embedding": {"provider": "minimax", "model": "embo-01", "dimension": 1536},
+            "retrieval": {
+                "enable_dense": False,
+                "enable_sparse": True,
+                "top_k_dense": 20,
+                "top_k_sparse": 20,
+                "top_k_final": 10,
+                "fusion_algorithm": "rrf",
+            },
+            "chunk_count": 1197,
+            "strategies": {
+                "bm25": {
+                    "case_count": 120,
+                    "hit_at_5": 0.9417,
+                    "mrr_at_5": 0.8326,
+                    "misses": [],
+                }
+            },
+            "image_cases": {
+                "case_count": 3,
+                "hit_at_5": 1.0,
+                "mrr_at_5": 0.8,
+                "misses": [],
+            },
+            "gate": {
+                "strategy": "bm25",
+                "min_hit_at_5": 0.9,
+                "min_mrr_at_5": 0.8,
+                "min_image_hit_at_5": 1.0,
+            },
+            "passed": True,
+        }
+    )
+    client = _client(tmp_path, evaluation_service=evaluation_service)
+
+    summary = client.get("/api/evaluation/benchmarks/hotpotqa")
+    response = client.post(
+        "/api/evaluation/benchmarks/hotpotqa",
+        json={"include_images": False},
+    )
+
+    assert summary.status_code == 200
+    assert summary.json()["query_count"] == 120
+    assert response.status_code == 200, response.text
+    assert response.json()["strategies"]["bm25"]["hit_at_5"] == 0.9417
+    assert evaluation_service.benchmark_calls == [False]
 
 
 def test_ingestion_options_lists_collections_and_default(tmp_path: Path) -> None:

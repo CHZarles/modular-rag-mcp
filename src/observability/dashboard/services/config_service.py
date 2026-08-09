@@ -24,6 +24,7 @@ _COMPONENT_SECTIONS = {
     "GEN": "llm",
     "EMB": "embedding",
     "SPLIT": "splitter",
+    "RET": "retrieval",
     "RANK": "rerank",
     "STORE": "vector_store",
     "EVAL": "evaluation",
@@ -43,6 +44,15 @@ _EDITABLE_FIELDS = {
         "timeout_seconds",
     },
     "SPLIT": {"provider", "chunk_size", "chunk_overlap"},
+    "RET": {
+        "enable_dense",
+        "enable_sparse",
+        "sparse_backend",
+        "fusion_algorithm",
+        "top_k_dense",
+        "top_k_sparse",
+        "top_k_final",
+    },
     "RANK": {"enabled", "backend", "model", "top_m", "timeout_seconds"},
     "STORE": {"backend", "persist_path", "collection_name", "distance_metric"},
     "EVAL": {"backends", "golden_test_set"},
@@ -202,6 +212,17 @@ class ConfigService:
                 enabled=True,
             ),
             ComponentSummary(
+                code="RET",
+                label="Retrieval",
+                provider=_retrieval_mode(settings.retrieval),
+                details=(
+                    ("Dense top K", _display(settings.retrieval.get("top_k_dense"))),
+                    ("Sparse top K", _display(settings.retrieval.get("top_k_sparse"))),
+                    ("Final top K", _display(settings.retrieval.get("top_k_final"))),
+                ),
+                enabled=True,
+            ),
+            ComponentSummary(
                 code="RANK",
                 label="Reranker",
                 provider=_text(settings.rerank, "backend"),
@@ -287,6 +308,18 @@ def _backend_list(value: Any) -> str:
         if backends:
             return ", ".join(backends)
     return "none"
+
+
+def _retrieval_mode(config: ConfigSection) -> str:
+    dense = config.get("enable_dense") is True
+    sparse = config.get("enable_sparse") is True
+    if dense and sparse:
+        return "hybrid"
+    if dense:
+        return "dense"
+    if sparse:
+        return "bm25"
+    return "disabled"
 
 
 def _dashboard_collections(config: ConfigSection) -> list[str]:

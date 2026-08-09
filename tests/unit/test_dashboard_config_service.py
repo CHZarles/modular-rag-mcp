@@ -17,13 +17,15 @@ def test_component_summaries_are_complete_and_do_not_expose_secrets() -> None:
         "GEN",
         "EMB",
         "SPLIT",
+        "RET",
         "RANK",
         "STORE",
         "EVAL",
     ]
     assert summaries[0].provider == "openai"
     assert summaries[0].model == "gpt-4o-mini"
-    assert summaries[3].enabled is False
+    assert summaries[3].provider == "bm25"
+    assert summaries[4].enabled is False
     assert "secret-value" not in repr(summaries)
 
 
@@ -89,6 +91,22 @@ def test_component_update_rejects_unknown_or_sensitive_public_fields(tmp_path: P
 
     with pytest.raises(ValueError, match="unsupported embedding settings"):
         service.update_component("EMB", {"api_key": "must-not-be-public"})
+
+
+def test_component_update_persists_retrieval_experiment_parameters(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.yaml"
+    settings_path.write_text(_settings_yaml(), encoding="utf-8")
+    service = ConfigService.from_path(settings_path)
+
+    service.update_component(
+        "RET",
+        {"enable_dense": True, "top_k_dense": 30, "top_k_final": 5},
+    )
+
+    retrieval = ConfigService.from_path(settings_path).settings.retrieval
+    assert retrieval["enable_dense"] is True
+    assert retrieval["top_k_dense"] == 30
+    assert retrieval["top_k_final"] == 5
 
 
 def test_component_enabled_switch_is_limited_to_optional_components(tmp_path: Path) -> None:
@@ -182,7 +200,14 @@ def _settings() -> Settings:
             "collection_name": "default",
             "distance_metric": "cosine",
         },
-        retrieval={"sparse_backend": "bm25"},
+        retrieval={
+            "enable_dense": False,
+            "enable_sparse": True,
+            "sparse_backend": "bm25",
+            "top_k_dense": 20,
+            "top_k_sparse": 20,
+            "top_k_final": 10,
+        },
         rerank={"backend": "none", "model": "cross-encoder", "top_m": 30},
         evaluation={"backends": ["custom"], "golden_test_set": "tests/golden.json"},
         observability={"enabled": True},

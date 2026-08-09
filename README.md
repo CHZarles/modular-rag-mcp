@@ -47,7 +47,7 @@
 | **Ingestion Pipeline** | PDF → Markdown → Chunk → Transform → Embedding → Upsert | 全链路数据摄取，支持多模态图片描述（Image Captioning） |
 | **Hybrid Search** | Dense (向量) + Sparse (BM25) + RRF Fusion + Rerank | 粗排召回 + 精排重排的两段式检索架构 |
 | **MCP Server** | 标准 MCP 协议暴露 Tools | `query_knowledge_hub`、`list_collections`、`get_document_summary` |
-| **Dashboard** | React + FastAPI 私有管理控制台 | 系统总览 / 数据浏览 / 知识检索 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
+| **Dashboard** | React + FastAPI 私有开发控制台 | 系统总览 / 参数配置 / 数据浏览 / 知识检索 / Ingestion 管理 / 链路追踪 / Benchmark |
 | **Evaluation** | 真实检索链路评估 | 对比 BM25 / Dense / Hybrid，使用 Hit@5 和 MRR@5 门禁 |
 | **Observability** | 全链路白盒化追踪 | Ingestion 与 Query 两条链路的每一个中间状态透明可见 |
 | **Skill 驱动全流程** | 从编写到测试、打包、配置一键完成 | auto-coder / qa-tester / package / setup 等 Skill 覆盖完整开发生命周期（笔记中每个 Skill 的使用和设计思路均有讲解，请参考配套视频） |
@@ -364,7 +364,7 @@ python scripts/start_dashboard_api.py \
 | Ingestion 管理 | 后台摄取 PDF、实时查看进度并协调删除跨存储文档 |
 | Ingestion 追踪 | 查看摄取历史、状态、耗时和阶段详情 |
 | Query 追踪 | 对比 Dense / Sparse 候选、阶段耗时和 Rerank 排名变化 |
-| 评估面板 | 选择 Golden Set 与 Evaluator，运行评估并查看指标和用例明细 |
+| 评估面板 | 使用当前保存的检索配置运行隔离 HotpotQA Benchmark，对比 BM25、Dense 与 Hybrid 指标 |
 
 ![Dashboard 系统总览](docs/images/dashboard-overview.png)
 

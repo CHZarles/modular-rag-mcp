@@ -144,7 +144,9 @@ def _build_context(
     evaluation_service = overrides.get("evaluation_service")
     if evaluation_service is None and "evaluation_service" not in overrides:
         evaluation_service = _safe_build(
-            "evaluation_service", EvaluationDashboardService.from_settings, settings
+            "evaluation_service",
+            lambda selected: EvaluationDashboardService.from_settings(selected, resolved),
+            settings,
         )
     knowledge_service = overrides.get("knowledge_service")
     knowledge_factory = overrides.get("knowledge_factory") or build_knowledge_service
@@ -256,10 +258,16 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
 
     def require_evaluation_service(current: AppContext) -> EvaluationDashboardService:
         if current.evaluation_service is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="evaluation service is not available",
-            )
+            try:
+                current.evaluation_service = EvaluationDashboardService.from_settings(
+                    current.settings,
+                    current.settings_path,
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="evaluation service is not available",
+                ) from exc
         return current.evaluation_service
 
     def require_knowledge_service(current: AppContext) -> KnowledgeService:
@@ -323,6 +331,7 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
         current.config_service = reloaded
         current.settings = reloaded.settings
         current.knowledge_service = None
+        current.evaluation_service = None
         return ComponentDetailResponse(
             code=code.strip().upper(),
             values=_redacted_values(reloaded.component_config(code)),
@@ -349,6 +358,7 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
         current.config_service = reloaded
         current.settings = reloaded.settings
         current.knowledge_service = None
+        current.evaluation_service = None
         return ComponentDetailResponse(
             code=code.strip().upper(),
             values=_redacted_values(reloaded.component_config(code)),
@@ -516,6 +526,40 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
             cases=list(report.cases),
             metadata=dict(report.metadata),
         )
+
+    @app.get(
+        "/api/evaluation/benchmarks/hotpotqa",
+        response_model=HotpotQABenchmarkSummaryPayload,
+    )
+    def hotpotqa_benchmark_summary(  # type: ignore[no-untyped-def]
+        request: Request,
+    ) -> HotpotQABenchmarkSummaryPayload:
+        summary = require_evaluation_service(ctx(request)).hotpotqa_summary()
+        return HotpotQABenchmarkSummaryPayload.model_validate(summary)
+
+    @app.post(
+        "/api/evaluation/benchmarks/hotpotqa",
+        response_model=HotpotQABenchmarkReportPayload,
+    )
+    def run_hotpotqa_benchmark(  # type: ignore[no-untyped-def]
+        payload: HotpotQABenchmarkRunPayload,
+        request: Request,
+    ) -> HotpotQABenchmarkReportPayload:
+        try:
+            report = require_evaluation_service(ctx(request)).run_hotpotqa_benchmark(
+                include_images=payload.include_images
+            )
+        except TimeoutError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="HotpotQA benchmark timed out",
+            ) from exc
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="HotpotQA benchmark execution failed",
+            ) from exc
+        return HotpotQABenchmarkReportPayload.model_validate(report)
 
     @app.get("/api/ingestion/options", response_model=IngestionOptionsResponse)
     def ingestion_options(request: Request) -> IngestionOptionsResponse:  # type: ignore[no-untyped-def]
@@ -960,6 +1004,60 @@ class EvaluationReportPayload(BaseModel):
     metrics: dict[str, float]
     cases: list[JsonDict]
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class HotpotQABenchmarkSummaryPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dataset: str
+    corpus_count: int = Field(ge=0)
+    query_count: int = Field(ge=0)
+    available: bool
+
+
+class HotpotQABenchmarkRunPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include_images: bool = True
+
+
+class BenchmarkMetricsPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_count: int = Field(ge=0)
+    hit_at_5: float = Field(ge=0, le=1)
+    mrr_at_5: float = Field(ge=0, le=1)
+    misses: list[str]
+
+
+class BenchmarkEmbeddingPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str | None
+    model: str | None
+    dimension: int = Field(ge=0)
+
+
+class BenchmarkGatePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: str
+    min_hit_at_5: float = Field(ge=0, le=1)
+    min_mrr_at_5: float = Field(ge=0, le=1)
+    min_image_hit_at_5: float = Field(ge=0, le=1)
+
+
+class HotpotQABenchmarkReportPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dataset: str
+    embedding: BenchmarkEmbeddingPayload
+    retrieval: JsonDict
+    chunk_count: int = Field(ge=0)
+    strategies: dict[str, BenchmarkMetricsPayload]
+    image_cases: BenchmarkMetricsPayload
+    gate: BenchmarkGatePayload
+    passed: bool
 
 
 class IngestionOptionsResponse(BaseModel):
