@@ -24,7 +24,7 @@ from src.mcp_server.tools.query_knowledge_hub import QueryKnowledgeHubTool
 from src.observability.logger import get_logger
 
 SERVER_NAME = "modular-rag-mcp"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.1.1"
 DEFAULT_SETTINGS_PATH = Path(__file__).resolve().parents[2] / "config/settings.yaml"
 
 logger = get_logger(__name__)

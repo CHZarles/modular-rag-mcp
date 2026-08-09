@@ -28,5 +28,6 @@ jobs:
       - run: python -m pytest
       - run: python -m ruff check src scripts tests
       - run: python -m mypy src scripts
+      - run: npm --prefix web test
       - run: npm --prefix web run lint
       - run: npm --prefix web run build

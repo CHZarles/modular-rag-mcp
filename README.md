@@ -189,7 +189,9 @@ python scripts/evaluate.py
 ### 5. 启动 Dashboard
 
 ```bash
-python scripts/start_dashboard.py
+npm ci --prefix web
+npm --prefix web run build
+python scripts/start_dashboard_api.py
 ```
 
 浏览器打开 <http://127.0.0.1:8501>。至此 ingest、query、evaluate 和 Dashboard 已形成
@@ -343,12 +345,14 @@ Windows 把 `command` 改为 `.venv\\Scripts\\modular-rag-mcp.exe` 的绝对路�
 ## 📊 Dashboard 使用指南
 
 ```bash
-python scripts/start_dashboard.py
+npm ci --prefix web
+npm --prefix web run build
+python scripts/start_dashboard_api.py
 
 # 覆盖配置或监听地址
-python scripts/start_dashboard.py \
+python scripts/start_dashboard_api.py \
   --settings /absolute/path/settings.yaml \
-  --address 127.0.0.1 \
+  --host 127.0.0.1 \
   --port 8502
 ```
 
@@ -647,7 +651,7 @@ Skill 采用 **"写作原则 + 项目亮点 + 用户画像 = 定制化简历"** 
 
 ```bash
 # 启动 MCP HTTP
-python scripts/start_dashboard_api.py  # 或者直接 python -m src.mcp_server.http_server
+python -m src.mcp_server.http_server
 
 # 健康检查
 curl http://127.0.0.1:8766/health/live    # {"status": "ok"}

@@ -16,7 +16,7 @@ import { api } from '../lib/api'
 import { compactPath, formatNumber, getErrorMessage } from '../lib/format'
 import type { ChunkDetail, DocumentDetail, DocumentSummary, DocumentListResponse, Overview } from '../lib/types'
 import { PageHeader } from '../layouts/AppShell'
-import { Badge, Button, EmptyState, ErrorState, IconButton, LoadingState, Modal, Skeleton, useToast } from '../components/ui'
+import { Badge, Button, EmptyState, ErrorState, IconButton, LoadingState, Modal, Skeleton } from '../components/ui'
 
 export function DataBrowserPage() {
   const [overview, setOverview] = useState<Overview | null>(null)
@@ -69,16 +69,26 @@ function DocumentSkeleton() {
 function DocumentDetailModal({ document, onClose }: { document: DocumentSummary | null; onClose: () => void }) {
   const [detail, setDetail] = useState<DocumentDetail | null>(null)
   const [loading, setLoading] = useState(false)
-  const { showToast } = useToast()
+  const [error, setError] = useState('')
+  const [requestVersion, setRequestVersion] = useState(0)
   useEffect(() => {
     if (!document) return
+    let cancelled = false
     setLoading(true)
     setDetail(null)
-    api.getDocument(document.doc_id).then(setDetail).catch((reason: unknown) => showToast(getErrorMessage(reason), 'error')).finally(() => setLoading(false))
-  }, [document, showToast])
+    setError('')
+    api.getDocument(document.doc_id).then((response) => {
+      if (!cancelled) setDetail(response)
+    }).catch((reason: unknown) => {
+      if (!cancelled) setError(getErrorMessage(reason))
+    }).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [document, requestVersion])
   const chunks = getChunks(detail)
   const summary = detail?.document
-  return <Modal open={Boolean(document)} onClose={onClose} title={summary?.title || summary?.source_path.split('/').pop() || '文档详情'} eyebrow="已建索引文档" wide>{loading ? <LoadingState label="正在加载文档与 Chunk" /> : detail && summary ? <div className="detail-layout"><div className="detail-summary"><div className="detail-file-heading"><div className="file-icon file-icon-large"><FileText size={22} /></div><div><span className="eyebrow">源文件路径</span><strong>{summary.source_path}</strong></div></div><p>{summary.summary || '该文档未保存摘要。'}</p><div className="detail-kpis"><KeyMetric label="文档 ID" value={summary.doc_id} /><KeyMetric label="Collection" value={String(summary.metadata.collection ?? 'default')} /><KeyMetric label="Chunk 数" value={String(summary.metadata.chunk_count ?? chunks.length)} /></div>{summary.tags.length ? <div className="tag-list tag-list-large">{summary.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div> : null}</div><div className="chunks-panel"><div className="chunks-heading"><div><span className="eyebrow">检索单元</span><h3>共 {chunks.length} 个 Chunk</h3></div><Badge tone="success">已建索引</Badge></div>{chunks.length ? <div className="chunk-list">{chunks.map((chunk, index) => <div className="chunk-item" key={String(chunk.id ?? chunk.chunk_id ?? index)}><div className="chunk-index">{String(chunk.chunk_index ?? index + 1).padStart(2, '0')}</div><div><p>{String(chunk.text ?? chunk.content ?? '暂无 Chunk 文本内容。')}</p><span>{String(chunk.source_ref ?? chunk.id ?? chunk.chunk_id ?? '源片段')}</span></div></div>)}</div> : <EmptyState icon={<Layers3 size={21} />} title="未返回 Chunk 详情" description="API 未提供该文档的 Chunk 明细。" />}</div></div> : null}</Modal>
+  return <Modal open={Boolean(document)} onClose={onClose} title={summary?.title || summary?.source_path.split('/').pop() || '文档详情'} eyebrow="已建索引文档" wide>{loading ? <LoadingState label="正在加载文档与 Chunk" /> : error ? <ErrorState message={error} onRetry={() => setRequestVersion((current) => current + 1)} /> : detail && summary ? <div className="detail-layout"><div className="detail-summary"><div className="detail-file-heading"><div className="file-icon file-icon-large"><FileText size={22} /></div><div><span className="eyebrow">源文件路径</span><strong>{summary.source_path}</strong></div></div><p>{summary.summary || '该文档未保存摘要。'}</p><div className="detail-kpis"><KeyMetric label="文档 ID" value={summary.doc_id} /><KeyMetric label="Collection" value={String(summary.metadata.collection ?? 'default')} /><KeyMetric label="Chunk 数" value={String(summary.metadata.chunk_count ?? chunks.length)} /></div>{summary.tags.length ? <div className="tag-list tag-list-large">{summary.tags.map((tag) => <span key={tag}>#{tag}</span>)}</div> : null}</div><div className="chunks-panel"><div className="chunks-heading"><div><span className="eyebrow">检索单元</span><h3>共 {chunks.length} 个 Chunk</h3></div><Badge tone="success">已建索引</Badge></div>{chunks.length ? <div className="chunk-list">{chunks.map((chunk, index) => <div className="chunk-item" key={String(chunk.id ?? chunk.chunk_id ?? index)}><div className="chunk-index">{String(chunk.chunk_index ?? index + 1).padStart(2, '0')}</div><div><p>{String(chunk.text ?? chunk.content ?? '暂无 Chunk 文本内容。')}</p><span>{String(chunk.source_ref ?? chunk.id ?? chunk.chunk_id ?? '源片段')}</span></div></div>)}</div> : <EmptyState icon={<Layers3 size={21} />} title="未返回 Chunk 详情" description="API 未提供该文档的 Chunk 明细。" />}</div></div> : null}</Modal>
 }
 
 function getChunks(detail: DocumentDetail | null): ChunkDetail[] {

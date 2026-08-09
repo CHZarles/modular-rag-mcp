@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { getErrorMessage, titleCase } from '../lib/format'
 import type { EvaluationOptions, EvaluationReport, JsonValue } from '../lib/types'
+import { selectAvailableValue } from '../lib/view-model'
 import { PageHeader, SectionHeading } from '../layouts/AppShell'
 import { Badge, Button, EmptyState, ErrorState, LoadingState, useToast } from '../components/ui'
 
@@ -32,8 +33,11 @@ export function EvaluationPage() {
     setError('')
     api.getEvaluationOptions().then((nextOptions) => {
       setOptions(nextOptions)
-      setBackends((current) => current.length ? current.filter((backend) => nextOptions.backends.includes(backend)) : nextOptions.backends.slice(0, 1))
-      setTestSetPath((current) => current || nextOptions.golden_test_sets[0] || '')
+      setBackends((current) => {
+        const available = current.filter((backend) => nextOptions.backends.includes(backend))
+        return available.length ? available : nextOptions.backends.slice(0, 1)
+      })
+      setTestSetPath((current) => selectAvailableValue(current, nextOptions.golden_test_sets))
     }).catch((reason: unknown) => setError(getErrorMessage(reason))).finally(() => setLoading(false))
   }
 

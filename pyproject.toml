@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "modular-rag-mcp-server"
-version = "0.1.0"
+version = "0.1.1"
 description = "Interface-first modular RAG MCP server skeleton"
 readme = "README.md"
 requires-python = ">=3.10"

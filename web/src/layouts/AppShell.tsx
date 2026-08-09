@@ -16,7 +16,6 @@ import {
 } from 'lucide-react'
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react'
 import { api } from '../lib/api'
-import { getErrorMessage } from '../lib/format'
 import { IconButton } from '../components/ui'
 
 const navigation = [
@@ -63,13 +62,24 @@ export function AppShell({ path, onNavigate, children }: { path: string; onNavig
   }
 
   useEffect(() => {
-    let mounted = true
-    api.health().then(() => { if (mounted) setHealth('connected') }).catch((error: unknown) => {
-      getErrorMessage(error)
-      if (mounted) setHealth('offline')
-    })
-    return () => { mounted = false }
-  }, [path])
+    let cancelled = false
+    let timer: number
+    const check = async () => {
+      try {
+        await api.health()
+        if (!cancelled) setHealth('connected')
+      } catch {
+        if (!cancelled) setHealth('offline')
+      } finally {
+        if (!cancelled) timer = window.setTimeout(check, 5000)
+      }
+    }
+    void check()
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [])
 
   return <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
     <aside className={`sidebar ${mobileOpen ? 'sidebar-mobile-open' : ''}`}>
