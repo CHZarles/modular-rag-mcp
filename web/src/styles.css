@@ -92,7 +92,7 @@ h1, h2, h3, p { margin: 0; }
 
 .main-area { flex: 1; min-width: 0; }
 
-.topbar { align-items: center; background: rgba(255, 255, 255, .86); border-bottom: 1px solid var(--line); display: flex; height: 70px; justify-content: space-between; padding: 0 42px; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); }
+.topbar { display: none; }
 
 .topbar-actions, .live-status { align-items: center; display: flex; }
 
@@ -571,7 +571,7 @@ tbody tr:hover { background: #fafbff; }
   .sidebar-collapsed .brand, .sidebar-collapsed .nav-item, .sidebar-collapsed .collapse-button { justify-content: initial; }
   .sidebar-collapsed .nav-item { padding-left: 12px; padding-right: 12px; }
   .sidebar-collapsed .collapse-button span { display: inline; }
-  .topbar { height: 62px; padding: 0 20px; }
+  .topbar { align-items: center; background: rgba(255, 255, 255, .86); border-bottom: 1px solid var(--line); display: flex; height: 62px; justify-content: space-between; padding: 0 20px; position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); }
   .page-content { padding: 30px 20px 55px; }
   .ingestion-layout, .evaluation-layout { grid-template-columns: 1fr; }
   .query-console { grid-template-columns: 1fr 120px; }
