@@ -388,6 +388,10 @@ pytest -q
 # 联网检索准确率评估（使用 settings 中的真实 Embedding 和 Vision Provider）
 python scripts/evaluate_retrieval.py
 
+# HotpotQA 现实检索基准（先准备本地已下载的原始数据）
+python scripts/prepare_hotpotqa.py
+python scripts/evaluate_retrieval.py --dataset hotpotqa
+
 # 静态质量检查
 ruff check src scripts tests
 ruff format --check src scripts tests

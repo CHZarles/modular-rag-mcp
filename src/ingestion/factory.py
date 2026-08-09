@@ -27,8 +27,14 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
     integrity = SQLiteIntegrityStore(
         _required_text(storage, "integrity_db_path", "ingestion.storage")
     )
+    enable_dense = _optional_bool(
+        settings.retrieval,
+        "enable_dense",
+        "retrieval",
+        default=True,
+    )
     vector_store = create_vector_store(settings)
-    index_guard = _index_guard(settings, vector_store)
+    index_guard = _index_guard(settings, vector_store) if enable_dense else None
     bm25_store = BM25Indexer(
         _required_text(storage, "bm25_path", "ingestion.storage"),
         generation_store=integrity,
@@ -49,13 +55,14 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
             ImageCaptioner(settings),
         ],
         batch_processor=BatchProcessor(
-            DenseEncoder(settings),
+            DenseEncoder(settings) if enable_dense else None,
             SparseEncoder(),
             batch_size=_positive_int(ingestion, "batch_size", "ingestion"),
         ),
         vector_store=vector_store,
         bm25_store=bm25_store,
         image_store=image_store,
+        enable_dense=enable_dense,
         claim_lease_seconds=_positive_float(
             ingestion,
             "claim_lease_seconds",
@@ -94,6 +101,19 @@ def _positive_int(config: Mapping[str, Any], key: str, section: str) -> int:
     if parsed <= 0:
         raise ValueError(f"Setting {section}.{key} must be a positive integer")
     return parsed
+
+
+def _optional_bool(
+    config: Mapping[str, Any],
+    key: str,
+    section: str,
+    *,
+    default: bool,
+) -> bool:
+    value = config.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"Setting {section}.{key} must be a boolean")
+    return value
 
 
 def _positive_float(config: Mapping[str, Any], key: str, section: str) -> float:

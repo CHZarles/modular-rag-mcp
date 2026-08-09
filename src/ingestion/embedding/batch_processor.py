@@ -15,7 +15,7 @@ class BatchProcessor:
 
     def __init__(
         self,
-        dense_encoder: DenseEncoder,
+        dense_encoder: DenseEncoder | None,
         sparse_encoder: SparseEncoder,
         batch_size: int,
     ) -> None:
@@ -51,10 +51,14 @@ class BatchProcessor:
                 else nullcontext()
             )
             with timing:
-                dense_batch = self.dense_encoder.encode(batch, trace=trace)
+                dense_batch = (
+                    self.dense_encoder.encode(batch, trace=trace)
+                    if self.dense_encoder is not None
+                    else []
+                )
                 sparse_batch = self.sparse_encoder.encode(batch, trace=trace)
 
-            if len(dense_batch) != len(batch):
+            if self.dense_encoder is not None and len(dense_batch) != len(batch):
                 raise ValueError("dense batch output count must match chunk count")
             if len(sparse_batch) != len(batch):
                 raise ValueError("sparse batch output count must match chunk count")

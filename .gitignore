@@ -96,6 +96,11 @@ dmypy.json
 data/**
 !data/**/
 !data/**/.gitkeep
+# The raw HotpotQA download stays local; the small attributed benchmark below is tracked.
+!data/hotpotqa/README.md
+!data/hotpotqa/benchmark/
+!data/hotpotqa/benchmark/*.jsonl
+data/hotpotqa/hotpot_dev_distractor_v1.json
 cache/**
 !cache/**/
 !cache/**/.gitkeep

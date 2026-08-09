@@ -13,8 +13,9 @@ from src.ports.ingestion import BaseVectorStore
 class VectorUpserter:
     """生成最终存储 ID，并把有序 ChunkRecord 批量交给 VectorStore。"""
 
-    def __init__(self, vector_store: BaseVectorStore) -> None:
+    def __init__(self, vector_store: BaseVectorStore, *, enabled: bool = True) -> None:
         self.vector_store = vector_store
+        self.enabled = enabled
 
     def upsert(
         self,
@@ -24,8 +25,10 @@ class VectorUpserter:
         trace: Any | None = None,
     ) -> list[ChunkRecord]:
         """校验三路数据对齐，幂等写入并返回保持输入顺序的记录。"""
-        if len(dense_vectors) != len(chunks):
+        if self.enabled and len(dense_vectors) != len(chunks):
             raise ValueError("vector upsert error: dense vector count must match chunk count")
+        if not self.enabled and dense_vectors:
+            raise ValueError("vector upsert error: dense vectors must be empty when disabled")
         if sparse_vectors is not None and len(sparse_vectors) != len(chunks):
             raise ValueError("vector upsert error: sparse vector count must match chunk count")
         if not chunks:
@@ -34,15 +37,15 @@ class VectorUpserter:
         records: list[ChunkRecord] = []
         seen_ids: set[str] = set()
         dimension: int | None = None
-        for index, (chunk, dense_vector) in enumerate(
-            zip(chunks, dense_vectors, strict=True)
-        ):
+        for index, chunk in enumerate(chunks):
+            dense_vector = dense_vectors[index] if self.enabled else None
             _validate_chunk(chunk)
-            _validate_vector(dense_vector, chunk.id)
-            if dimension is None:
-                dimension = len(dense_vector)
-            elif len(dense_vector) != dimension:
-                raise ValueError("vector upsert error: dense vectors must have the same dimension")
+            if dense_vector is not None:
+                _validate_vector(dense_vector, chunk.id)
+                if dimension is None:
+                    dimension = len(dense_vector)
+                elif len(dense_vector) != dimension:
+                    raise ValueError("vector upsert error: dense vectors must have the same dimension")
 
             # C4 的 ID 对应切分时正文；这里的存储 ID 反映 C5/C7 处理后的最终正文。
             content_hash = hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
@@ -56,14 +59,15 @@ class VectorUpserter:
                     id=record_id,
                     text=chunk.text,
                     metadata=dict(chunk.metadata),
-                    dense_vector=list(dense_vector),
+                    dense_vector=list(dense_vector) if dense_vector is not None else None,
                     sparse_vector=dict(sparse_vector) if sparse_vector is not None else None,
                     content_hash=content_hash,
                 )
             )
 
         # VectorStore 的 upsert 语义负责用相同 ID 覆盖旧值；这里只调用一次以保留批次边界。
-        self.vector_store.upsert(records, trace=trace)
+        if self.enabled:
+            self.vector_store.upsert(records, trace=trace)
         return records
 
 

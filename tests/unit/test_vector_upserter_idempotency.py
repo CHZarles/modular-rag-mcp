@@ -141,6 +141,21 @@ def test_empty_batch_does_not_call_vector_store() -> None:
     assert store.calls == []
 
 
+def test_disabled_vector_store_still_builds_stable_chunk_ids() -> None:
+    store = RecordingVectorStore()
+    chunk = make_chunk(0, "Sparse only")
+
+    records = VectorUpserter(store, enabled=False).upsert(
+        [chunk],
+        [],
+        sparse_vectors=[{"terms": {"sparse": 1}, "doc_length": 2}],
+    )
+
+    assert records[0].id == expected_storage_id(chunk)
+    assert records[0].dense_vector is None
+    assert store.calls == []
+
+
 def test_rejects_misaligned_outputs_before_writing() -> None:
     store = RecordingVectorStore()
     upserter = VectorUpserter(store)

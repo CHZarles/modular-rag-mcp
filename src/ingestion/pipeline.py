@@ -68,6 +68,7 @@ class IngestionPipeline:
         bm25_store: BM25IndexStore,
         image_store: ImageStore,
         claim_lease_seconds: float = 900,
+        enable_dense: bool = True,
         index_dimension_validator: Callable[[int], None] | None = None,
     ) -> None:
         if claim_lease_seconds <= 0:
@@ -78,7 +79,8 @@ class IngestionPipeline:
         self.transforms = list(transforms)
         self.batch_processor = batch_processor
         self.vector_store = vector_store
-        self.vector_upserter = VectorUpserter(vector_store)
+        self.enable_dense = enable_dense
+        self.vector_upserter = VectorUpserter(vector_store, enabled=enable_dense)
         self.bm25_store = bm25_store
         self.image_store = image_store
         self.claim_lease_seconds = claim_lease_seconds
@@ -265,7 +267,7 @@ class IngestionPipeline:
                     details={
                         "input_count": len(chunks),
                         "storage_providers": {
-                            "vector": type(self.vector_store).__name__,
+                            "vector": type(self.vector_store).__name__ if self.enable_dense else "disabled",
                             "sparse": type(self.bm25_store).__name__,
                             "image": type(self.image_store).__name__,
                         },
@@ -384,7 +386,8 @@ class IngestionPipeline:
         for generation in generations:
             try:
                 filters = {"doc_key": claim.doc_key, "generation": generation}
-                self.vector_store.delete_by_metadata(filters)
+                if self.enable_dense:
+                    self.vector_store.delete_by_metadata(filters)
                 self.bm25_store.remove_generation(claim.doc_key, generation)
                 self.image_store.delete_generation(claim.doc_key, generation)
             except Exception as exc:

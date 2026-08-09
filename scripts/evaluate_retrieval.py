@@ -41,6 +41,7 @@ from src.libs.vector_store import ChromaStore  # noqa: E402
 DEFAULT_SETTINGS = PROJECT_ROOT / "config" / "settings.yaml"
 DEFAULT_CORPUS = PROJECT_ROOT / "data" / "corpus" / "corpus.jsonl"
 DEFAULT_GOLDEN = PROJECT_ROOT / "data" / "eval" / "golden.jsonl"
+DEFAULT_HOTPOT_DIR = PROJECT_ROOT / "data" / "hotpotqa" / "benchmark"
 TOP_K = 5
 MIN_HIT_AT_5 = 0.90
 MIN_MRR_AT_5 = 0.80
@@ -51,6 +52,7 @@ class _Case:
     query: str
     expected_sections: frozenset[str]
     kind: str = "text"
+    relevant_metadata_key: str = "section_id"
 
 
 _IMAGE_CASES = (
@@ -77,20 +79,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         description="Evaluate BM25, dense, and hybrid retrieval with real providers"
     )
     parser.add_argument("--settings", help="settings.yaml path")
+    parser.add_argument(
+        "--dataset",
+        choices=("postgres", "hotpotqa"),
+        default="postgres",
+        help="text retrieval dataset to evaluate",
+    )
     parser.add_argument("--skip-images", action="store_true", help="skip vision evaluation")
     args = parser.parse_args(argv)
 
     try:
         settings_path = resolve_settings_path(args.settings, default_path=DEFAULT_SETTINGS)
         settings = load_settings(str(settings_path))
-        chunks, cases = _load_postgres_dataset(settings)
+        chunks, cases = _load_dataset(settings, args.dataset)
         with tempfile.TemporaryDirectory(prefix="rag-retrieval-eval-") as directory:
             root = Path(directory)
             if not args.skip_images:
                 image_chunks, image_cases = _build_image_dataset(settings, root)
                 chunks.extend(image_chunks)
                 cases.extend(image_cases)
-            report = _run(settings, chunks, cases, root)
+            report = _run(settings, chunks, cases, root, dataset=args.dataset)
     except Exception as exc:
         print(f"retrieval evaluation failed: {exc}", file=sys.stderr)
         return 2
@@ -99,7 +107,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0 if report["passed"] else 1
 
 
-def _run(settings: Any, chunks: list[Chunk], cases: list[_Case], root: Path) -> dict[str, Any]:
+def _run(
+    settings: Any,
+    chunks: list[Chunk],
+    cases: list[_Case],
+    root: Path,
+    *,
+    dataset: str,
+) -> dict[str, Any]:
     embedding = create_embedding(settings)
     vectors = _embed_batches(
         embedding,
@@ -129,7 +144,8 @@ def _run(settings: Any, chunks: list[Chunk], cases: list[_Case], root: Path) -> 
         "dense": _engine(settings, embedding, vector_store, bm25, dense=True, sparse=False),
         "hybrid": _engine(settings, embedding, vector_store, bm25, dense=True, sparse=True),
     }
-    strategies = {name: _evaluate(engine, cases) for name, engine in engines.items()}
+    text_cases = [case for case in cases if case.kind == "text"]
+    strategies = {name: _evaluate(engine, text_cases) for name, engine in engines.items()}
     selected_name = _selected_strategy(settings)
     selected = strategies[selected_name]
     image = _evaluate(engines[selected_name], [case for case in cases if case.kind == "image"])
@@ -137,6 +153,7 @@ def _run(settings: Any, chunks: list[Chunk], cases: list[_Case], root: Path) -> 
     if image["case_count"]:
         passed = passed and image["hit_at_5"] >= 2 / 3
     return {
+        "dataset": dataset,
         "embedding": {
             "provider": settings.embedding.get("provider"),
             "model": settings.embedding.get("model"),
@@ -203,7 +220,11 @@ def _evaluate(engine: HybridQueryEngine, cases: list[_Case]) -> dict[str, Any]:
     for case in cases:
         request = QueryRequest(query=case.query, top_k=TOP_K, collection="evaluation")
         results = engine.search(request)
-        first_rank = _first_relevant_rank(results, case.expected_sections)
+        first_rank = _first_relevant_rank(
+            results,
+            case.expected_sections,
+            metadata_key=case.relevant_metadata_key,
+        )
         if first_rank is not None and case.kind == "image":
             relevant = results[first_rank - 1]
             response = ResponseBuilder().build(request, results)
@@ -225,36 +246,33 @@ def _evaluate(engine: HybridQueryEngine, cases: list[_Case]) -> dict[str, Any]:
 def _first_relevant_rank(
     results: list[RetrievalCandidate],
     expected_sections: frozenset[str],
+    *,
+    metadata_key: str = "section_id",
 ) -> int | None:
     return next(
         (
             rank
             for rank, result in enumerate(results, 1)
-            if result.metadata.get("section_id") in expected_sections
+            if result.metadata.get(metadata_key) in expected_sections
         ),
         None,
     )
 
 
-def _load_postgres_dataset(settings: Any) -> tuple[list[Chunk], list[_Case]]:
-    corpus = _read_jsonl(DEFAULT_CORPUS)
-    chunk_records = list(build_chunks(corpus, splitter_factory=lambda: create_splitter(settings)))
-    chunks = [
-        Chunk(
-            id=record.chunk_id,
-            text=record.text,
-            metadata={
-                "section_id": record.section_id,
-                "section": record.section_id,
-                "title": record.title,
-                "collection": "evaluation",
-                "source_path": f"{record.section_id}.html",
-            },
-            source_ref=record.section_id,
-            chunk_index=index,
+def _load_dataset(settings: Any, dataset: str) -> tuple[list[Chunk], list[_Case]]:
+    if dataset == "postgres":
+        return _load_postgres_dataset(settings)
+    if dataset == "hotpotqa":
+        return _load_hotpotqa_dataset(
+            settings,
+            DEFAULT_HOTPOT_DIR / "corpus.jsonl",
+            DEFAULT_HOTPOT_DIR / "queries.jsonl",
         )
-        for index, record in enumerate(chunk_records)
-    ]
+    raise ValueError(f"unsupported retrieval dataset: {dataset}")
+
+
+def _load_postgres_dataset(settings: Any) -> tuple[list[Chunk], list[_Case]]:
+    chunks = _load_chunked_corpus(settings, DEFAULT_CORPUS, source_extension=".html")
     cases = [
         _Case(
             query=str(row["query"]),
@@ -263,6 +281,65 @@ def _load_postgres_dataset(settings: Any) -> tuple[list[Chunk], list[_Case]]:
         for row in _read_jsonl(DEFAULT_GOLDEN)
     ]
     return chunks, cases
+
+
+def _load_hotpotqa_dataset(
+    settings: Any,
+    corpus_path: Path,
+    queries_path: Path,
+) -> tuple[list[Chunk], list[_Case]]:
+    if not corpus_path.is_file() or not queries_path.is_file():
+        raise ValueError(
+            "HotpotQA benchmark is missing; run `python scripts/prepare_hotpotqa.py` first"
+        )
+    chunks = _load_chunked_corpus(settings, corpus_path, source_extension=".json")
+    cases: list[_Case] = []
+    for row in _read_jsonl(queries_path):
+        query = row.get("query")
+        titles = row.get("expected_titles")
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("HotpotQA query records require a non-empty query")
+        if (
+            not isinstance(titles, list)
+            or not titles
+            or not all(isinstance(title, str) and title for title in titles)
+        ):
+            raise ValueError("HotpotQA query records require non-empty expected_titles")
+        cases.append(
+            _Case(
+                query=query,
+                expected_sections=frozenset(titles),
+                relevant_metadata_key="title",
+            )
+        )
+    return chunks, cases
+
+
+def _load_chunked_corpus(
+    settings: Any,
+    corpus_path: Path,
+    *,
+    source_extension: str,
+) -> list[Chunk]:
+    chunk_records = list(
+        build_chunks(_read_jsonl(corpus_path), splitter_factory=lambda: create_splitter(settings))
+    )
+    return [
+        Chunk(
+            id=record.chunk_id,
+            text=record.text,
+            metadata={
+                "section_id": record.section_id,
+                "section": record.section_id,
+                "title": record.title,
+                "collection": "evaluation",
+                "source_path": f"{record.section_id}{source_extension}",
+            },
+            source_ref=record.section_id,
+            chunk_index=index,
+        )
+        for index, record in enumerate(chunk_records)
+    ]
 
 
 def _build_image_dataset(settings: Any, root: Path) -> tuple[list[Chunk], list[_Case]]:

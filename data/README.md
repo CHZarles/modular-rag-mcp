@@ -38,6 +38,19 @@ python scripts/build_dataset.py
 
 Both scripts are idempotent and overwrite their output files.
 
+## HotpotQA benchmark
+
+`hotpotqa/benchmark/` is a 120-query realistic retrieval benchmark derived
+from the official HotpotQA distractor development set. It is separately
+attributed and licensed under CC BY-SA 4.0; see
+[`hotpotqa/README.md`](hotpotqa/README.md). The 58 MB raw download is never
+committed.
+
+```bash
+.venv/bin/python scripts/prepare_hotpotqa.py
+.venv/bin/python scripts/evaluate_retrieval.py --dataset hotpotqa
+```
+
 ## Run the recall test
 
 ```bash

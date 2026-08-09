@@ -105,6 +105,24 @@ def test_process_empty_input_skips_both_encoders() -> None:
     assert sparse_encoder.calls == []
 
 
+def test_process_skips_dense_encoding_when_disabled() -> None:
+    sparse_encoder = RecordingSparseEncoder()
+    processor = BatchProcessor(
+        dense_encoder=None,
+        sparse_encoder=sparse_encoder,
+        batch_size=2,
+    )
+
+    dense_vectors, sparse_vectors = processor.process(make_chunks(3))
+
+    assert dense_vectors == []
+    assert len(sparse_vectors) == 3
+    assert [ids for ids, _ in sparse_encoder.calls] == [
+        ["chunk-0", "chunk-1"],
+        ["chunk-2"],
+    ]
+
+
 def test_process_rejects_sparse_results_that_break_chunk_alignment() -> None:
     processor = BatchProcessor(
         dense_encoder=DenseEncoder(embedding=RecordingEmbedding()),

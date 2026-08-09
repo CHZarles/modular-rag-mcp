@@ -3,7 +3,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.evaluate_retrieval import _Case, _evaluate, _selected_strategy
+from scripts.evaluate_retrieval import (
+    _Case,
+    _evaluate,
+    _load_hotpotqa_dataset,
+    _selected_strategy,
+)
 from src.core.types import QueryRequest, RetrievalCandidate
 
 
@@ -82,6 +87,49 @@ def test_image_metrics_require_the_original_image_to_be_returnable(tmp_path: Pat
     assert report["misses"] == ["missing"]
 
 
+def test_hotpotqa_loader_uses_titles_as_relevance_labels(tmp_path: Path) -> None:
+    corpus_path = tmp_path / "corpus.jsonl"
+    queries_path = tmp_path / "queries.jsonl"
+    corpus_path.write_text(
+        '{"section_id":"hotpotqa-a","title":"Evidence","text":"A short paragraph."}\n',
+        encoding="utf-8",
+    )
+    queries_path.write_text(
+        '{"case_id":"hotpotqa:case-a","query":"Which evidence?","expected_titles":["Evidence"]}\n',
+        encoding="utf-8",
+    )
+    settings = SimpleNamespace(
+        splitter={"provider": "recursive", "chunk_size": 1000, "chunk_overlap": 200}
+    )
+
+    chunks, cases = _load_hotpotqa_dataset(settings, corpus_path, queries_path)
+
+    assert chunks[0].metadata["title"] == "Evidence"
+    assert cases == [
+        _Case(
+            query="Which evidence?",
+            expected_sections=frozenset({"Evidence"}),
+            relevant_metadata_key="title",
+        )
+    ]
+    report = _evaluate(
+        SimpleNamespace(
+            search=lambda _: [
+                RetrievalCandidate(
+                    chunk_id="hotpotqa-a",
+                    text="A short paragraph.",
+                    metadata={"title": "Evidence"},
+                    score=1.0,
+                    source="sparse",
+                    rank=1,
+                )
+            ]
+        ),
+        cases,
+    )
+    assert report["hit_at_5"] == 1.0
+
+
 @pytest.mark.parametrize(
     ("dense", "sparse", "expected"),
     [(True, True, "hybrid"), (True, False, "dense"), (False, True, "bm25")],
@@ -91,8 +139,6 @@ def test_selected_strategy_matches_production_flags(
     sparse: bool,
     expected: str,
 ) -> None:
-    settings = SimpleNamespace(
-        retrieval={"enable_dense": dense, "enable_sparse": sparse}
-    )
+    settings = SimpleNamespace(retrieval={"enable_dense": dense, "enable_sparse": sparse})
 
     assert _selected_strategy(settings) == expected
