@@ -26,6 +26,10 @@ splitter:
 
 # 规则去噪始终执行；启用后再通过当前 OpenAI-compatible 模型精炼文本。
 ingestion:
+  # 本地解析使用 markitdown；MinerU 标准 API 使用 mineru，并从 MINERU_API_TOKEN 读取凭据。
+  loader:
+    provider: mineru
+    model_version: vlm
   # 同一文件任务的领取租约；worker 崩溃后可由后续任务接管。
   claim_lease_seconds: 900
   # Embedding 按批发送，避免大文档一次请求过多文本。

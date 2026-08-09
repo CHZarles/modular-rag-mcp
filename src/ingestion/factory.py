@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from typing import Any
 
@@ -12,8 +13,9 @@ from src.ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
 from src.ingestion.pipeline import IngestionPipeline
 from src.ingestion.storage import BM25Indexer, ImageStorage
 from src.ingestion.transform import ChunkRefiner, ImageCaptioner, MetadataEnricher
-from src.libs.loader import PdfLoader, SQLiteIntegrityStore
+from src.libs.loader import MinerUPdfLoader, PdfLoader, SQLiteIntegrityStore
 from src.libs.vector_store import create_vector_store
+from src.ports.ingestion import BaseLoader
 
 
 def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
@@ -47,7 +49,7 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
 
     return IngestionPipeline(
         integrity=integrity,
-        loader=PdfLoader(image_root=image_root),
+        loader=_create_loader(ingestion, image_root),
         chunker=DocumentChunker(settings),
         transforms=[
             ChunkRefiner(settings),
@@ -72,6 +74,50 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
             index_guard.ensure_dimension if index_guard is not None else None
         ),
     )
+
+
+def _create_loader(ingestion: Mapping[str, Any], image_root: str) -> BaseLoader:
+    config = ingestion.get("loader", {})
+    if not isinstance(config, Mapping):
+        raise ValueError("Setting ingestion.loader must be a mapping")
+    provider = config.get("provider", "markitdown")
+    if not isinstance(provider, str) or not provider.strip():
+        raise ValueError("Setting ingestion.loader.provider must be non-empty")
+
+    provider = provider.strip().lower()
+    if provider == "markitdown":
+        return PdfLoader(image_root=image_root)
+    if provider == "mineru":
+        token = os.environ.get("MINERU_API_TOKEN", "").strip()
+        if not token:
+            raise ValueError("MINERU_API_TOKEN is required for the MinerU loader")
+        model = config.get("model_version", "vlm")
+        if not isinstance(model, str):
+            raise ValueError("Setting ingestion.loader.model_version must be text")
+        return MinerUPdfLoader(
+            token=token,
+            image_root=image_root,
+            model_version=model.strip(),
+            poll_interval_seconds=_positive_float(
+                config,
+                "poll_interval_seconds",
+                "ingestion.loader",
+                default=3,
+            ),
+            poll_timeout_seconds=_positive_float(
+                config,
+                "poll_timeout_seconds",
+                "ingestion.loader",
+                default=900,
+            ),
+            request_timeout_seconds=_positive_float(
+                config,
+                "request_timeout_seconds",
+                "ingestion.loader",
+                default=120,
+            ),
+        )
+    raise ValueError("Setting ingestion.loader.provider must be markitdown or mineru")
 
 
 def _index_guard(settings: Settings, vector_store: Any) -> IndexFingerprintGuard | None:
@@ -116,8 +162,14 @@ def _optional_bool(
     return value
 
 
-def _positive_float(config: Mapping[str, Any], key: str, section: str) -> float:
-    value = config.get(key)
+def _positive_float(
+    config: Mapping[str, Any],
+    key: str,
+    section: str,
+    *,
+    default: float | None = None,
+) -> float:
+    value = config.get(key, default)
     if value is None or isinstance(value, bool):
         raise ValueError(f"Setting {section}.{key} must be positive")
     try:

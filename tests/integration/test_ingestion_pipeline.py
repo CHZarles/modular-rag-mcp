@@ -401,3 +401,22 @@ def test_loader_reads_same_immutable_snapshot_used_for_source_revision(tmp_path:
     assert hits
     assert all(hit.metadata["source_path"] == str(source) for hit in hits)
     assert bm25_store.query(["changedafterclaim"], top_k=5) == []
+
+
+def test_loader_revision_change_creates_a_new_generation(tmp_path: Path) -> None:
+    source = tmp_path / "document.pdf"
+    source.write_text("same source bytes", encoding="utf-8")
+    pipeline, integrity, _, _, _ = build_pipeline(tmp_path)
+    pipeline.loader.revision = "fixture:v1"
+
+    first = pipeline.run(IngestionRequest(str(source), "docs"))
+    repeated = pipeline.run(IngestionRequest(str(source), "docs"))
+    pipeline.loader.revision = "fixture:v2"
+    changed = pipeline.run(IngestionRequest(str(source), "docs"))
+
+    assert first.status == "success"
+    assert repeated.status == "skipped"
+    assert changed.status == "success"
+    assert first.file_hash == changed.file_hash == hashlib.sha256(source.read_bytes()).hexdigest()
+    processed = integrity.list_processed("docs")
+    assert processed[0]["generation"] == 2

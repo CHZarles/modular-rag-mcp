@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import tempfile
 import time
@@ -101,6 +102,7 @@ class IngestionPipeline:
         trace: TraceContext | None = None,
     ) -> IngestionResult:
         pipeline_started = time.monotonic()
+        file_hash = ""
         source_revision = ""
         normalized_source_path = ""
         doc_key = ""
@@ -126,7 +128,11 @@ class IngestionPipeline:
                     normalized_source_path,
                     Path(temporary_dir),
                 )
-                source_revision = self.integrity.compute_sha256(str(snapshot_path))
+                file_hash = self.integrity.compute_sha256(str(snapshot_path))
+                source_revision = _ingestion_revision(
+                    file_hash,
+                    getattr(self.loader, "revision", ""),
+                )
                 claim_result = self.integrity.try_claim(
                     source_revision,
                     normalized_source_path,
@@ -141,7 +147,7 @@ class IngestionPipeline:
                         source_path=normalized_source_path,
                         collection=request.collection,
                         status="skipped",
-                        file_hash=source_revision,
+                        file_hash=file_hash,
                         metadata={"reason": claim_result.status, "doc_key": doc_key},
                     )
                     _record_trace_stage(
@@ -174,6 +180,7 @@ class IngestionPipeline:
                     loaded = self.loader.load(str(snapshot_path), request.collection, trace=trace)
                     document = _restore_document_identity(
                         loaded,
+                        document_id=file_hash,
                         source_revision=source_revision,
                         source_path=normalized_source_path,
                         collection=request.collection,
@@ -324,7 +331,7 @@ class IngestionPipeline:
                 source_path=normalized_source_path,
                 collection=request.collection,
                 status="success",
-                file_hash=source_revision,
+                file_hash=file_hash,
                 document_id=document.id,
                 chunk_count=len(chunks),
                 image_count=len(images),
@@ -361,7 +368,7 @@ class IngestionPipeline:
                 source_path=normalized_source_path or request.source_path,
                 collection=request.collection,
                 status="failed",
-                file_hash=source_revision,
+                file_hash=file_hash,
                 error=error,
                 metadata=metadata,
             )
@@ -606,6 +613,7 @@ def _create_source_snapshot(source_path: str, temporary_dir: Path) -> Path:
 def _restore_document_identity(
     document: Document,
     *,
+    document_id: str,
     source_revision: str,
     source_path: str,
     collection: str,
@@ -620,7 +628,14 @@ def _restore_document_identity(
             "source_revision": source_revision,
         }
     )
-    return replace(document, id=source_revision, metadata=metadata)
+    return replace(document, id=document_id, metadata=metadata)
+
+
+def _ingestion_revision(file_hash: str, loader_revision: object) -> str:
+    revision = loader_revision.strip() if isinstance(loader_revision, str) else ""
+    if not revision:
+        return file_hash
+    return hashlib.sha256(f"{file_hash}\0{revision}".encode()).hexdigest()
 
 
 def _stamp_generation(

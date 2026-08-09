@@ -34,6 +34,7 @@ class PdfLoader:
     """
 
     supported_extensions: tuple[str, ...] = (".pdf",)
+    revision = "markitdown-pymupdf:document-v1"
 
     def __init__(
         self,

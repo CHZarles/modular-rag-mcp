@@ -223,6 +223,7 @@ Agent 会自动引导你完成全部配置流程。
 | `embedding` | `provider`、`model`、`api_key` | 摄取和 Dense 查询使用的向量模型 |
 | `splitter` | `chunk_size`、`chunk_overlap` | PDF 文本切分大小与重叠窗口 |
 | `ingestion` | `batch_size`、`claim_lease_seconds` | 摄取批大小和并发任务租约 |
+| `ingestion.loader` | `provider`、`model_version` | PDF 解析器；支持 `markitdown` 和 MinerU 标准 API |
 | `ingestion.storage` | `integrity_db_path`、`bm25_path`、`image_*` | SQLite、BM25 和图片持久化位置 |
 | `vector_store` | `backend`、`persist_path`、`collection_name` | Dense Vector Store；当前本地实现使用 Chroma |
 | `retrieval` | `enable_dense`、`enable_sparse`、`top_k_*` | 召回通道开关及各阶段候选数量 |
@@ -247,6 +248,18 @@ retrieval:
 
 至少要启用一个召回通道。`top_k_dense` / `top_k_sparse` 控制粗召回规模，
 `top_k_final` 控制最终返回规模；Rerank 开启时，`top_m` 决定送入精排的候选数量。
+
+MinerU 解析本地 PDF 时，设置 `MINERU_API_TOKEN`，并在本地配置中选择标准 API：
+
+```yaml
+ingestion:
+  loader:
+    provider: mineru
+    model_version: vlm
+```
+
+`MinerUPdfLoader` 负责签名上传、任务轮询、结果 ZIP 下载，以及 Markdown、页码、边界框和
+Figure/Chart 图片的统一映射。解析失败会终止本次摄取，不会回退到另一解析器。
 
 ---
 
