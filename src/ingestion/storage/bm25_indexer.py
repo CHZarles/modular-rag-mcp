@@ -16,7 +16,7 @@ from src.core.types import Chunk, JsonDict, SearchHit
 from src.ingestion.embedding import tokenize
 from src.ports.ingestion import GenerationStateStore
 
-_SNAPSHOT_VERSION = 1
+_SNAPSHOT_VERSION = 2
 _PATH_LOCKS: dict[str, RLock] = {}
 _PATH_LOCKS_GUARD = Lock()
 
@@ -233,7 +233,9 @@ class BM25Indexer:
             if stored_index != rebuilt_index or stored_average != rebuilt_average:
                 raise ValueError("snapshot statistics do not match stored documents")
         except Exception as exc:
-            raise ValueError(f"bm25 index load error: {self.index_path}") from exc
+            raise ValueError(
+                f"bm25 index load error: {self.index_path}; remove the index and re-ingest all documents"
+            ) from exc
         self._set_state(documents, stored_index, stored_average)
         self._loaded_mtime_ns = self.index_path.stat().st_mtime_ns
 

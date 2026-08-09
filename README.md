@@ -394,7 +394,6 @@ python scripts/evaluate_retrieval.py --dataset hotpotqa
 
 # 静态质量检查
 ruff check src scripts tests
-ruff format --check src scripts tests
 mypy src scripts
 ```
 

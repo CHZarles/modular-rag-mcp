@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts.evaluate_retrieval import (
+    MIN_IMAGE_HIT_AT_5,
     _Case,
     _evaluate,
     _load_hotpotqa_dataset,
@@ -52,6 +53,10 @@ class _ImageEngine:
                 rank=1,
             )
         ]
+
+
+def test_image_gate_requires_all_three_cases() -> None:
+    assert MIN_IMAGE_HIT_AT_5 == 1.0
 
 
 def test_retrieval_metrics_count_hits_and_misses() -> None:

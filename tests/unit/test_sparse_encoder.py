@@ -7,11 +7,14 @@ from ingestion.embedding import SparseEncoder, tokenize
 from ports.ingestion import SparseEncoder as SparseEncoderProtocol
 
 
-def make_chunk(text: str, index: int = 0) -> Chunk:
+def make_chunk(text: str, index: int = 0, *, title: object | None = None) -> Chunk:
+    metadata: dict[str, object] = {"source_path": "retrieval.md"}
+    if title is not None:
+        metadata["title"] = title
     return Chunk(
         id=f"chunk-{index}",
         text=text,
-        metadata={"source_path": "retrieval.md"},
+        metadata=metadata,
         source_ref="document",
         chunk_index=index,
     )
@@ -36,6 +39,21 @@ def test_encode_returns_bm25_term_frequencies_and_document_length() -> None:
         }
     ]
     assert chunk.metadata == {"source_path": "retrieval.md"}
+
+
+def test_encode_includes_non_empty_title_once_without_changing_chunk() -> None:
+    chunk = make_chunk("body body", title="Retrieval Guide")
+
+    result = SparseEncoder().encode([chunk])
+
+    assert result == [
+        {
+            "terms": {"body": 2, "retrieval": 1, "guide": 1},
+            "doc_length": 4,
+        }
+    ]
+    assert chunk.text == "body body"
+    assert chunk.metadata["title"] == "Retrieval Guide"
 
 
 def test_tokenize_normalizes_width_case_and_technical_words() -> None:

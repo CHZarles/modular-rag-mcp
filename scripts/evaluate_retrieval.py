@@ -45,6 +45,7 @@ DEFAULT_HOTPOT_DIR = PROJECT_ROOT / "data" / "hotpotqa" / "benchmark"
 TOP_K = 5
 MIN_HIT_AT_5 = 0.90
 MIN_MRR_AT_5 = 0.80
+MIN_IMAGE_HIT_AT_5 = 1.0
 
 
 @dataclass(frozen=True)
@@ -151,7 +152,7 @@ def _run(
     image = _evaluate(engines[selected_name], [case for case in cases if case.kind == "image"])
     passed = selected["hit_at_5"] >= MIN_HIT_AT_5 and selected["mrr_at_5"] >= MIN_MRR_AT_5
     if image["case_count"]:
-        passed = passed and image["hit_at_5"] >= 2 / 3
+        passed = passed and image["hit_at_5"] >= MIN_IMAGE_HIT_AT_5
     return {
         "dataset": dataset,
         "embedding": {
@@ -166,7 +167,7 @@ def _run(
             "strategy": selected_name,
             "min_hit_at_5": MIN_HIT_AT_5,
             "min_mrr_at_5": MIN_MRR_AT_5,
-            "min_image_hit_at_5": 2 / 3,
+            "min_image_hit_at_5": MIN_IMAGE_HIT_AT_5,
         },
         "passed": passed,
     }

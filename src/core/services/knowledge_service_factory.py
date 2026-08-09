@@ -114,23 +114,22 @@ def build_local_query_engine(
         if top_m is not None:
             fusion_top_k = max(fusion_top_k, top_m)
 
-    vector_store = create_vector_store(settings) if enable_dense else None
-    index_guard = _index_guard(settings, vector_store) if vector_store is not None else None
+    dense_retriever = None
+    if enable_dense:
+        vector_store = create_vector_store(settings)
+        index_guard = _index_guard(settings, vector_store)
+        dense_retriever = DenseRetriever(
+            create_embedding(settings),
+            vector_store,
+            generation_store=integrity,
+            dimension_validator=(
+                index_guard.validate_dimension if index_guard is not None else None
+            ),
+        )
 
     return HybridQueryEngine(
         query_processor=QueryProcessor(),
-        dense_retriever=(
-            DenseRetriever(
-                create_embedding(settings),
-                vector_store,
-                generation_store=integrity,
-                dimension_validator=(
-                    index_guard.validate_dimension if index_guard is not None else None
-                ),
-            )
-            if enable_dense
-            else None
-        ),
+        dense_retriever=dense_retriever,
         sparse_retriever=(
             SparseRetriever(
                 BM25Indexer(

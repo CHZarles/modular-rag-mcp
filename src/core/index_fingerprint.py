@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-TOKENIZER_VERSION = "sparse-cjk-bigram-v1"
+TOKENIZER_VERSION = "sparse-cjk-bigram-title-v2"
 _MANIFEST_VERSION = 1
 
 

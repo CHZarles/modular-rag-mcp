@@ -29,6 +29,9 @@ class SparseEncoder:
         statistics: list[JsonDict] = []
         for chunk in chunks:
             tokens = tokenize(chunk.text)
+            title = chunk.metadata.get("title")
+            if isinstance(title, str):
+                tokens.extend(tokenize(title))
             terms = dict(Counter(tokens))
             statistics.append({"terms": terms, "doc_length": len(tokens)})
         return statistics

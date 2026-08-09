@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import pickle
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
@@ -18,11 +19,15 @@ def make_chunk(
     *,
     source_path: str = "guide.md",
     collection: str = "docs",
+    title: str | None = None,
 ) -> Chunk:
+    metadata = {"source_path": source_path, "collection": collection}
+    if title is not None:
+        metadata["title"] = title
     return Chunk(
         id=chunk_id,
         text=text,
-        metadata={"source_path": source_path, "collection": collection},
+        metadata=metadata,
         source_ref=source_path,
         chunk_index=int(chunk_id.removeprefix("chunk-")),
     )
@@ -59,6 +64,22 @@ def test_build_persists_exact_idf_and_reloads_stable_query_order(tmp_path) -> No
     assert hits[0].score > hits[1].score
     assert all(hit.score_kind == "bm25" for hit in hits)
     assert hits[0].text == "python python vector"
+
+
+def test_title_is_searchable_but_returned_text_stays_unchanged(tmp_path) -> None:
+    chunks = [
+        make_chunk("chunk-0", "body only", title="Retrieval Guide"),
+        make_chunk("chunk-1", "unrelated text"),
+        make_chunk("chunk-2", "another document"),
+    ]
+    directory = tmp_path / "bm25"
+    indexer = BM25Indexer(directory)
+    indexer.build(chunks, statistics(chunks))
+
+    hits = BM25Indexer(directory).query(["Retrieval Guide"], top_k=5)
+
+    assert [hit.id for hit in hits] == ["chunk-0"]
+    assert hits[0].text == "body only"
 
 
 def test_upsert_replaces_existing_chunk_and_preserves_other_documents(tmp_path) -> None:
@@ -143,6 +164,21 @@ def test_corrupt_snapshot_fails_with_context(tmp_path) -> None:
     (directory / "index.pkl").write_bytes(b"not a pickle")
 
     with pytest.raises(ValueError, match="bm25 index load error"):
+        BM25Indexer(directory)
+
+
+def test_old_snapshot_requires_reingestion(tmp_path) -> None:
+    directory = tmp_path / "bm25"
+    chunk = make_chunk("chunk-0", "alpha")
+    indexer = BM25Indexer(directory)
+    indexer.build([chunk], statistics([chunk]))
+    with indexer.index_path.open("rb") as handle:
+        snapshot = pickle.load(handle)
+    snapshot["version"] = 1
+    with indexer.index_path.open("wb") as handle:
+        pickle.dump(snapshot, handle)
+
+    with pytest.raises(ValueError, match="re-ingest all documents"):
         BM25Indexer(directory)
 
 
