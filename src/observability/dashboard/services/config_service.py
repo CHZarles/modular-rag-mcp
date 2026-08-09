@@ -238,13 +238,6 @@ class ConfigService:
                 details=(("Distance", _display(settings.vector_store.get("distance_metric"))),),
                 enabled=True,
             ),
-            ComponentSummary(
-                code="EVAL",
-                label="Evaluator",
-                provider=_backend_list(settings.evaluation.get("backends")),
-                details=(("Golden set", _path_name(settings.evaluation.get("golden_test_set"))),),
-                enabled=True,
-            ),
         )
 
     def dashboard_options(self) -> DashboardOptions:
@@ -302,14 +295,6 @@ def _display(value: Any, default: str = "Not configured") -> str:
     return str(value)
 
 
-def _backend_list(value: Any) -> str:
-    if isinstance(value, list):
-        backends = [str(item).strip() for item in value if str(item).strip()]
-        if backends:
-            return ", ".join(backends)
-    return "none"
-
-
 def _retrieval_mode(config: ConfigSection) -> str:
     dense = config.get("enable_dense") is True
     sparse = config.get("enable_sparse") is True
@@ -362,12 +347,6 @@ def _component_enabled(
     if not normalized_provider:
         return True
     return normalized_provider not in {"none", "disabled", "off"}
-
-
-def _path_name(value: Any) -> str:
-    if not isinstance(value, str) or not value.strip():
-        return "Not configured"
-    return Path(value).name
 
 
 def _boolean(value: Any, *, default: bool) -> bool:

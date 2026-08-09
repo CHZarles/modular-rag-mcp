@@ -307,7 +307,7 @@ def test_overview_aggregates_components_collections_and_stats(tmp_path: Path) ->
     assert response.status_code == 200
     payload = response.json()
     codes = [component["code"] for component in payload["components"]]
-    assert codes == ["GEN", "EMB", "SPLIT", "RET", "RANK", "STORE", "EVAL"]
+    assert codes == ["GEN", "EMB", "SPLIT", "RET", "RANK", "STORE"]
     assert {entry["name"] for entry in payload["collections"]} >= {"default"}
     assert payload["stats"]["document_count"] == 1
 

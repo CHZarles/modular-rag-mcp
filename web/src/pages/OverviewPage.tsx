@@ -3,7 +3,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  CircleDot,
   Database,
   FileText,
   Gauge,
@@ -30,7 +29,6 @@ const componentIcons: Record<string, typeof Sparkles> = {
   RET: Search,
   RANK: Gauge,
   STORE: Database,
-  EVAL: CircleDot,
 }
 
 const componentColors: Record<string, string> = {
@@ -40,7 +38,6 @@ const componentColors: Record<string, string> = {
   RET: 'cyan',
   RANK: 'amber',
   STORE: 'emerald',
-  EVAL: 'rose',
 }
 
 export function OverviewPage() {

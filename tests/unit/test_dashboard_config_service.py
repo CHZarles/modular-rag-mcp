@@ -20,7 +20,6 @@ def test_component_summaries_are_complete_and_do_not_expose_secrets() -> None:
         "RET",
         "RANK",
         "STORE",
-        "EVAL",
     ]
     assert summaries[0].provider == "openai"
     assert summaries[0].model == "gpt-4o-mini"
