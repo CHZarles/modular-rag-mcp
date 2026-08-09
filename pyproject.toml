@@ -73,12 +73,4 @@ module = [
 follow_imports = "skip"
 
 [tool.hatch.build.targets.wheel]
-packages = [
-    "src/application",
-    "src/core",
-    "src/ingestion",
-    "src/libs",
-    "src/mcp_server",
-    "src/observability",
-    "src/ports",
-]
+packages = ["src"]
