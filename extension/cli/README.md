@@ -4,12 +4,14 @@
 
 ## 目标
 
-后续 CLI 作为本地 MCP 服务的运维入口，负责群晖 PDF 导入和导入后检索。这里的“专属桶”对应现有的 `collection`：它限定检索范围，但不构成用户认证、权限控制或租户隔离。
+后续 CLI 的主要调用方是 Agent，不是人工导航界面。它作为本地 MCP 服务的运维入口，负责群晖 PDF 导入和导入后检索。这里的“专属桶”对应现有的 `collection`：它限定检索范围，但不构成用户认证、权限控制或租户隔离。
+
+每个命令应使用稳定的子命令和参数，在 stdout 输出单个 JSON 结果，在 stderr 输出诊断信息，并用退出码区分参数错误、同步失败和摄取失败。对数据有副作用的命令必须提供 `--dry-run`。
 
 ## 群晖导入
 
 - 复用 [`scripts/import_synology.py`](../../scripts/import_synology.py) 的 SSH/rsync 同步和摄取链路，不重复实现同步或 PDF 摄取。
-- CLI 交互式读取群晖地址、SSH 端口、远程目录、用户名和密码；密码只通过终端输入传给 SSH，不写入命令行、配置、日志或 Trace。
+- Agent 负责向用户收集群晖地址、SSH 端口、远程目录和用户名。密码必须经附着终端的无回显输入传给 SSH；不得出现在命令行、环境变量、配置、stdout、日志或 Trace。
 - 用户选择一个合法的 `collection` 名称。导入成功后，该 Collection 中的文档由现有 MCP `list_collections` 和 `query_knowledge_hub` 读取。
 - 需要在导入前显式显示目标 Collection、远程目录和同步范围；失败时保留现有索引，不把部分同步结果标为成功。
 

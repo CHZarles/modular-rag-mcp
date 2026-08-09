@@ -158,7 +158,7 @@ uv build --wheel
 src/                 Core、摄取、Provider 适配器、MCP Server 与 Dashboard API
 web/                 React Dashboard
 scripts/             摄取、查询、评测、数据准备与本地启动入口
-extension/cli/       规划中的 MCP 运维 CLI 与群晖导入边界
+extension/cli/       规划中的 Agent 调用 CLI 与群晖导入边界
 config/settings.yaml 默认运行配置
 data/                公开回归集和本地运行数据目录
 tests/               Unit、Integration 与 E2E 测试
