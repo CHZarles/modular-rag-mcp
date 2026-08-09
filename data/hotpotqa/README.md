@@ -37,10 +37,11 @@ then run:
 Selection sorts examples by the SHA-256 digest of `_id`, then takes the first
 120, so rebuilding from the same source reproduces the committed JSONL files.
 
-## Untuned MiniMax Baseline
+## Baseline And Current Result
 
-Run on 2026-08-09 with `minimax/embo-01`, the production splitter
-(`chunk_size=1000`, `chunk_overlap=200`), and the formal `HybridQueryEngine`:
+The untouched MiniMax baseline, run with `minimax/embo-01`, the production
+splitter (`chunk_size=1000`, `chunk_overlap=200`), and the formal
+`HybridQueryEngine`, was:
 
 | Strategy | Hit@5 | MRR@5 |
 | --- | ---: | ---: |
@@ -48,6 +49,16 @@ Run on 2026-08-09 with `minimax/embo-01`, the production splitter
 | Dense | 0.2750 | 0.1800 |
 | Hybrid | 0.7250 | 0.4508 |
 
-BM25 remains the selected production route. Its Hit@5 clears the 0.90 gate,
-but its MRR@5 does not clear the unchanged 0.80 gate. The independent image
-check returned 2/3 original image payloads, meeting its 2/3 gate.
+After `metadata.title` was included in the unchanged BM25 document text, the
+same benchmark returned:
+
+| Strategy | Hit@5 | MRR@5 |
+| --- | ---: | ---: |
+| BM25 | 0.9417 | 0.8326 |
+| Dense | 0.2750 | 0.1800 |
+| Hybrid | 0.8083 | 0.4878 |
+
+The image check returned 3/3 original image payloads. BM25 remains the
+selected production route because it is the only configured route that clears
+the `Hit@5 >= 0.90`, `MRR@5 >= 0.80`, and image coverage gates. The complete
+record is in [docs/records/2026-08-09-title-aware-bm25.md](../../docs/records/2026-08-09-title-aware-bm25.md).
