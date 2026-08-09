@@ -2,23 +2,20 @@ import {
   Activity,
   Check,
   ChevronDown,
-  ChevronRight,
   Database,
   FileText,
   Gauge,
   Image,
   Layers3,
   Pencil,
-  Plus,
   Search,
   Settings2,
   Sparkles,
 } from 'lucide-react'
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { getErrorMessage, formatNumber, titleCase } from '../lib/format'
 import type { ComponentSummary, JsonValue, Overview } from '../lib/types'
-import { summarizeRuntime } from '../lib/view-model'
 import { PageHeader, SectionHeading } from '../layouts/AppShell'
 import { Badge, Button, ErrorState, IconButton, LoadingState, Modal, Toggle, useToast } from '../components/ui'
 
@@ -44,8 +41,6 @@ export function OverviewPage() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  const [collectionName, setCollectionName] = useState('')
-  const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<ComponentSummary | null>(null)
   const { showToast } = useToast()
 
@@ -56,22 +51,6 @@ export function OverviewPage() {
   }
 
   useEffect(() => { loadOverview() }, [])
-
-  const createCollection = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!collectionName.trim()) return
-    setCreating(true)
-    try {
-      await api.createCollection(collectionName.trim())
-      setCollectionName('')
-      showToast('已创建 Collection', 'success')
-      loadOverview()
-    } catch (reason) {
-      showToast(getErrorMessage(reason), 'error')
-    } finally {
-      setCreating(false)
-    }
-  }
 
   const toggleComponent = async (component: ComponentSummary, enabled: boolean) => {
     try {
@@ -87,23 +66,15 @@ export function OverviewPage() {
   if (error && !overview) return <><PageHeader eyebrow="指挥中心" title="总览" /><ErrorState message={error} onRetry={loadOverview} /></>
   if (!overview) return null
 
-  const runtime = summarizeRuntime(overview.components, overview.collections)
-  const componentRate = runtime.totalComponents ? (runtime.enabledComponents / runtime.totalComponents) * 100 : 0
-  const collectionRate = runtime.totalCollections ? (runtime.indexedCollections / runtime.totalCollections) * 100 : 0
   return <div className="page-stack">
-    <section><SectionHeading eyebrow="资产" title="知识资产" description="展示当前工作区内已建索引的全部数据。" /><div className="metric-grid"><MetricCard icon={<FileText size={18} />} label="文档" value={overview.stats.document_count} detail="已建索引的源文件" tone="indigo" /><MetricCard icon={<Layers3 size={18} />} label="Chunk" value={overview.stats.chunk_count} detail="可用于检索的单元" tone="cyan" /><MetricCard icon={<Image size={18} />} label="图片" value={overview.stats.image_count} detail="多模态资产数量" tone="violet" /><MetricCard icon={<Database size={18} />} label="Collection" value={overview.collections.length} detail={`当前已建索引 ${runtime.indexedCollections} 个`} tone="emerald" /></div></section>
-    <section className="grid-two"><div className="card collection-card"><SectionHeading eyebrow="知识资产" title="Collection 管理" description="在入库前为新数据创建独立的命名空间。" /><form className="collection-form" onSubmit={createCollection}><div className="input-with-icon"><Plus size={17} /><input value={collectionName} onChange={(event) => setCollectionName(event.target.value)} placeholder="例如 product-docs" aria-label="新建 Collection 名称" /></div><Button type="submit" disabled={creating || !collectionName.trim()}>{creating ? '创建中…' : '创建 Collection'}</Button></form><div className="collection-list">{overview.collections.map((collection) => <div className="collection-row" key={collection.name}><div className="collection-name"><span className={`collection-mark ${collection.indexed ? 'collection-mark-indexed' : ''}`}><Database size={14} /></span><strong>{collection.name}</strong></div><Badge tone={collection.indexed ? 'success' : 'neutral'}>{collection.indexed ? '已建索引' : '空'}</Badge></div>)}</div></div><div className="card runtime-card"><SectionHeading eyebrow="运行时" title="流水线状态" description="状态由当前 Dashboard API 响应计算。" /><div className="runtime-summary"><div className="runtime-score"><strong>{runtime.enabledComponents}</strong><span>/ {runtime.totalComponents} 个组件已启用</span></div><div className="runtime-bars"><div><span>组件启用率</span><ProgressLine value={componentRate} color="indigo" /></div><div><span>Collection 索引率</span><ProgressLine value={collectionRate} color="cyan" /></div></div></div><div className="runtime-foot"><span><span className="health-dot health-connected" /> Dashboard API 响应正常</span><span>本次请求</span></div></div></section>
-    <section><SectionHeading eyebrow="流水线组件" title="运行时配置" description="按需配置各组件 Provider，或开关可选的生成与重排阶段。" /><div className="component-grid">{overview.components.map((component) => <ComponentCard component={component} key={component.code} onEdit={() => setEditing(component)} onToggle={(enabled) => toggleComponent(component, enabled)} />)}</div></section>
+    <section><SectionHeading eyebrow="资产" title="知识资产" /><div className="metric-grid"><MetricCard icon={<FileText size={18} />} label="文档" value={overview.stats.document_count} detail="已建索引的源文件" tone="indigo" /><MetricCard icon={<Layers3 size={18} />} label="Chunk" value={overview.stats.chunk_count} detail="可用于检索的单元" tone="cyan" /><MetricCard icon={<Image size={18} />} label="图片" value={overview.stats.image_count} detail="多模态资产数量" tone="violet" /></div></section>
+    <section><SectionHeading eyebrow="流水线组件" title="运行时配置" /><div className="component-grid">{overview.components.map((component) => <ComponentCard component={component} key={component.code} onEdit={() => setEditing(component)} onToggle={(enabled) => toggleComponent(component, enabled)} />)}</div></section>
     <ConfigModal component={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); loadOverview() }} />
   </div>
 }
 
 function MetricCard({ icon, label, value, detail, tone }: { icon: ReactNode; label: string; value: number; detail: string; tone: string }) {
   return <div className="metric-card"><div className={`metric-icon metric-icon-${tone}`}>{icon}</div><div className="metric-copy"><span>{label}</span><strong>{formatNumber(value)}</strong><small>{detail}</small></div></div>
-}
-
-function ProgressLine({ value, color }: { value: number; color: string }) {
-  return <div className="mini-progress"><span className={`mini-progress-fill fill-${color}`} style={{ width: `${value}%` }} /></div>
 }
 
 function ComponentCard({ component, onEdit, onToggle }: { component: ComponentSummary; onEdit: () => void; onToggle: (enabled: boolean) => void }) {
@@ -115,7 +86,7 @@ function ComponentCard({ component, onEdit, onToggle }: { component: ComponentSu
     await onToggle(enabled)
     setBusy(false)
   }
-  return <article className={`component-card component-card-${componentColors[component.code] ?? 'indigo'} ${!component.enabled ? 'component-disabled' : ''}`}><div className="component-card-top"><div className="component-title"><div className="component-icon"><Icon size={18} /></div><div><span className="component-code">{component.code}</span><h3>{component.label}</h3></div></div><IconButton onClick={onEdit} aria-label={`编辑 ${component.label}`}><Pencil size={16} /></IconButton></div><div className="component-provider"><span className="provider-label">Provider</span><strong>{component.provider}</strong>{component.model ? <span className="provider-model">{component.model}</span> : null}</div>{component.details.length ? <div className="component-details">{component.details.map((detail) => <div key={detail.label}><span>{detail.label}</span><strong>{detail.value}</strong></div>)}</div> : <div className="component-details component-details-empty"><span>配置已就绪</span></div>}<div className="component-card-footer">{canToggle ? <div className="toggle-control"><Toggle checked={component.enabled} onChange={handleToggle} label={`切换 ${component.label}`} /><span>{busy ? '更新中…' : component.enabled ? '已启用' : '已停用'}</span></div> : <Badge tone={component.enabled ? 'success' : 'neutral'}>{component.enabled ? '运行中' : '待启用'}</Badge>}<span className="component-edit-hint">编辑配置 <ChevronRight size={14} /></span></div></article>
+  return <article className={`component-card component-card-${componentColors[component.code] ?? 'indigo'} ${!component.enabled ? 'component-disabled' : ''}`}><div className="component-card-top"><div className="component-title"><div className="component-icon"><Icon size={18} /></div><div><span className="component-code">{component.code}</span><h3>{component.label}</h3></div></div><IconButton onClick={onEdit} aria-label={`编辑 ${component.label}`}><Pencil size={16} /></IconButton></div><div className="component-provider"><strong>{component.provider}</strong>{component.model ? <span className="provider-model">{component.model}</span> : null}</div>{component.details.length ? <div className="component-details">{component.details.map((detail) => <div key={detail.label}><span>{detail.label}</span><strong>{detail.value}</strong></div>)}</div> : null}<div className="component-card-footer">{canToggle ? <div className="toggle-control"><Toggle checked={component.enabled} onChange={handleToggle} label={`切换 ${component.label}`} /><span>{busy ? '更新中…' : component.enabled ? '已启用' : '已停用'}</span></div> : <Badge tone={component.enabled ? 'success' : 'neutral'}>{component.enabled ? '运行中' : '待启用'}</Badge>}</div></article>
 }
 
 function ConfigModal({ component, onClose, onSaved }: { component: ComponentSummary | null; onClose: () => void; onSaved: () => void }) {
@@ -169,7 +140,7 @@ function ConfigModal({ component, onClose, onSaved }: { component: ComponentSumm
     if (providerOptions.includes(value)) return value
     return providerOptions[0] ?? value
   }
-  return <Modal open={Boolean(component)} onClose={onClose} title={`配置 ${component?.label ?? '组件'}`} eyebrow={`${component?.code ?? ''} · 运行时 Provider`}><form className="config-form" onSubmit={save}>{loading ? <LoadingState label="正在读取生效配置" /> : <>{<div className="config-intro"><div className="config-intro-icon"><Settings2 size={20} /></div><p>配置将保存为本地覆盖；Dashboard 后续任务会读取新配置，独立运行的 MCP Server 需重启。密钥保存后不再明文展示。</p></div>}<div className="form-grid">{keys.map((key) => <Field key={key} name={key} value={ensureKnownProvider(key, values[key])} options={isProviderKey(key) ? providerOptions : undefined} onChange={(value) => setValues((current) => ({ ...current, [key]: value }))} />)}</div>{(component?.code === 'GEN' || component?.code === 'EMB') ? <label className="field"><span>API 密钥 <small>选填 · 留空表示保留当前密钥</small></span><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="请输入新的 API 密钥" autoComplete="new-password" /></label> : null}<div className="modal-actions"><Button type="button" className="button-secondary" onClick={onClose}>取消</Button><Button type="submit" disabled={saving}>{saving ? '保存中…' : <><Check size={16} /> 保存修改</>}</Button></div></>}</form></Modal>
+  return <Modal open={Boolean(component)} onClose={onClose} title={`配置 ${component?.label ?? '组件'}`} eyebrow={`${component?.code ?? ''} · 运行时 Provider`}><form className="config-form" onSubmit={save}>{loading ? <LoadingState label="正在读取生效配置" /> : <><div className="form-grid">{keys.map((key) => <Field key={key} name={key} value={ensureKnownProvider(key, values[key])} options={isProviderKey(key) ? providerOptions : undefined} onChange={(value) => setValues((current) => ({ ...current, [key]: value }))} />)}</div>{(component?.code === 'GEN' || component?.code === 'EMB') ? <label className="field"><span>API 密钥 <small>选填 · 留空表示保留当前密钥</small></span><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="请输入新的 API 密钥" autoComplete="new-password" /></label> : null}<div className="modal-actions"><Button type="button" className="button-secondary" onClick={onClose}>取消</Button><Button type="submit" disabled={saving}>{saving ? '保存中…' : <><Check size={16} /> 保存修改</>}</Button></div></>}</form></Modal>
 }
 
 function Field({ name, value, onChange, options }: { name: string; value: JsonValue; onChange: (value: JsonValue) => void; options?: string[] }) {

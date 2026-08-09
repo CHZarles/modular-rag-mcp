@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   CircleAlert,
   Database,
-  FlaskConical,
   Image,
   Play,
   RefreshCw,
@@ -93,10 +92,10 @@ export function EvaluationPage() {
   if (!summary) return null
 
   return <div className="page-stack">
-    <PageHeader eyebrow="质量实验室" title="评估" description="使用固定 HotpotQA Benchmark 对当前检索配置进行可复现对比。" actions={<Button className="button-secondary" onClick={loadBenchmark}><RefreshCw size={16} /> 刷新状态</Button>} />
+    <PageHeader eyebrow="质量实验室" title="评估" actions={<Button className="button-secondary" onClick={loadBenchmark}><RefreshCw size={16} /> 刷新状态</Button>} />
     <section className="evaluation-layout">
-      <div className="card evaluation-config"><SectionHeading eyebrow="运行配置" title="HotpotQA Retrieval Benchmark" /><div className="benchmark-facts"><div><span>查询</span><strong>{summary.query_count}</strong></div><div><span>语料段落</span><strong>{summary.corpus_count}</strong></div><div><span>数据状态</span><Badge tone={summary.available ? 'success' : 'danger'}>{summary.available ? '可运行' : '缺失'}</Badge></div></div><BenchmarkRunStatus job={job} pollError={pollError} observedAt={observedAt} /><div className="evaluation-form"><div className="switch-field"><div><strong>图片召回用例</strong><span>同时执行 3 条原图返回检查。</span></div><Toggle checked={includeImages} onChange={setIncludeImages} label="包含图片召回用例" /></div><div className="evaluation-note"><FlaskConical size={18} /><div><strong>当前保存配置</strong><span>Benchmark 使用本地覆盖配置和独立临时索引，并调用已配置的 Embedding Provider。</span></div></div><Button className="run-button" onClick={run} disabled={submitting || job?.active || !summary.available}>{submitting || job?.active ? <><RefreshCw className="spin" size={17} /> Benchmark 运行中</> : <><Play size={17} fill="currentColor" /> 运行 Benchmark</>}</Button></div></div>
-      <div className="card evaluation-side"><SectionHeading eyebrow="评测范围" title="固定实验条件" /><div className="quality-signal"><div className="quality-signal-icon quality-indigo"><Database size={17} /></div><div><strong>隔离索引</strong><span>不读写 Dashboard 业务 Collection。</span></div></div><div className="quality-signal"><div className="quality-signal-icon quality-cyan"><Target size={17} /></div><div><strong>统一截断</strong><span>BM25、Dense、Hybrid 均计算 Hit@5 与 MRR@5。</span></div></div><div className="quality-signal"><div className="quality-signal-icon quality-violet"><Image size={17} /></div><div><strong>原图检查</strong><span>验证命中 Chunk 的关联图片能够返回。</span></div></div></div>
+      <div className="card evaluation-config"><SectionHeading eyebrow="运行配置" title="HotpotQA Retrieval Benchmark" /><div className="benchmark-facts"><div><span>查询</span><strong>{summary.query_count}</strong></div><div><span>语料段落</span><strong>{summary.corpus_count}</strong></div><div><span>数据状态</span><Badge tone={summary.available ? 'success' : 'danger'}>{summary.available ? '可运行' : '缺失'}</Badge></div></div><BenchmarkRunStatus job={job} pollError={pollError} observedAt={observedAt} /><div className="evaluation-form"><div className="switch-field"><div><strong>图片召回用例</strong><span>同时执行 3 条原图返回检查。</span></div><Toggle checked={includeImages} onChange={setIncludeImages} label="包含图片召回用例" /></div><Button className="run-button" onClick={run} disabled={submitting || job?.active || !summary.available}>{submitting || job?.active ? <><RefreshCw className="spin" size={17} /> Benchmark 运行中</> : <><Play size={17} fill="currentColor" /> 运行 Benchmark</>}</Button></div></div>
+      <div className="card evaluation-side"><SectionHeading eyebrow="评测范围" title="固定实验条件" /><div className="quality-signal"><div className="quality-signal-icon quality-indigo"><Database size={17} /></div><div><strong>隔离索引</strong></div></div><div className="quality-signal"><div className="quality-signal-icon quality-cyan"><Target size={17} /></div><div><strong>Hit@5 / MRR@5</strong></div></div><div className="quality-signal"><div className="quality-signal-icon quality-violet"><Image size={17} /></div><div><strong>图片检查</strong></div></div></div>
     </section>
     <BenchmarkResults report={report} />
   </div>

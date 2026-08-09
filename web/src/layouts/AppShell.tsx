@@ -3,7 +3,6 @@ import {
   BarChart3,
   BookOpen,
   Boxes,
-  ChevronRight,
   FileSearch,
   GitBranch,
   Layers3,
@@ -29,22 +28,6 @@ const navigation = [
   { to: '/evaluation', label: '评估', icon: Zap },
 ]
 
-const pageNames: Record<string, string> = {
-  '/': '总览',
-  '/data-browser': '数据浏览',
-  '/query': '知识检索',
-  '/ingestion': '入库管理',
-  '/traces/ingestion': '入库追踪',
-  '/traces/query': '查询追踪',
-  '/evaluation': '评估',
-}
-
-const healthLabels: Record<'connected' | 'offline' | 'checking', string> = {
-  connected: 'API 已连接',
-  offline: 'API 不可用',
-  checking: '正在检查 API',
-}
-
 const liveStatusLabels: Record<'connected' | 'offline' | 'checking', string> = {
   connected: '运行中',
   offline: '已离线',
@@ -55,8 +38,6 @@ export function AppShell({ path, onNavigate, children }: { path: string; onNavig
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [health, setHealth] = useState<'connected' | 'offline' | 'checking'>('checking')
-  const pageName = pageNames[path] ?? '工作区'
-
   const navigate = (event: MouseEvent<HTMLAnchorElement>, nextPath: string) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
@@ -87,12 +68,11 @@ export function AppShell({ path, onNavigate, children }: { path: string; onNavig
   return <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
     <aside className={`sidebar ${mobileOpen ? 'sidebar-mobile-open' : ''}`}>
       <div className="brand"><div className="brand-mark"><Layers3 size={21} /></div><div className="brand-copy"><strong>Ragflow</strong><span>运维控制台</span></div><IconButton className="mobile-close" onClick={() => setMobileOpen(false)} aria-label="关闭导航"><X size={18} /></IconButton></div>
-      <div className="nav-label">工作区</div>
-       <nav className="main-nav">{navigation.map(({ to, label, icon: Icon }) => <a key={to} href={to} onClick={(event) => navigate(event, to)} className={`nav-item ${path === to ? 'nav-item-active' : ''}`}><Icon size={18} /><span>{label}</span></a>)}</nav>
-      <div className="sidebar-bottom"><div className="nav-label">系统</div><div className="system-health"><span className={`health-dot health-${health}`} /><span>{healthLabels[health]}</span></div><button className="collapse-button" onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}<span>{collapsed ? '展开' : '折叠'}侧边栏</span></button></div>
+      <nav className="main-nav">{navigation.map(({ to, label, icon: Icon }) => <a key={to} href={to} onClick={(event) => navigate(event, to)} className={`nav-item ${path === to ? 'nav-item-active' : ''}`}><Icon size={18} /><span>{label}</span></a>)}</nav>
+      <div className="sidebar-bottom"><button className="collapse-button" onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}<span>{collapsed ? '展开' : '折叠'}侧边栏</span></button></div>
     </aside>
     {mobileOpen ? <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} aria-label="关闭导航" /> : null}
-     <div className="main-area"><header className="topbar"><div className="topbar-left"><IconButton className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="打开导航"><Menu size={20} /></IconButton><div className="breadcrumb"><span>工作区</span><ChevronRight size={14} /><strong>{pageName}</strong></div></div><div className="topbar-actions"><div className="live-status"><span className={`health-dot health-${health}`} />{liveStatusLabels[health]}</div></div></header><main className="page-content">{children}</main></div>
+     <div className="main-area"><header className="topbar"><IconButton className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="打开导航"><Menu size={20} /></IconButton><div className="topbar-actions"><div className="live-status"><span className={`health-dot health-${health}`} />{liveStatusLabels[health]}</div></div></header><main className="page-content">{children}</main></div>
   </div>
 }
 
