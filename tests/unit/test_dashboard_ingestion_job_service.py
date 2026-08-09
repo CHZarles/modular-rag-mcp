@@ -88,6 +88,38 @@ def test_job_service_records_unhandled_worker_failure() -> None:
         jobs.shutdown()
 
 
+def test_job_service_bounds_terminal_history() -> None:
+    class ImmediateIngestion:
+        def ingest(
+            self, request: IngestionRequest, on_progress: Any = None, trace: Any = None
+        ) -> IngestionResult:
+            return IngestionResult(
+                source_path=request.source_path,
+                collection=request.collection,
+                status="success",
+                file_hash="hash",
+            )
+
+    jobs = IngestionJobService(history_limit=1)
+    try:
+        first = jobs.submit(
+            ImmediateIngestion(),  # type: ignore[arg-type]
+            IngestionRequest(source_path="/tmp/first.pdf"),
+        )
+        _wait_for(jobs, first.job_id, "success")
+        second = jobs.submit(
+            ImmediateIngestion(),  # type: ignore[arg-type]
+            IngestionRequest(source_path="/tmp/second.pdf"),
+        )
+        _wait_for(jobs, second.job_id, "success")
+
+        with pytest.raises(KeyError, match="ingestion job not found"):
+            jobs.get(first.job_id)
+        assert jobs.get(second.job_id).status == "success"
+    finally:
+        jobs.shutdown()
+
+
 def _wait_for(
     jobs: IngestionJobService,
     job_id: str,

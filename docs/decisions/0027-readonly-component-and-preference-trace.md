@@ -1,6 +1,6 @@
 # ADR 0027: Production Read-Only Component, Compact Payload, and SQLite Trace Store
 
-> **状态**：当前采用（承接 docs/plans/0001-production-readonly-rag-component.md）
+> **状态**：部分被 ADR 0028 承接；查询与可观测性决策继续采用，MCP 只读边界已变更
 > **日期**：2026-08-06
 
 ## Context

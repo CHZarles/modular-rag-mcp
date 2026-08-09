@@ -23,14 +23,18 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.application.services import IngestionService
+from src.application.ingestion_jobs import DocumentBusyError, IngestionQueueFullError
+from src.application.upload_ingestion import (
+    MAX_UPLOAD_BYTES,
+    UploadIngestionCoordinator,
+    UploadRejectedError,
+)
 from src.core.services import build_knowledge_service
 from src.core.services.knowledge_service import KnowledgeService
 from src.core.settings import Settings
 from src.core.trace import SQLiteTraceStore  # noqa: E402  (plan §C2.4)
 from src.core.types import (
     EvaluationReport,
-    IngestionRequest,
     JsonDict,
 )
 from src.ingestion import build_ingestion_pipeline
@@ -41,8 +45,6 @@ from src.mcp_server.tools import QueryKnowledgeHubTool, ToolArgumentError, ToolE
 from src.observability.dashboard._ingestion_helpers import (
     collection_options,
     dashboard_ai_enrichment_default,
-    settings_for_ingestion_profile,
-    store_uploaded_pdf,
 )
 from src.observability.dashboard.services import (
     ConfigService,
@@ -77,6 +79,7 @@ class AppContext:
     ingestion_jobs: IngestionJobService
     ingestion_factory: Any
     upload_root: Path | None
+    upload_coordinator: UploadIngestionCoordinator | None
     trace_collector: Any
 
 
@@ -167,6 +170,19 @@ def _build_context(
     trace_collector = overrides.get("trace_collector")
     if trace_collector is None and "trace_collector" not in overrides:
         trace_collector = create_ingestion_trace_collector(settings)
+    upload_coordinator = overrides.get("upload_coordinator")
+    if upload_coordinator is None and "upload_coordinator" not in overrides:
+        upload_coordinator = (
+            UploadIngestionCoordinator(
+                settings,
+                upload_root,
+                ingestion_factory,
+                jobs=ingestion_jobs,
+                collector=trace_collector,
+            )
+            if upload_root is not None
+            else None
+        )
     return AppContext(
         settings_path=resolved,
         config_service=config_service,
@@ -180,6 +196,7 @@ def _build_context(
         ingestion_jobs=ingestion_jobs,
         ingestion_factory=ingestion_factory,
         upload_root=upload_root,
+        upload_coordinator=upload_coordinator,
         trace_collector=trace_collector,
     )
 
@@ -640,7 +657,7 @@ async def _submit_ingestion(  # type: ignore[no-untyped-def]
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="collection must not be empty",
         )
-    if current.upload_root is None:
+    if current.upload_coordinator is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ingestion.storage.upload_root is not configured",
@@ -650,49 +667,34 @@ async def _submit_ingestion(  # type: ignore[no-untyped-def]
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="uploaded file is required",
         )
-    filename = Path(file.filename).name
-    if Path(filename).suffix.lower() != ".pdf":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="only PDF uploads are accepted",
-        )
-    content = await file.read()
-    if not content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="uploaded PDF must not be empty",
-        )
-
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
     try:
-        source_path = store_uploaded_pdf(_SpooledUpload(filename, content), current.upload_root)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-
-    profile_settings = settings_for_ingestion_profile(current.settings, ai_enrichment=ai_enrichment)
-    ingestion: IngestionService = current.ingestion_factory(profile_settings)  # type: ignore[assignment]
-    try:
-        job = current.ingestion_jobs.submit(
-            ingestion,
-            IngestionRequest(
-                source_path=str(source_path),
-                collection=cleaned_collection,
-                force=force,
-            ),
-            current.trace_collector,
+        job = current.upload_coordinator.submit(
+            filename=file.filename,
+            content=content,
+            collection=cleaned_collection,
+            force=force,
+            ai_enrichment=ai_enrichment,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except UploadRejectedError as exc:
+        http_status = (
+            status.HTTP_409_CONFLICT
+            if exc.code == "document_busy"
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=http_status, detail=exc.code) from exc
+    except DocumentBusyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="document_busy",
+        ) from exc
+    except IngestionQueueFullError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="ingestion_queue_full",
+        ) from exc
 
     return _job_payload(job)
-
-
-class _SpooledUpload:
-    def __init__(self, name: str, content: bytes) -> None:
-        self.name = name
-        self.content = content
-
-    def getvalue(self) -> bytes:
-        return self.content
 
 
 def _component_summary(summary: Any) -> ComponentSummaryPayload:

@@ -16,7 +16,7 @@
 | 摄取 | PDF -> Markdown -> Chunk -> 索引；支持 MinerU 标准 API 和 MarkItDown 解析器 |
 | 检索 | BM25、Dense 与 RRF Hybrid；默认配置为 BM25-only |
 | 多模态 | 摄取时可为图片生成描述；检索命中图片 Chunk 时返回原始图片内容 |
-| MCP | stdio 与 Streamable HTTP；提供查询、Collection 列表和文档摘要工具 |
+| MCP | stdio 与 Streamable HTTP；提供查询、Collection、文档摘要、PDF 上传和摄取任务查询工具 |
 | 可观测性 | Query 与 Ingestion Trace 持久化到 SQLite，Dashboard 展示阶段输入、耗时和分数 |
 | 评测 | PostgreSQL 回归集与 HotpotQA 检索基准；指标为 Hit@5、MRR@5 和图片召回检查 |
 | 运维控制台 | React + FastAPI 私有维护界面，用于配置、摄取、检索调试、Trace 和 Benchmark |
@@ -28,6 +28,8 @@
 | `query_knowledge_hub` | `query`、`top_k`、`collection` | 候选文本、来源、页码、分数、阶段分数和图片内容 |
 | `list_collections` | 无 | 可查询的 Collection |
 | `get_document_summary` | `doc_id` | 文档标题、摘要、标签和来源信息 |
+| `upload_document` | `filename`、`content_base64`、`collection`、`force`、`ai_enrichment` | 已排队的摄取任务 |
+| `get_ingestion_job` | `job_id` | 任务状态、阶段进度和摄取结果 |
 
 Streamable HTTP 默认监听 `127.0.0.1:8766`，MCP 路径为 `/mcp`。`/health/live` 不加载索引或模型，`/health/ready` 检查配置、知识存储和 Trace 存储。
 
@@ -92,6 +94,22 @@ curl http://127.0.0.1:8766/health/ready
 ```
 
 MCP 客户端应将 `modular-rag-mcp` 的绝对路径设为 `command`，并在子进程环境中传入 `RAG_SETTINGS_PATH` 和所需凭据。stdio 的 stdout 只承载 JSON-RPC 消息。
+
+### Agent CLI
+
+`modular-rag-cli` 是对 HTTP MCP Tool 的命令行适配，不重复实现检索或摄取：
+
+```bash
+modular-rag-cli collections
+modular-rag-cli query '要检索的问题' --collection default --top-k 5
+modular-rag-cli document <doc_id>
+modular-rag-cli upload ./document.pdf --collection default
+modular-rag-cli job <job_id>
+```
+
+它默认连接 `http://127.0.0.1:8766/mcp`；`RAG_MCP_URL` 或 `--url` 可指定其他端点。stdout 只输出单个 `structuredContent` JSON，适合 Agent 直接消费；请求诊断写入 stderr。完整命令契约见 [extension/cli/README.md](extension/cli/README.md)。
+
+PDF 上传限制为 50 MiB。服务可以并发接收不同文件，但通过容量为 8 的有界队列和单 worker 串行执行摄取，避免并行写入多个索引。同一稳定文件正在处理时返回 `document_busy`；独立暂存、原子发布、文件锁以及 Pipeline 的 claim、lease 和 generation fence 共同防止同名上传串写或过期 worker 发布结果。
 
 ### 启动 Dashboard
 
@@ -158,7 +176,7 @@ uv build --wheel
 src/                 Core、摄取、Provider 适配器、MCP Server 与 Dashboard API
 web/                 React Dashboard
 scripts/             摄取、查询、评测、数据准备与本地启动入口
-extension/cli/       规划中的 Agent 调用 CLI 与群晖导入边界
+extension/cli/       Agent 调用的 HTTP MCP CLI
 config/settings.yaml 默认运行配置
 data/                公开回归集和本地运行数据目录
 tests/               Unit、Integration 与 E2E 测试
@@ -172,6 +190,7 @@ docs/                架构决策、评测记录和实施计划
 - [检索评测记录](docs/records/2026-08-09-title-aware-bm25.md)
 - [运行边界 ADR](docs/decisions/0027-readonly-component-and-preference-trace.md)
 - [接口与数据边界 ADR](docs/decisions/0009-query-knowledge-hub-mcp-boundary.md)
+- [MCP 上传与并发边界 ADR](docs/decisions/0028-mcp-upload-concurrency.md)
 
 ## 许可证
 

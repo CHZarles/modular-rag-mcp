@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from core.settings import Settings
@@ -687,6 +688,53 @@ def test_ingestion_job_rejects_empty_pdf(tmp_path: Path) -> None:
         data={"collection": "notes", "ai_enrichment": "false"},
     )
     assert response.status_code == 400
+
+
+def test_dashboard_rejects_same_file_while_ingestion_is_active(tmp_path: Path) -> None:
+    class BlockingIngestion(_NoopIngestion):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = Event()
+            self.release = Event()
+
+        def ingest(
+            self, request: IngestionRequest, on_progress=None, trace=None
+        ) -> IngestionResult:
+            self.started.set()
+            if not self.release.wait(timeout=3):
+                raise TimeoutError("test worker was not released")
+            return super().ingest(request, on_progress=on_progress, trace=trace)
+
+    ingestion = BlockingIngestion()
+    jobs = IngestionJobService(max_workers=1)
+    app = _make_app(
+        tmp_path,
+        ingestion_jobs=jobs,
+        ingestion_factory=lambda _settings: ingestion,
+    )
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    try:
+        first = client.post(
+            "/api/ingestion/jobs",
+            files={"file": ("guide.pdf", b"%PDF-1.4\nfirst", "application/pdf")},
+            data={"collection": "notes", "ai_enrichment": "false"},
+        )
+        assert first.status_code == 202
+        assert ingestion.started.wait(timeout=1)
+
+        second = client.post(
+            "/api/ingestion/jobs",
+            files={"file": ("guide.pdf", b"%PDF-1.4\nsecond", "application/pdf")},
+            data={"collection": "notes", "ai_enrichment": "false"},
+        )
+        assert second.status_code == 409
+        assert second.json()["detail"] == "document_busy"
+        assert (tmp_path / "uploads" / "guide.pdf").read_bytes() == b"%PDF-1.4\nfirst"
+    finally:
+        ingestion.release.set()
+        jobs.shutdown()
 
 
 def test_get_ingestion_job_returns_not_found(tmp_path: Path) -> None:

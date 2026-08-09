@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
     "chromadb>=0.5,<2.0",
     "fastapi>=0.110,<1.0",
+    "httpx2>=2.5,<3.0",
     "langchain-text-splitters>=0.3,<2.0",
     "markitdown[pdf]>=0.1,<1.0",
     "mcp>=2.0,<3.0",
@@ -26,6 +27,7 @@ dependencies = [
 [project.scripts]
 modular-rag-mcp = "src.mcp_server.server:main"
 modular-rag-mcp-http = "src.mcp_server.http_server:main"
+modular-rag-cli = "extension.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -73,4 +75,4 @@ module = [
 follow_imports = "skip"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src", "extension"]

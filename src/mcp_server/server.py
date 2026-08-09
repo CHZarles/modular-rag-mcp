@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 
 from mcp import types
 from mcp.server.context import ServerRequestContext
@@ -16,9 +17,11 @@ from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 from mcp.shared.exceptions import MCPError
 
+from src.application.upload_ingestion import UploadIngestionCoordinator
 from src.core.services.knowledge_service import KnowledgeService
 from src.mcp_server.protocol_handler import ProtocolHandler
 from src.mcp_server.tools.get_document_summary import GetDocumentSummaryTool
+from src.mcp_server.tools.ingestion_jobs import GetIngestionJobTool, UploadDocumentTool
 from src.mcp_server.tools.list_collections import ListCollectionsTool
 from src.mcp_server.tools.query_knowledge_hub import QueryKnowledgeHubTool
 from src.observability.logger import get_logger
@@ -40,15 +43,33 @@ class ServerContext:
 def create_mcp_server(
     knowledge_service: KnowledgeService | None = None,
     protocol_handler: ProtocolHandler | None = None,
+    ingestion_coordinator: UploadIngestionCoordinator | None = None,
 ) -> Server[ServerContext]:
     """创建负责协议生命周期、Tool 注册和应用依赖注入的 MCP Server。
 
     KnowledgeService 通过 lifespan 注入，避免 MCP 层自行构造检索和存储组件。
     """
 
+    coordinator = ingestion_coordinator
+    owns_coordinator = False
+    coordinator_lock = Lock()
+
+    def get_ingestion_coordinator() -> UploadIngestionCoordinator:
+        nonlocal coordinator, owns_coordinator
+        if coordinator is None:
+            with coordinator_lock:
+                if coordinator is None:
+                    coordinator = _build_default_ingestion_coordinator()
+                    owns_coordinator = True
+        return coordinator
+
     @asynccontextmanager
     async def lifespan(_: Server[ServerContext]) -> AsyncIterator[ServerContext]:
-        yield ServerContext(knowledge_service=knowledge_service)
+        try:
+            yield ServerContext(knowledge_service=knowledge_service)
+        finally:
+            if owns_coordinator and coordinator is not None:
+                await asyncio.to_thread(coordinator.shutdown, wait=True)
 
     handler = protocol_handler or ProtocolHandler(SERVER_NAME, SERVER_VERSION)
     get_service = (
@@ -63,6 +84,10 @@ def create_mcp_server(
         handler.register_tool(ListCollectionsTool(get_service))
     if GetDocumentSummaryTool.name not in handler.tools:
         handler.register_tool(GetDocumentSummaryTool(get_service))
+    if UploadDocumentTool.name not in handler.tools:
+        handler.register_tool(UploadDocumentTool(get_ingestion_coordinator))
+    if GetIngestionJobTool.name not in handler.tools:
+        handler.register_tool(GetIngestionJobTool(get_ingestion_coordinator))
 
     async def on_list_tools(
         context: ServerRequestContext[ServerContext],
@@ -114,6 +139,30 @@ def _build_default_trace_collector():
     settings_path = os.environ.get("RAG_SETTINGS_PATH", str(DEFAULT_SETTINGS_PATH))
     settings = load_settings(settings_path)
     return create_trace_collector(settings)
+
+
+def _build_default_ingestion_coordinator() -> UploadIngestionCoordinator:
+    """Build upload dependencies only when the first upload Tool is called."""
+    from collections.abc import Mapping
+
+    from src.core.settings import load_settings
+    from src.ingestion import build_ingestion_pipeline
+    from src.observability.ingestion_trace import create_ingestion_trace_collector
+
+    settings_path = os.environ.get("RAG_SETTINGS_PATH", str(DEFAULT_SETTINGS_PATH))
+    settings = load_settings(settings_path)
+    storage = settings.ingestion.get("storage")
+    if not isinstance(storage, Mapping):
+        raise ValueError("Missing required setting: ingestion.storage")
+    upload_root = storage.get("upload_root")
+    if not isinstance(upload_root, str) or not upload_root.strip():
+        raise ValueError("Missing required setting: ingestion.storage.upload_root")
+    return UploadIngestionCoordinator(
+        settings,
+        upload_root.strip(),
+        build_ingestion_pipeline,
+        collector=create_ingestion_trace_collector(settings),
+    )
 
 
 async def run_stdio_server(

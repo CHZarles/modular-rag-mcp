@@ -18,9 +18,12 @@ inside the ASGI lifespan — which ASGITransport does not trigger on its own.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
+import json
 import socket
 import threading
+import time
 from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,9 +36,15 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from extension.cli import main as agent_cli
+from src.application.ingestion_jobs import IngestionJobService
+from src.application.upload_ingestion import UploadIngestionCoordinator
+from src.core.settings import Settings
 from src.core.types import (
     CollectionInfo,
     DocumentSummary,
+    IngestionRequest,
+    IngestionResult,
     QueryRequest,
     QueryResponse,
 )
@@ -85,6 +94,34 @@ class _ContextCapturingService:
 
     def get_document_summary(self, doc_id: str) -> DocumentSummary:
         return DocumentSummary(doc_id=doc_id, source_path="stub.pdf")
+
+
+class _BlockingUploadIngestion:
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.requests: list[IngestionRequest] = []
+
+    def ingest(
+        self,
+        request: IngestionRequest,
+        on_progress: Any = None,
+        trace: Any = None,
+    ) -> IngestionResult:
+        del trace
+        self.requests.append(request)
+        if on_progress is not None:
+            on_progress("load", 2, 7)
+        self.started.set()
+        if not self.release.wait(timeout=5):
+            raise TimeoutError("test worker was not released")
+        return IngestionResult(
+            source_path=request.source_path,
+            collection=request.collection,
+            status="success",
+            file_hash="hash",
+            document_id="doc-1",
+        )
 
 
 # --- Uvicorn fixture -------------------------------------------------------
@@ -144,6 +181,30 @@ def mcp_server() -> Iterator[tuple[str, _ContextCapturingService]]:
         runner.stop()
 
 
+@pytest.fixture
+def mcp_upload_server(
+    tmp_path: Path,
+) -> Iterator[tuple[str, UploadIngestionCoordinator, _BlockingUploadIngestion]]:
+    service = _ContextCapturingService()
+    ingestion = _BlockingUploadIngestion()
+    coordinator = UploadIngestionCoordinator(
+        _minimal_settings(),
+        tmp_path / "uploads",
+        lambda _settings: ingestion,
+        jobs=IngestionJobService(max_workers=1, max_active_jobs=2),
+    )
+    server = create_mcp_server(service, ingestion_coordinator=coordinator)
+    app = server.streamable_http_app(streamable_http_path="/mcp")
+    runner = _UvicornThread(app, host="127.0.0.1", port=_free_port())
+    runner.start()
+    try:
+        yield f"http://127.0.0.1:{runner.port}/mcp", coordinator, ingestion
+    finally:
+        ingestion.release.set()
+        coordinator.shutdown()
+        runner.stop()
+
+
 # --- Helpers ---------------------------------------------------------------
 
 @contextlib.asynccontextmanager
@@ -183,6 +244,83 @@ async def _call_query(
         return await session.call_tool("query_knowledge_hub", dict(arguments))
     except MCPError as exc:
         return exc
+
+
+def _minimal_settings() -> Settings:
+    return Settings(
+        knowledge_service={"mode": "local"},
+        llm={"provider": "openai"},
+        embedding={"provider": "hash"},
+        splitter={"provider": "recursive"},
+        vector_store={"backend": "chroma"},
+        retrieval={"sparse_backend": "bm25"},
+        rerank={"backend": "none"},
+        evaluation={"backends": ["custom"]},
+        observability={"enabled": False},
+    )
+
+
+@pytest.mark.anyio
+async def test_http_upload_is_background_and_rejects_concurrent_same_document(
+    mcp_upload_server: tuple[
+        str,
+        UploadIngestionCoordinator,
+        _BlockingUploadIngestion,
+    ],
+) -> None:
+    base_url, _coordinator, ingestion = mcp_upload_server
+    arguments = {
+        "filename": "guide.pdf",
+        "content_base64": base64.b64encode(b"%PDF-1.4\nfirst").decode("ascii"),
+        "collection": "docs",
+    }
+    async with _http_client(base_url, headers={"X-Request-ID": "upload-request-1"}) as session:
+        first = await session.call_tool("upload_document", arguments)
+        assert first.is_error is False
+        job_id = first.structured_content["job"]["job_id"]
+        assert ingestion.started.wait(timeout=1)
+        assert ingestion.requests[0].request_id == "upload-request-1"
+
+        second = await session.call_tool("upload_document", arguments)
+        assert second.is_error is True
+        assert second.structured_content == {"error": {"code": "document_busy"}}
+
+        ingestion.release.set()
+        for _ in range(100):
+            polled = await session.call_tool("get_ingestion_job", {"job_id": job_id})
+            if polled.structured_content["job"]["status"] == "success":
+                break
+            await asyncio.sleep(0.01)
+        assert polled.structured_content["job"]["status"] == "success"
+        assert polled.structured_content["job"]["filename"] == "guide.pdf"
+
+
+def test_agent_cli_uploads_pdf_through_real_http_mcp(
+    tmp_path: Path,
+    mcp_upload_server: tuple[
+        str,
+        UploadIngestionCoordinator,
+        _BlockingUploadIngestion,
+    ],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    base_url, _coordinator, ingestion = mcp_upload_server
+    pdf = tmp_path / "cli-guide.pdf"
+    pdf.write_bytes(b"%PDF-1.4\ncli")
+
+    assert agent_cli.main(["upload", str(pdf), "--collection", "docs", "--url", base_url]) == 0
+    submitted = json.loads(capsys.readouterr().out)
+    assert submitted["job"]["status"] == "queued"
+
+    ingestion.release.set()
+    job_id = submitted["job"]["job_id"]
+    for _ in range(100):
+        assert agent_cli.main(["job", job_id, "--url", base_url]) == 0
+        polled = json.loads(capsys.readouterr().out)
+        if polled["job"]["status"] == "success":
+            break
+        time.sleep(0.01)
+    assert polled["job"]["status"] == "success"
 
 
 # --- Header propagation ----------------------------------------------------

@@ -1,47 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from core.settings import Settings
 from observability.dashboard._ingestion_helpers import (
     collection_options,
-    settings_for_ingestion_profile,
-    store_uploaded_pdf,
 )
-
-
-class FakeUpload:
-    def __init__(self, name: str, content: bytes) -> None:
-        self.name = name
-        self.content = content
-
-    def getvalue(self) -> bytes:
-        return self.content
-
-
-@pytest.mark.parametrize(
-    ("upload", "message"),
-    [
-        (FakeUpload("guide.txt", b"content"), "只支持 PDF"),
-        (FakeUpload("guide.pdf", b""), "不能为空"),
-    ],
-)
-def test_store_uploaded_pdf_rejects_invalid_files(
-    tmp_path: Path,
-    upload: FakeUpload,
-    message: str,
-) -> None:
-    with pytest.raises(ValueError, match=message):
-        store_uploaded_pdf(upload, tmp_path)
-
-
-def test_store_uploaded_pdf_uses_safe_stable_filename(tmp_path: Path) -> None:
-    path = store_uploaded_pdf(FakeUpload("../guide.pdf", b"pdf-content"), tmp_path)
-
-    assert path == (tmp_path / "guide.pdf").resolve()
-    assert path.read_bytes() == b"pdf-content"
+from src.application.upload_ingestion import settings_for_ingestion_profile
 
 
 def test_fast_profile_disables_model_enrichment_without_mutating_settings() -> None:

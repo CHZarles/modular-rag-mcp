@@ -76,6 +76,8 @@ def _call_tool(
                         "query_knowledge_hub",
                         "list_collections",
                         "get_document_summary",
+                        "upload_document",
+                        "get_ingestion_job",
                     ]
                     result = await session.call_tool(name, arguments)
                 task_group.cancel_scope.cancel()
@@ -226,6 +228,8 @@ def test_stdio_routes_tools_list_and_returns_standard_protocol_errors() -> None:
         "query_knowledge_hub",
         "list_collections",
         "get_document_summary",
+        "upload_document",
+        "get_ingestion_job",
     ]
     assert responses[3]["error"]["code"] == types.METHOD_NOT_FOUND
     assert responses[4]["error"]["code"] == types.METHOD_NOT_FOUND
@@ -255,6 +259,32 @@ def test_query_knowledge_hub_runs_through_official_mcp_session() -> None:
     assert service.requests == [
         QueryRequest(query="generation fence", top_k=2, collection="docs")
     ]
+
+
+def test_lazy_default_ingestion_coordinator_is_closed_with_server_lifespan() -> None:
+    class FakeCoordinator:
+        def __init__(self) -> None:
+            self.shutdown_calls: list[bool] = []
+
+        def get(self, job_id: str) -> Any:
+            raise KeyError(job_id)
+
+        def shutdown(self, *, wait: bool = True) -> None:
+            self.shutdown_calls.append(wait)
+
+    coordinator = FakeCoordinator()
+    with patch(
+        "src.mcp_server.server._build_default_ingestion_coordinator",
+        return_value=coordinator,
+    ):
+        result = _call_tool(
+            FakeKnowledgeService(),
+            "get_ingestion_job",
+            {"job_id": "missing"},
+        )
+
+    assert result.is_error is True
+    assert coordinator.shutdown_calls == [True]
 
 
 def test_local_query_response_reads_and_deduplicates_chunk_images(tmp_path: Path) -> None:

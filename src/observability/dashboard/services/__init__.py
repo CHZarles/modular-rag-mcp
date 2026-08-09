@@ -1,5 +1,6 @@
 """Dashboard data services."""
 
+from src.application.ingestion_jobs import IngestionJob, IngestionJobService
 from src.observability.dashboard.services.config_service import (
     ComponentSummary,
     ConfigService,
@@ -10,10 +11,6 @@ from src.observability.dashboard.services.evaluation_service import (
     EvaluationDashboardService,
     HotpotQABenchmarkJob,
     HotpotQABenchmarkJobService,
-)
-from src.observability.dashboard.services.ingestion_job_service import (
-    IngestionJob,
-    IngestionJobService,
 )
 from src.observability.dashboard.services.trace_service import (
     TraceReadResult,
