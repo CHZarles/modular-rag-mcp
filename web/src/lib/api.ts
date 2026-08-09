@@ -10,6 +10,7 @@ import type {
   IngestionJob,
   IngestionOptions,
   Overview,
+  QueryResponse,
   TraceListResponse,
 } from './types'
 
@@ -53,6 +54,10 @@ function jsonBody(value: unknown): RequestInit {
 export const api = {
   health: () => request<HealthResponse>('/api/health'),
   getOverview: () => request<Overview>('/api/overview'),
+  queryKnowledge: (query: string, collection: string, topK: number) => request<QueryResponse>('/api/query', {
+    method: 'POST',
+    ...jsonBody({ query, collection, top_k: topK }),
+  }),
   getComponent: (code: string) => request<ComponentResponse>(`/api/components/${encodeURIComponent(code)}`),
   updateComponent: (code: string, values: Record<string, unknown>, apiKey?: string) => request<ComponentResponse>(
     `/api/components/${encodeURIComponent(code)}`,

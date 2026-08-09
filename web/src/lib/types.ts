@@ -142,6 +142,39 @@ export interface HealthResponse {
   status: string
 }
 
+export interface QueryImageReference {
+  image_id: string
+  mime_type: string
+  content_index: number
+}
+
+export interface QueryResult {
+  rank: number
+  chunk_id: string
+  text: string
+  score: number
+  score_kind: string
+  source: string
+  page: number | null
+  metadata: Record<string, JsonValue>
+  images: QueryImageReference[]
+}
+
+export interface QueryContentBlock {
+  type: string
+  text?: string
+  data?: string
+  mimeType?: string
+}
+
+export interface QueryResponse {
+  results: QueryResult[]
+  content: QueryContentBlock[]
+  request_id: string | null
+  trace_id: string | null
+  metadata: Record<string, JsonValue>
+}
+
 export interface ApiErrorShape {
   detail?: string
   message?: string

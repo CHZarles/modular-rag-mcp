@@ -13,3 +13,13 @@ export function summarizeRuntime(
 export function selectAvailableValue(current: string, options: readonly string[]): string {
   return options.includes(current) ? current : options[0] ?? ''
 }
+
+export function queryImageDataUrl(
+  content: ReadonlyArray<{ type: string; data?: unknown; mimeType?: unknown }>,
+  index: number,
+): string | null {
+  const block = content[index]
+  if (block?.type !== 'image' || typeof block.data !== 'string' || !block.data) return null
+  if (typeof block.mimeType !== 'string' || !block.mimeType.startsWith('image/')) return null
+  return `data:${block.mimeType};base64,${block.data}`
+}

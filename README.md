@@ -47,7 +47,7 @@
 | **Ingestion Pipeline** | PDF → Markdown → Chunk → Transform → Embedding → Upsert | 全链路数据摄取，支持多模态图片描述（Image Captioning） |
 | **Hybrid Search** | Dense (向量) + Sparse (BM25) + RRF Fusion + Rerank | 粗排召回 + 精排重排的两段式检索架构 |
 | **MCP Server** | 标准 MCP 协议暴露 Tools | `query_knowledge_hub`、`list_collections`、`get_document_summary` |
-| **Dashboard** | React + FastAPI 私有管理控制台 | 系统总览 / 数据浏览 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
+| **Dashboard** | React + FastAPI 私有管理控制台 | 系统总览 / 数据浏览 / 知识检索 / Ingestion 管理 / 摄取追踪 / 查询追踪 / 评估面板 |
 | **Evaluation** | 真实检索链路评估 | 对比 BM25 / Dense / Hybrid，使用 Hit@5 和 MRR@5 门禁 |
 | **Observability** | 全链路白盒化追踪 | Ingestion 与 Query 两条链路的每一个中间状态透明可见 |
 | **Skill 驱动全流程** | 从编写到测试、打包、配置一键完成 | auto-coder / qa-tester / package / setup 等 Skill 覆盖完整开发生命周期（笔记中每个 Skill 的使用和设计思路均有讲解，请参考配套视频） |
@@ -360,6 +360,7 @@ python scripts/start_dashboard_api.py \
 |------|------|
 | 系统总览 | 查看数据资产数量及 LLM、Embedding、Splitter、Store、Reranker、Evaluator 配置 |
 | 数据浏览器 | 按 Collection 浏览 active generation 文档、Chunk 和图片 |
+| 知识检索 | 按 Collection 和 Top K 检索知识片段，展示分数、引用元数据及关联图片 |
 | Ingestion 管理 | 后台摄取 PDF、实时查看进度并协调删除跨存储文档 |
 | Ingestion 追踪 | 查看摄取历史、状态、耗时和阶段详情 |
 | Query 追踪 | 对比 Dense / Sparse 候选、阶段耗时和 Rerank 排名变化 |

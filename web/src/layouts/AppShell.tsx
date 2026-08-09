@@ -10,6 +10,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
   UploadCloud,
   X,
   Zap,
@@ -21,6 +22,7 @@ import { IconButton } from '../components/ui'
 const navigation = [
   { to: '/', label: '总览', icon: BarChart3 },
   { to: '/data-browser', label: '数据浏览', icon: BookOpen },
+  { to: '/query', label: '知识检索', icon: Search },
   { to: '/ingestion', label: '入库管理', icon: UploadCloud },
   { to: '/traces/ingestion', label: '入库追踪', icon: GitBranch },
   { to: '/traces/query', label: '查询追踪', icon: Activity },
@@ -30,6 +32,7 @@ const navigation = [
 const pageNames: Record<string, string> = {
   '/': '总览',
   '/data-browser': '数据浏览',
+  '/query': '知识检索',
   '/ingestion': '入库管理',
   '/traces/ingestion': '入库追踪',
   '/traces/query': '查询追踪',

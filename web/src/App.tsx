@@ -7,11 +7,13 @@ import { EvaluationPage } from './pages/EvaluationPage'
 import { IngestionPage } from './pages/IngestionPage'
 import { IngestionTracesPage, QueryTracesPage } from './pages/TracesPage'
 import { OverviewPage } from './pages/OverviewPage'
+import { QueryPage } from './pages/QueryPage'
 import './styles.css'
 
 const routes: Record<string, ReactNode> = {
   '/': <OverviewPage />,
   '/data-browser': <DataBrowserPage />,
+  '/query': <QueryPage />,
   '/ingestion': <IngestionPage />,
   '/traces/ingestion': <IngestionTracesPage />,
   '/traces/query': <QueryTracesPage />,

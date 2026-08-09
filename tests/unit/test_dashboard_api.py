@@ -15,6 +15,9 @@ from core.types import (
     IngestionRequest,
     IngestionResult,
     JsonDict,
+    QueryRequest,
+    QueryResponse,
+    RetrievalCandidate,
 )
 from observability.dashboard.api import create_app
 from observability.dashboard.services import ConfigService, IngestionJobService, TraceService
@@ -94,6 +97,22 @@ class FakeEvaluationService:
         if self.report is None:
             raise ValueError("no backend selected")
         return self.report
+
+
+@dataclass
+class FakeKnowledgeService:
+    response: QueryResponse
+    requests: list[QueryRequest] = field(default_factory=list)
+
+    def query(self, request: QueryRequest, trace: object | None = None) -> QueryResponse:
+        self.requests.append(request)
+        return self.response
+
+    def list_collections(self) -> list[CollectionInfo]:
+        return []
+
+    def get_document_summary(self, doc_id: str) -> DocumentSummary:
+        raise KeyError(doc_id)
 
 
 def _config_service(tmp_path: Path) -> ConfigService:
@@ -201,6 +220,56 @@ def test_health_endpoint_returns_ok(tmp_path: Path) -> None:
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_query_endpoint_reuses_knowledge_service_and_returns_public_citations(
+    tmp_path: Path,
+) -> None:
+    service = FakeKnowledgeService(
+        QueryResponse(
+            results=[
+                RetrievalCandidate(
+                    chunk_id="chunk-1",
+                    text="Generation fencing prevents stale publication.",
+                    metadata={"source_path": "/private/manual.pdf", "page": 3},
+                    score=0.9,
+                    source="fusion",
+                    rank=1,
+                )
+            ]
+        )
+    )
+    client = _client(tmp_path, knowledge_service=service)
+
+    response = client.post(
+        "/api/query",
+        json={"query": "generation fence", "collection": "docs", "top_k": 3},
+    )
+
+    assert response.status_code == 200, response.text
+    assert [request.to_dict() for request in service.requests] == [
+        QueryRequest(query="generation fence", collection="docs", top_k=3).to_dict()
+    ]
+    payload = response.json()
+    assert payload["results"][0]["source"] == "manual.pdf"
+    assert payload["results"][0]["page"] == 3
+    assert payload["results"][0]["text"].startswith("Generation fencing")
+    assert isinstance(payload["trace_id"], str)
+
+
+def test_query_endpoint_reports_unavailable_service_without_internal_details(
+    tmp_path: Path,
+) -> None:
+    def unavailable_factory(settings: Settings) -> None:
+        del settings
+        raise RuntimeError("/private/provider.env is missing")
+
+    client = _client(tmp_path, knowledge_factory=unavailable_factory)
+
+    response = client.post("/api/query", json={"query": "test"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "query service is not available"}
 
 
 def test_overview_aggregates_components_collections_and_stats(tmp_path: Path) -> None:

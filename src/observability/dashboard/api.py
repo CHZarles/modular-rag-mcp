@@ -24,6 +24,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.application.services import IngestionService
+from src.core.services import build_knowledge_service
+from src.core.services.knowledge_service import KnowledgeService
 from src.core.settings import Settings
 from src.core.trace import SQLiteTraceStore  # noqa: E402  (plan §C2.4)
 from src.core.types import (
@@ -35,6 +37,7 @@ from src.ingestion import build_ingestion_pipeline
 from src.libs.embedding.embedding_factory import EmbeddingFactory
 from src.libs.llm.llm_factory import LLMFactory
 from src.libs.reranker.reranker_factory import RerankerFactory
+from src.mcp_server.tools import QueryKnowledgeHubTool, ToolArgumentError, ToolExecutionError
 from src.observability.dashboard._ingestion_helpers import (
     collection_options,
     dashboard_ai_enrichment_default,
@@ -65,6 +68,8 @@ class AppContext:
     settings: Settings
     data_service: DataService | None
     evaluation_service: EvaluationDashboardService | None
+    knowledge_service: KnowledgeService | None
+    knowledge_factory: Any
     trace_service: TraceService
     ingestion_jobs: IngestionJobService
     ingestion_factory: Any
@@ -141,6 +146,8 @@ def _build_context(
         evaluation_service = _safe_build(
             "evaluation_service", EvaluationDashboardService.from_settings, settings
         )
+    knowledge_service = overrides.get("knowledge_service")
+    knowledge_factory = overrides.get("knowledge_factory") or build_knowledge_service
     trace_service = overrides.get("trace_service") or TraceService(_build_trace_store(config_service))
     ingestion_jobs = overrides.get("ingestion_jobs") or IngestionJobService(max_workers=1)
     ingestion_factory = overrides.get("ingestion_factory") or build_ingestion_pipeline
@@ -160,6 +167,8 @@ def _build_context(
         settings=settings,
         data_service=data_service,
         evaluation_service=evaluation_service,
+        knowledge_service=knowledge_service,
+        knowledge_factory=knowledge_factory,
         trace_service=trace_service,
         ingestion_jobs=ingestion_jobs,
         ingestion_factory=ingestion_factory,
@@ -253,6 +262,18 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
             )
         return current.evaluation_service
 
+    def require_knowledge_service(current: AppContext) -> KnowledgeService:
+        if current.knowledge_service is None:
+            # ponytail: one local operator; add a startup lock only if concurrent cold queries matter.
+            try:
+                current.knowledge_service = current.knowledge_factory(current.settings)
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="query service is not available",
+                ) from exc
+        return current.knowledge_service
+
     @app.get("/api/health", response_model=HealthResponse)
     def health() -> HealthResponse:  # type: ignore[no-untyped-def]
         return HealthResponse(status="ok")
@@ -301,6 +322,7 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
         reloaded = ConfigService.from_path(current.config_service.settings_path)
         current.config_service = reloaded
         current.settings = reloaded.settings
+        current.knowledge_service = None
         return ComponentDetailResponse(
             code=code.strip().upper(),
             values=_redacted_values(reloaded.component_config(code)),
@@ -326,6 +348,7 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
         reloaded = ConfigService.from_path(current.config_service.settings_path)
         current.config_service = reloaded
         current.settings = reloaded.settings
+        current.knowledge_service = None
         return ComponentDetailResponse(
             code=code.strip().upper(),
             values=_redacted_values(reloaded.component_config(code)),
@@ -378,6 +401,38 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
             documents=[_document_payload(item) for item in documents],
             stats=_stats_payload(stats),
         )
+
+    @app.post("/api/query", response_model=DashboardQueryResponse)
+    def query_knowledge(
+        payload: DashboardQueryPayload,
+        request: Request,
+    ) -> DashboardQueryResponse:  # type: ignore[no-untyped-def]
+        current = ctx(request)
+        service = require_knowledge_service(current)
+        tool = QueryKnowledgeHubTool(
+            lambda: service,
+            get_collector=lambda: current.trace_collector,
+        )
+        try:
+            result = tool.call(payload.model_dump())
+        except ToolArgumentError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except ToolExecutionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=exc.component_code,
+            ) from exc
+        structured = result.get("structuredContent")
+        content = result.get("content")
+        if not isinstance(structured, Mapping) or not isinstance(content, list):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="invalid query response",
+            )
+        return DashboardQueryResponse.model_validate({**structured, "content": content})
 
     @app.get("/api/documents/{doc_id}")
     def get_document(doc_id: str, request: Request) -> JsonDict:  # type: ignore[no-untyped-def]
@@ -818,6 +873,24 @@ class DocumentListResponse(BaseModel):
     collection: str | None
     documents: list[DocumentPayload]
     stats: StatsPayload
+
+
+class DashboardQueryPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1, max_length=4000)
+    collection: str = Field(default="default", min_length=1, max_length=128)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+
+class DashboardQueryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    results: list[JsonDict]
+    content: list[JsonDict]
+    request_id: str | None = None
+    trace_id: str | None = None
+    metadata: JsonDict = Field(default_factory=dict)
 
 
 class DeleteDocumentResponse(BaseModel):
