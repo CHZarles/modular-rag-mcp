@@ -157,6 +157,7 @@ async def _http_client(
         http_client=httpx.AsyncClient(
             headers=dict(headers or {}),
             timeout=httpx.Timeout(10.0, read=10.0),
+            trust_env=False,
         ),
     ) as (read, write):
         async with ClientSession(read, write) as session:
@@ -358,7 +359,7 @@ async def test_health_live_returns_ok_without_building_knowledge_service(
 ) -> None:
     base_url, service, _settings_path = mcp_http_app
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=5.0) as client:
+    async with httpx.AsyncClient(base_url=base_url, timeout=5.0, trust_env=False) as client:
         response = await client.get("/health/live")
 
     assert response.status_code == 200
@@ -373,7 +374,7 @@ async def test_health_live_returns_ok_without_building_knowledge_service(
 async def test_health_ready_reports_all_ok(mcp_http_app: tuple[str, _ContextCapturingService, Path]) -> None:
     base_url, _service, _settings = mcp_http_app
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=5.0) as client:
+    async with httpx.AsyncClient(base_url=base_url, timeout=5.0, trust_env=False) as client:
         response = await client.get("/health/ready")
 
     assert response.status_code == 200
@@ -400,7 +401,7 @@ async def test_health_ready_reports_503_when_settings_invalid(
     runner.start()
     try:
         async with httpx.AsyncClient(
-            base_url=f"http://127.0.0.1:{port}", timeout=5.0
+            base_url=f"http://127.0.0.1:{port}", timeout=5.0, trust_env=False
         ) as client:
             response = await client.get("/health/ready")
     finally:
@@ -448,7 +449,7 @@ async def test_health_ready_reports_degraded_when_trace_store_unwritable(
         runner.start()
         try:
             async with httpx.AsyncClient(
-                base_url=f"http://127.0.0.1:{port}", timeout=5.0
+                base_url=f"http://127.0.0.1:{port}", timeout=5.0, trust_env=False
             ) as client:
                 response = await client.get("/health/ready")
         finally:
@@ -481,7 +482,7 @@ async def test_health_endpoints_do_not_invoke_llm_or_embedding(
     monkeypatch.setattr(llm_factory, "build_llm", _fail, raising=False)
     monkeypatch.setattr(embedding_factory, "build_embedding", _fail, raising=False)
 
-    async with httpx.AsyncClient(base_url=base_url, timeout=5.0) as client:
+    async with httpx.AsyncClient(base_url=base_url, timeout=5.0, trust_env=False) as client:
         response = await client.get("/health/ready")
 
     # The readiness probe completes without invoking any provider factory.
