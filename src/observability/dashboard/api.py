@@ -48,6 +48,8 @@ from src.observability.dashboard.services import (
     ConfigService,
     DataService,
     EvaluationDashboardService,
+    HotpotQABenchmarkJob,
+    HotpotQABenchmarkJobService,
     IngestionJob,
     IngestionJobService,
     TraceService,
@@ -68,6 +70,7 @@ class AppContext:
     settings: Settings
     data_service: DataService | None
     evaluation_service: EvaluationDashboardService | None
+    benchmark_jobs: HotpotQABenchmarkJobService
     knowledge_service: KnowledgeService | None
     knowledge_factory: Any
     trace_service: TraceService
@@ -148,6 +151,7 @@ def _build_context(
             lambda selected: EvaluationDashboardService.from_settings(selected, resolved),
             settings,
         )
+    benchmark_jobs = overrides.get("benchmark_jobs") or HotpotQABenchmarkJobService()
     knowledge_service = overrides.get("knowledge_service")
     knowledge_factory = overrides.get("knowledge_factory") or build_knowledge_service
     trace_service = overrides.get("trace_service") or TraceService(_build_trace_store(config_service))
@@ -169,6 +173,7 @@ def _build_context(
         settings=settings,
         data_service=data_service,
         evaluation_service=evaluation_service,
+        benchmark_jobs=benchmark_jobs,
         knowledge_service=knowledge_service,
         knowledge_factory=knowledge_factory,
         trace_service=trace_service,
@@ -201,6 +206,7 @@ def create_app(
             yield
         finally:
             context.ingestion_jobs.shutdown(wait=False)
+            context.benchmark_jobs.shutdown(wait=False)
 
     app = FastAPI(
         title="Modular RAG Dashboard API",
@@ -208,6 +214,7 @@ def create_app(
         lifespan=lifespan,
     )
     app.state.ingestion_jobs = context.ingestion_jobs
+    app.state.benchmark_jobs = context.benchmark_jobs
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -539,27 +546,35 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
 
     @app.post(
         "/api/evaluation/benchmarks/hotpotqa",
-        response_model=HotpotQABenchmarkReportPayload,
+        response_model=HotpotQABenchmarkJobPayload,
+        status_code=status.HTTP_202_ACCEPTED,
     )
     def run_hotpotqa_benchmark(  # type: ignore[no-untyped-def]
         payload: HotpotQABenchmarkRunPayload,
         request: Request,
-    ) -> HotpotQABenchmarkReportPayload:
+    ) -> HotpotQABenchmarkJobPayload:
+        current = ctx(request)
         try:
-            report = require_evaluation_service(ctx(request)).run_hotpotqa_benchmark(
-                include_images=payload.include_images
+            job = current.benchmark_jobs.submit(
+                require_evaluation_service(current),
+                include_images=payload.include_images,
             )
-        except TimeoutError as exc:
+        except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                detail="HotpotQA benchmark timed out",
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(exc),
             ) from exc
-        except RuntimeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="HotpotQA benchmark execution failed",
-            ) from exc
-        return HotpotQABenchmarkReportPayload.model_validate(report)
+        return _benchmark_job_payload(job)
+
+    @app.get(
+        "/api/evaluation/benchmarks/hotpotqa/run",
+        response_model=HotpotQABenchmarkJobPayload | None,
+    )
+    def current_hotpotqa_benchmark(  # type: ignore[no-untyped-def]
+        request: Request,
+    ) -> HotpotQABenchmarkJobPayload | None:
+        job = ctx(request).benchmark_jobs.current()
+        return _benchmark_job_payload(job) if job is not None else None
 
     @app.get("/api/ingestion/options", response_model=IngestionOptionsResponse)
     def ingestion_options(request: Request) -> IngestionOptionsResponse:  # type: ignore[no-untyped-def]
@@ -827,6 +842,22 @@ def _job_payload(job: IngestionJob) -> IngestionJobResponse:
     )
 
 
+def _benchmark_job_payload(job: HotpotQABenchmarkJob) -> HotpotQABenchmarkJobPayload:
+    return HotpotQABenchmarkJobPayload(
+        status=job.status,
+        active=job.active,
+        include_images=job.include_images,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        report=(
+            HotpotQABenchmarkReportPayload.model_validate(job.report)
+            if job.report is not None
+            else None
+        ),
+        error=job.error,
+    )
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
 
@@ -1058,6 +1089,18 @@ class HotpotQABenchmarkReportPayload(BaseModel):
     image_cases: BenchmarkMetricsPayload
     gate: BenchmarkGatePayload
     passed: bool
+
+
+class HotpotQABenchmarkJobPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    active: bool
+    include_images: bool
+    started_at: float | None
+    finished_at: float | None
+    report: HotpotQABenchmarkReportPayload | None
+    error: str | None
 
 
 class IngestionOptionsResponse(BaseModel):

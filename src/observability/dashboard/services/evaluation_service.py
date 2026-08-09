@@ -5,7 +5,12 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from pathlib import Path
+from threading import Lock
+from time import time
+from typing import Literal
 
 from src.core.services import build_local_query_engine
 from src.core.settings import Settings
@@ -20,6 +25,99 @@ PROJECT_ROOT = Path(__file__).resolve().parents[4]
 HOTPOTQA_ROOT = PROJECT_ROOT / "data" / "hotpotqa" / "benchmark"
 BENCHMARK_TIMEOUT_SECONDS = 1800
 logger = get_logger(__name__)
+
+BenchmarkJobStatus = Literal["queued", "running", "success", "failed"]
+
+
+@dataclass(frozen=True)
+class HotpotQABenchmarkJob:
+    """Current benchmark snapshot shared across browser refreshes."""
+
+    include_images: bool
+    status: BenchmarkJobStatus = "queued"
+    report: JsonDict | None = None
+    error: str | None = None
+    started_at: float | None = None
+    finished_at: float | None = None
+
+    @property
+    def active(self) -> bool:
+        return self.status in {"queued", "running"}
+
+
+class HotpotQABenchmarkJobService:
+    """Run the single-user benchmark in the background and expose its latest state."""
+
+    def __init__(self) -> None:
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rag-benchmark")
+        self._current: HotpotQABenchmarkJob | None = None
+        self._lock = Lock()
+
+    def submit(
+        self,
+        evaluation: EvaluationDashboardService,
+        *,
+        include_images: bool,
+    ) -> HotpotQABenchmarkJob:
+        with self._lock:
+            if self._current is not None and self._current.active:
+                raise ValueError("HotpotQA benchmark is already running")
+            self._current = HotpotQABenchmarkJob(include_images=include_images)
+            job = self._current
+        self._executor.submit(self._run, evaluation, include_images)
+        return job
+
+    def current(self) -> HotpotQABenchmarkJob | None:
+        with self._lock:
+            return self._current
+
+    def shutdown(self, *, wait: bool = True) -> None:
+        self._executor.shutdown(wait=wait, cancel_futures=False)
+
+    def _run(
+        self,
+        evaluation: EvaluationDashboardService,
+        include_images: bool,
+    ) -> None:
+        self._update(status="running", started_at=time())
+        try:
+            report = evaluation.run_hotpotqa_benchmark(include_images=include_images)
+        except TimeoutError:
+            self._update(status="failed", error="HotpotQA benchmark timed out", finished_at=time())
+        except Exception:  # noqa: BLE001
+            logger.exception("HotpotQA benchmark background run failed")
+            self._update(
+                status="failed",
+                error="HotpotQA benchmark execution failed",
+                finished_at=time(),
+            )
+        else:
+            self._update(status="success", report=report, finished_at=time())
+
+    def _update(
+        self,
+        *,
+        status: BenchmarkJobStatus,
+        report: JsonDict | None = None,
+        error: str | None = None,
+        started_at: float | None = None,
+        finished_at: float | None = None,
+    ) -> None:
+        with self._lock:
+            if self._current is None:
+                return
+            self._current = replace(
+                self._current,
+                status=status,
+                report=report if report is not None else self._current.report,
+                error=error if error is not None else self._current.error,
+                started_at=(
+                    started_at if started_at is not None else self._current.started_at
+                ),
+                finished_at=(
+                    finished_at if finished_at is not None else self._current.finished_at
+                ),
+            )
 
 
 class EvaluationDashboardService:
@@ -133,4 +231,9 @@ def _run_benchmark_process(settings_path: Path, *, include_images: bool) -> Json
     return report
 
 
-__all__ = ["EvaluationDashboardService"]
+__all__ = [
+    "BenchmarkJobStatus",
+    "EvaluationDashboardService",
+    "HotpotQABenchmarkJob",
+    "HotpotQABenchmarkJobService",
+]

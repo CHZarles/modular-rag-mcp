@@ -550,6 +550,11 @@ tbody tr:hover { background: #fafbff; }
 .benchmark-facts > div { display: grid; gap: 5px; }
 .benchmark-facts span { color: var(--faint); font-size: 9px; }
 .benchmark-facts strong { color: var(--ink); font-size: 18px; }
+.benchmark-run-status { align-items: center; background: #f8f9ff; border: 1px solid #e7e9f6; border-radius: 8px; display: grid; gap: 11px; grid-template-columns: 43px minmax(0, 1fr) auto; margin-top: 18px; padding: 12px; }
+.benchmark-run-status > div:nth-child(2) { display: grid; gap: 4px; min-width: 0; }
+.benchmark-run-status > div:nth-child(2) strong { color: var(--ink); font-size: 11px; }
+.benchmark-run-status > div:nth-child(2) span { color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.benchmark-run-status > .job-error { grid-column: 1 / -1; margin-top: 0; }
 .select-wrap-full { width: 100%; }
 .select-wrap-full select { flex: 1; }
 .field-help { align-items: center; color: var(--warning); display: flex; font-size: 10px; gap: 5px; margin-top: 8px; }
@@ -762,7 +767,7 @@ tbody tr:hover { background: #fafbff; }
   body { background: #111827; }
   .topbar { background: rgba(17, 24, 39, .88); }
   .breadcrumb strong, .page-header h1, .section-heading h2, .metric-copy strong, .component-title h3, .component-provider strong, .component-details strong, .collection-name strong, .runtime-score strong, .document-cell strong, .document-card h3, .detail-file-heading strong, .chunks-heading h3, .job-progress-top strong, .managed-document-main strong, .trace-summary strong, .trace-row-heading strong, .trace-detail-overview h3, .stage-inspector-heading h3, .results-heading h2, .metric-result strong, .case-row > strong, .query-result-header > div:nth-child(2) strong { color: var(--ink); }
-  .button-secondary, .icon-button:hover, .input-with-icon, .search-input, .select-wrap, .drop-zone, .backend-option, .stat-pill, .collection-card, .runtime-card, .evaluation-note { background: #1c2840; }
+  .button-secondary, .icon-button:hover, .input-with-icon, .search-input, .select-wrap, .drop-zone, .backend-option, .stat-pill, .collection-card, .runtime-card, .evaluation-note, .benchmark-run-status { background: #1c2840; }
   .button-secondary { border-color: var(--line); color: #aeb8ca; }
   .icon-button:hover { color: #aeb6ff; }
   .input-with-icon input, .search-input input, .field input, .field select, .select-wrap select { color: var(--ink); }
@@ -793,7 +798,7 @@ tbody tr:hover { background: #fafbff; }
   .query-score-breakdown, .query-score-stage, .query-citation-grid, .query-metadata, .query-images { border-color: #29344a; }
   .query-citation-grid dd, .query-metadata dd, .query-score > strong { color: #aeb8ca; }
   .query-score-stage > div strong { color: #aeb8ca; }
-  .benchmark-facts, .benchmark-misses { border-color: #29344a; }
+  .benchmark-facts, .benchmark-misses, .benchmark-run-status { border-color: #29344a; }
   .benchmark-facts strong, .benchmark-strategy-heading span, .benchmark-metrics strong, .benchmark-misses strong { color: var(--ink); }
   .benchmark-config-result dd { color: #aeb8ca; }
 }

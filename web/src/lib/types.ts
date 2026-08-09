@@ -151,6 +151,18 @@ export interface HotpotQABenchmarkReport {
   passed: boolean
 }
 
+export type HotpotQABenchmarkStatus = 'queued' | 'running' | 'success' | 'failed'
+
+export interface HotpotQABenchmarkJob {
+  status: HotpotQABenchmarkStatus | string
+  active: boolean
+  include_images: boolean
+  started_at: number | null
+  finished_at: number | null
+  report: HotpotQABenchmarkReport | null
+  error: string | null
+}
+
 export interface IngestionOptions {
   collections: string[]
   ai_enrichment_default: boolean

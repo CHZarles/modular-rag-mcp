@@ -7,7 +7,7 @@ import type {
   EvaluationOptions,
   EvaluationReport,
   HealthResponse,
-  HotpotQABenchmarkReport,
+  HotpotQABenchmarkJob,
   HotpotQABenchmarkSummary,
   IngestionJob,
   IngestionOptions,
@@ -85,7 +85,8 @@ export const api = {
     ...jsonBody({ test_set_path: testSetPath, backends }),
   }),
   getHotpotQABenchmark: () => request<HotpotQABenchmarkSummary>('/api/evaluation/benchmarks/hotpotqa'),
-  runHotpotQABenchmark: (includeImages: boolean) => request<HotpotQABenchmarkReport>('/api/evaluation/benchmarks/hotpotqa', {
+  getHotpotQABenchmarkRun: () => request<HotpotQABenchmarkJob | null>('/api/evaluation/benchmarks/hotpotqa/run'),
+  runHotpotQABenchmark: (includeImages: boolean) => request<HotpotQABenchmarkJob>('/api/evaluation/benchmarks/hotpotqa', {
     method: 'POST',
     ...jsonBody({ include_images: includeImages }),
   }),

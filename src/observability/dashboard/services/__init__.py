@@ -6,7 +6,11 @@ from src.observability.dashboard.services.config_service import (
     DashboardOptions,
 )
 from src.observability.dashboard.services.data_service import DataService
-from src.observability.dashboard.services.evaluation_service import EvaluationDashboardService
+from src.observability.dashboard.services.evaluation_service import (
+    EvaluationDashboardService,
+    HotpotQABenchmarkJob,
+    HotpotQABenchmarkJobService,
+)
 from src.observability.dashboard.services.ingestion_job_service import (
     IngestionJob,
     IngestionJobService,
@@ -24,6 +28,8 @@ __all__ = [
     "DashboardOptions",
     "DataService",
     "EvaluationDashboardService",
+    "HotpotQABenchmarkJob",
+    "HotpotQABenchmarkJobService",
     "IngestionJob",
     "IngestionJobService",
     "TraceReadResult",

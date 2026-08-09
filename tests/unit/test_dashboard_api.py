@@ -20,7 +20,12 @@ from core.types import (
     RetrievalCandidate,
 )
 from observability.dashboard.api import create_app
-from observability.dashboard.services import ConfigService, IngestionJobService, TraceService
+from observability.dashboard.services import (
+    ConfigService,
+    HotpotQABenchmarkJob,
+    IngestionJobService,
+    TraceService,
+)
 
 
 @dataclass
@@ -119,6 +124,30 @@ class FakeEvaluationService:
 
 
 @dataclass
+class FakeBenchmarkJobService:
+    job: HotpotQABenchmarkJob | None = None
+
+    def submit(
+        self,
+        evaluation: FakeEvaluationService,
+        *,
+        include_images: bool,
+    ) -> HotpotQABenchmarkJob:
+        self.job = HotpotQABenchmarkJob(
+            include_images=include_images,
+            status="success",
+            report=evaluation.run_hotpotqa_benchmark(include_images=include_images),
+        )
+        return self.job
+
+    def current(self) -> HotpotQABenchmarkJob | None:
+        return self.job
+
+    def shutdown(self, *, wait: bool = True) -> None:
+        del wait
+
+
+@dataclass
 class FakeKnowledgeService:
     response: QueryResponse
     requests: list[QueryRequest] = field(default_factory=list)
@@ -171,6 +200,7 @@ ingestion:
 def _make_app(tmp_path: Path, **overrides: Any):
     data_service = overrides.pop("data_service", FakeDataService())
     evaluation_service = overrides.pop("evaluation_service", FakeEvaluationService())
+    benchmark_jobs = overrides.pop("benchmark_jobs", FakeBenchmarkJobService())
     ingestion_jobs = overrides.pop("ingestion_jobs", IngestionJobService(max_workers=1))
     config_service = overrides.pop("config_service", _config_service(tmp_path))
     factory = overrides.pop("ingestion_factory", lambda settings: _NoopIngestion())
@@ -180,6 +210,7 @@ def _make_app(tmp_path: Path, **overrides: Any):
             "config_service": config_service,
             "data_service": data_service,
             "evaluation_service": evaluation_service,
+            "benchmark_jobs": benchmark_jobs,
             "ingestion_jobs": ingestion_jobs,
             "ingestion_factory": factory,
             "trace_collector": None,
@@ -567,15 +598,18 @@ def test_hotpotqa_benchmark_endpoints_return_dataset_and_strategy_metrics(
     client = _client(tmp_path, evaluation_service=evaluation_service)
 
     summary = client.get("/api/evaluation/benchmarks/hotpotqa")
-    response = client.post(
+    started = client.post(
         "/api/evaluation/benchmarks/hotpotqa",
         json={"include_images": False},
     )
+    response = client.get("/api/evaluation/benchmarks/hotpotqa/run")
 
     assert summary.status_code == 200
     assert summary.json()["query_count"] == 120
+    assert started.status_code == 202, started.text
     assert response.status_code == 200, response.text
-    assert response.json()["strategies"]["bm25"]["hit_at_5"] == 0.9417
+    assert response.json()["status"] == "success"
+    assert response.json()["report"]["strategies"]["bm25"]["hit_at_5"] == 0.9417
     assert evaluation_service.benchmark_calls == [False]
 
 

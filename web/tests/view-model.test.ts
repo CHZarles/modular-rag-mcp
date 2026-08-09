@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
+import { formatElapsedSeconds } from '../src/lib/format.ts'
 import { queryImageDataUrl, selectAvailableValue, summarizeRuntime } from '../src/lib/view-model.ts'
+
+test('formatElapsedSeconds keeps benchmark runtime readable', () => {
+  assert.equal(formatElapsedSeconds(0), '0 秒')
+  assert.equal(formatElapsedSeconds(65), '1 分 5 秒')
+})
 
 test('summarizeRuntime reports counts from API data', () => {
   const summary = summarizeRuntime(

@@ -7,6 +7,12 @@ export function formatDuration(value: number): string {
   return `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)} s`
 }
 
+export function formatElapsedSeconds(value: number): string {
+  const seconds = Math.max(0, Math.floor(value))
+  const minutes = Math.floor(seconds / 60)
+  return minutes ? `${minutes} 分 ${seconds % 60} 秒` : `${seconds} 秒`
+}
+
 export function formatDate(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '—'
   const date = new Date(typeof value === 'number' ? value * 1000 : value)

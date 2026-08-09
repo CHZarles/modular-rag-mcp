@@ -3,13 +3,17 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import pytest
 
 from core.settings import Settings
-from core.types import QueryRequest, RetrievalCandidate
-from observability.dashboard.services import EvaluationDashboardService
+from core.types import JsonDict, QueryRequest, RetrievalCandidate
+from observability.dashboard.services import (
+    EvaluationDashboardService,
+    HotpotQABenchmarkJobService,
+)
 
 
 class FakeQueryEngine:
@@ -78,6 +82,30 @@ def test_evaluation_service_runs_hotpotqa_with_saved_settings(
     assert report == {"dataset": "hotpotqa", "passed": True}
     assert calls == [(settings_path.resolve(), False)]
     assert service.hotpotqa_summary()["query_count"] == 120
+
+
+def test_hotpotqa_job_exposes_running_state_until_background_run_finishes() -> None:
+    release = Event()
+
+    class BlockingEvaluationService:
+        def run_hotpotqa_benchmark(self, *, include_images: bool = True) -> JsonDict:
+            release.wait(timeout=2)
+            return {"dataset": "hotpotqa", "passed": include_images}
+
+    jobs = HotpotQABenchmarkJobService()
+    job = jobs.submit(BlockingEvaluationService(), include_images=True)  # type: ignore[arg-type]
+
+    assert job.active is True
+    assert jobs.current() is not None
+    with pytest.raises(ValueError, match="already running"):
+        jobs.submit(BlockingEvaluationService(), include_images=False)  # type: ignore[arg-type]
+
+    release.set()
+    jobs.shutdown(wait=True)
+    completed = jobs.current()
+    assert completed is not None
+    assert completed.status == "success"
+    assert completed.report == {"dataset": "hotpotqa", "passed": True}
 
 
 def _settings(golden_path: str) -> Settings:
