@@ -21,12 +21,14 @@ from src.core.services.knowledge_service import KnowledgeService
 from src.core.trace import SQLiteTraceStore
 from src.mcp_server.readiness import ReadinessService
 from src.mcp_server.server import create_mcp_server
+from src.mcp_server.tools.ingestion_jobs import MAX_BASE64_CHARS
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
 STREAMABLE_HTTP_PATH = "/mcp"
 DEFAULT_SETTINGS_PATH = PROJECT_ROOT / "config" / "settings.yaml"
+MAX_MCP_REQUEST_BODY_BYTES = MAX_BASE64_CHARS + 64 * 1024
 
 
 def build_app(
@@ -42,7 +44,10 @@ def build_app(
     the readiness probe parses; defaults to the project-root settings.yaml.
     """
     server = create_mcp_server(knowledge_service=knowledge_service)
-    mcp_app = server.streamable_http_app(streamable_http_path=STREAMABLE_HTTP_PATH)
+    mcp_app = server.streamable_http_app(
+        streamable_http_path=STREAMABLE_HTTP_PATH,
+        max_request_body_size=MAX_MCP_REQUEST_BODY_BYTES,
+    )
 
     resolved_settings = (
         Path(settings_path).expanduser()

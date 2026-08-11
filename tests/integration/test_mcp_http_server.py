@@ -528,6 +528,28 @@ async def test_health_live_returns_ok_without_building_knowledge_service(
 
 
 @pytest.mark.anyio
+async def test_http_app_accepts_upload_payloads_above_sdk_default(
+    mcp_http_app: tuple[str, _ContextCapturingService, Path],
+) -> None:
+    base_url, _service, _settings_path = mcp_http_app
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "missing", "arguments": {"padding": "x" * (4 * 1024 * 1024)}},
+    }
+
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0, trust_env=False) as client:
+        response = await client.post(
+            "/mcp",
+            json=payload,
+            headers={"Accept": "application/json, text/event-stream"},
+        )
+
+    assert response.status_code != 413
+
+
+@pytest.mark.anyio
 async def test_health_ready_reports_all_ok(mcp_http_app: tuple[str, _ContextCapturingService, Path]) -> None:
     base_url, _service, _settings = mcp_http_app
 
