@@ -14,7 +14,7 @@
 | 模块 | 当前实现 |
 | --- | --- |
 | 摄取 | PDF -> Markdown -> Chunk -> 索引；支持 MinerU 标准 API 和 MarkItDown 解析器 |
-| 检索 | BM25、Dense 与 RRF Hybrid；默认配置为 BM25-only |
+| 检索 | BM25、Dense 与 RRF Hybrid；可选独立 SQLite FTS5 字面量查找；默认配置为 BM25-only、Grep 关闭 |
 | 多模态 | 摄取时可为图片生成描述；检索命中图片 Chunk 时返回原始图片内容 |
 | MCP | stdio 与 Streamable HTTP；提供查询、Collection、文档摘要、PDF 上传和摄取任务查询工具 |
 | 可观测性 | Query 与 Ingestion Trace 持久化到 SQLite，Dashboard 展示阶段输入、耗时和分数 |
@@ -26,6 +26,7 @@
 | Tool | 输入 | 输出 |
 | --- | --- | --- |
 | `query_knowledge_hub` | `query`、`top_k`、`collection` | 候选文本、来源、页码、分数、阶段分数和图片内容 |
+| `grep_knowledge_hub`（按配置启用） | `pattern`、`top_k`、`collection`、`case_sensitive` | 完整匹配 Chunk、公开来源、页码、非重叠命中次数和截断状态 |
 | `list_collections` | 无 | 可查询的 Collection |
 | `get_document_summary` | `doc_id` | 文档标题、摘要、标签和来源信息 |
 | `upload_document` | `filename`、`content_base64`、`collection`、`force`、`ai_enrichment` | 已排队的摄取任务 |
@@ -61,6 +62,18 @@ export SGPT_MODEL='MiniMax-M2.5'
 ```
 
 不要将密钥写入 Git。Dashboard 保存的本地覆盖写入 Git 忽略的 `config/settings.local.yaml`，本地密钥写入 `config/secrets.local.yaml`。
+
+字面量查找使用独立 SQLite trigram 索引，默认关闭。首次开启前保持 `enabled: false`，停止 MCP、
+Dashboard 摄取和其他写入，执行离线重建，再开启并重启服务：
+
+```bash
+python scripts/rebuild_grep_index.py --settings config/settings.yaml
+# 将 grep.enabled 改为 true 后重启 MCP 和 Dashboard
+```
+
+Grep 搜索最终 `ChunkRecord.text`，不调用 BM25、Chroma、Embedding 或 LLM。pattern 至少 3 个
+Unicode 字符，默认不区分大小写，单次最多返回 20 个 Chunk。数据库缺失或自检失败时只禁用
+Grep；原语义查询保持可用。回滚只需把 `grep.enabled` 改回 `false`。
 
 ### 摄取与本地查询
 
@@ -188,6 +201,8 @@ docs/                架构决策、评测记录和实施计划
 - [配置文件](config/settings.yaml)
 - [HotpotQA 数据与归因](data/hotpotqa/README.md)
 - [检索评测记录](docs/records/2026-08-09-title-aware-bm25.md)
+- [Grep 增量开发规格](docs/plans/0002-independent-literal-grep.md)
+- [Grep 10,000 Chunk 基准](docs/benchmarks/grep-10000-2026-08-10.md)
 - [运行边界 ADR](docs/decisions/0027-readonly-component-and-preference-trace.md)
 - [接口与数据边界 ADR](docs/decisions/0009-query-knowledge-hub-mcp-boundary.md)
 - [MCP 上传与并发边界 ADR](docs/decisions/0028-mcp-upload-concurrency.md)

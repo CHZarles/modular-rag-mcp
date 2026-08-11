@@ -44,6 +44,7 @@ class Settings:
     ingestion: ConfigSection = field(default_factory=dict)
     vision_llm: ConfigSection | None = None
     dashboard: ConfigSection = field(default_factory=dict)
+    grep: ConfigSection = field(default_factory=lambda: {"enabled": False})
 
 
 def validate_settings(settings: Settings) -> None:
@@ -54,6 +55,7 @@ def validate_settings(settings: Settings) -> None:
             value = section.get(field_name)
             if value is None or (isinstance(value, str) and not value.strip()):
                 raise ValueError(f"Missing required setting: {section_name}.{field_name}")
+    _validate_grep(settings.grep)
 
 
 def load_settings(path: str) -> Settings:
@@ -95,14 +97,34 @@ def load_settings(path: str) -> Settings:
     dashboard = raw.get("dashboard", {})
     if not isinstance(dashboard, dict):
         raise ValueError("Setting dashboard must be a mapping")
+    grep = raw.get("grep", {"enabled": False})
+    if not isinstance(grep, dict):
+        raise ValueError("Setting grep must be a mapping")
+    if "enabled" not in grep:
+        grep = {**grep, "enabled": False}
     settings = Settings(
         **sections,
         ingestion=ingestion,
         vision_llm=vision_llm,
         dashboard=dashboard,
+        grep=grep,
     )
     validate_settings(settings)
     return settings
+
+
+def _validate_grep(grep: ConfigSection) -> None:
+    enabled = grep.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("Setting grep.enabled must be a boolean")
+    if not enabled:
+        return
+    db_path = grep.get("db_path")
+    if not isinstance(db_path, str) or not db_path.strip():
+        raise ValueError("Missing required setting: grep.db_path")
+    timeout_ms = grep.get("timeout_ms", 1000)
+    if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool) or timeout_ms <= 0:
+        raise ValueError("Setting grep.timeout_ms must be a positive integer")
 
 
 def _load_yaml_mapping(path: Path, *, label: str) -> dict[str, Any]:

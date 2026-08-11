@@ -100,6 +100,18 @@ class FakeImageStorage:
         return len(self.images.pop((source_path, collection), []))
 
 
+class FakeGrepIndex:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.remove_calls: list[tuple[str, str]] = []
+
+    def remove_document(self, source_path: str, collection: str) -> int:
+        self.remove_calls.append((source_path, collection))
+        if self.fail:
+            raise RuntimeError("index unavailable")
+        return 2
+
+
 class FakeIntegrityStore:
     def __init__(self) -> None:
         self.active = {"doc-a": 2, "doc-b": 1}
@@ -196,6 +208,44 @@ def test_partial_delete_keeps_integrity_record_for_retry() -> None:
     assert bm25.remove_calls == [("/documents/a.pdf", "docs")]
     assert images.delete_calls == [("/documents/a.pdf", "docs")]
     assert integrity.remove_calls == []
+
+
+def test_grep_delete_failure_keeps_integrity_record_for_retry() -> None:
+    chroma = FakeChromaStore()
+    bm25 = FakeBM25Indexer()
+    images = FakeImageStorage()
+    integrity = FakeIntegrityStore()
+    grep = FakeGrepIndex(fail=True)
+    manager = DocumentManager(  # type: ignore[arg-type]
+        chroma, bm25, images, integrity, grep
+    )
+
+    result = manager.delete_document("/documents/a.pdf", "docs")
+
+    assert result.errors == ["grep: index unavailable"]
+    assert grep.remove_calls == [("/documents/a.pdf", "docs")]
+    assert integrity.remove_calls == []
+
+
+def test_grep_document_delete_is_idempotent() -> None:
+    chroma = FakeChromaStore()
+    bm25 = FakeBM25Indexer()
+    images = FakeImageStorage()
+    integrity = FakeIntegrityStore()
+    grep = FakeGrepIndex()
+    manager = DocumentManager(  # type: ignore[arg-type]
+        chroma, bm25, images, integrity, grep
+    )
+
+    first = manager.delete_document("/documents/a.pdf", "docs")
+    repeated = manager.delete_document("/documents/a.pdf", "docs")
+
+    assert first.removed_integrity_record is True
+    assert repeated.errors == []
+    assert grep.remove_calls == [
+        ("/documents/a.pdf", "docs"),
+        ("/documents/a.pdf", "docs"),
+    ]
 
 
 def test_collection_stats_aggregate_active_documents() -> None:

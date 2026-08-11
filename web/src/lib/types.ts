@@ -32,6 +32,9 @@ export interface Overview {
   components: ComponentSummary[]
   collections: CollectionSummary[]
   stats: Stats
+  capabilities?: {
+    grep: boolean
+  }
 }
 
 export interface ComponentResponse {
@@ -231,6 +234,22 @@ export interface QueryResponse {
   request_id: string | null
   trace_id: string | null
   metadata: Record<string, JsonValue>
+}
+
+export interface GrepMatch {
+  chunk_id: string
+  text: string
+  source: string
+  page: number | null
+  metadata: Record<string, JsonValue>
+  match_count: number
+}
+
+export interface GrepResponse {
+  matches: GrepMatch[]
+  truncated: boolean
+  timed_out: boolean
+  trace_id: string | null
 }
 
 export interface ApiErrorShape {

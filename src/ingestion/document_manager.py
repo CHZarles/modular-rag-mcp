@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.types import CollectionInfo, DeleteResult, DocumentSummary, JsonDict
+from src.ingestion.storage.sqlite_grep_index import SQLiteGrepIndex
 from src.libs.loader.file_integrity import normalize_source_path
 from src.ports.ingestion import (
     BM25IndexStore,
@@ -17,7 +18,7 @@ from src.ports.ingestion import (
 
 
 class DocumentManager:
-    """Coordinate document reads and idempotent deletion across four stores."""
+    """Coordinate document reads and idempotent deletion across configured stores."""
 
     def __init__(
         self,
@@ -25,11 +26,13 @@ class DocumentManager:
         bm25_indexer: BM25IndexStore,
         image_storage: ImageStore,
         file_integrity: FileIntegrityStore,
+        grep_index: SQLiteGrepIndex | None = None,
     ) -> None:
         self.chroma_store = chroma_store
         self.bm25_indexer = bm25_indexer
         self.image_storage = image_storage
         self.file_integrity = file_integrity
+        self.grep_index = grep_index
 
     def list_documents(self, collection: str | None = None) -> list[DocumentSummary]:
         """List active documents with counts from their authoritative stores."""
@@ -101,6 +104,11 @@ class DocumentManager:
             removed_bm25 = True
         except Exception as exc:
             errors.append(_store_error("bm25", exc))
+        if self.grep_index is not None:
+            try:
+                self.grep_index.remove_document(normalized_path, collection)
+            except Exception as exc:
+                errors.append(_store_error("grep", exc))
         try:
             deleted_images = self.image_storage.delete_by_document(normalized_path, collection)
         except Exception as exc:

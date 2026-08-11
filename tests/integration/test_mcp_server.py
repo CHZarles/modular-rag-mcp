@@ -28,6 +28,7 @@ from src.core.types import (
     QueryResponse,
     RetrievalCandidate,
 )
+from src.mcp_server.protocol_handler import ProtocolHandler
 from src.mcp_server.server import SERVER_NAME, SERVER_VERSION, create_mcp_server
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -52,9 +53,14 @@ def _call_tool(
     service: FakeKnowledgeService,
     name: str,
     arguments: dict[str, Any],
+    *,
+    grep_service: object | None = None,
 ) -> types.CallToolResult:
     async def scenario() -> types.CallToolResult:
-        server = create_mcp_server(service)
+        server = create_mcp_server(
+            service,
+            grep_service=grep_service,  # type: ignore[arg-type]
+        )
         client_send, server_receive = anyio.create_memory_object_stream[Any](10)
         server_send, client_receive = anyio.create_memory_object_stream[Any](10)
         result: types.CallToolResult | None = None
@@ -72,13 +78,18 @@ def _call_tool(
                 async with ClientSession(client_receive, client_send) as session:
                     await session.initialize()
                     listed = await session.list_tools()
-                    assert [tool.name for tool in listed.tools] == [
+                    expected_tools = [
                         "query_knowledge_hub",
                         "list_collections",
                         "get_document_summary",
+                    ]
+                    if grep_service is not None:
+                        expected_tools.append("grep_knowledge_hub")
+                    expected_tools.extend([
                         "upload_document",
                         "get_ingestion_job",
-                    ]
+                    ])
+                    assert [tool.name for tool in listed.tools] == expected_tools
                     result = await session.call_tool(name, arguments)
                 task_group.cancel_scope.cancel()
         if result is None:
@@ -154,6 +165,29 @@ def test_server_lifespan_exposes_injected_knowledge_service() -> None:
             return context.knowledge_service
 
     assert asyncio.run(read_context()) is service
+
+
+def test_server_registers_grep_only_when_an_available_service_is_injected() -> None:
+    handler = ProtocolHandler("test", "1")
+
+    create_mcp_server(
+        FakeKnowledgeService(),
+        protocol_handler=handler,
+        grep_service=object(),  # type: ignore[arg-type]
+    )
+
+    assert "grep_knowledge_hub" in handler.tools
+
+
+def test_stdio_session_lists_grep_when_available() -> None:
+    result = _call_tool(
+        FakeKnowledgeService(),
+        "query_knowledge_hub",
+        {"query": "still independent"},
+        grep_service=object(),
+    )
+
+    assert result.is_error is False
 
 
 def test_stdio_subprocess_initializes_without_polluting_stdout() -> None:

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { formatElapsedSeconds } from '../src/lib/format.ts'
-import { queryImageDataUrl, selectAvailableValue, summarizeRuntime } from '../src/lib/view-model.ts'
+import { grepPatternLength, queryImageDataUrl, selectAvailableValue, summarizeRuntime } from '../src/lib/view-model.ts'
 
 test('formatElapsedSeconds keeps benchmark runtime readable', () => {
   assert.equal(formatElapsedSeconds(0), '0 秒')
@@ -38,4 +38,11 @@ test('queryImageDataUrl resolves an MCP-compatible image content index', () => {
   assert.equal(queryImageDataUrl(content, 1), 'data:image/png;base64,aW1hZ2U=')
   assert.equal(queryImageDataUrl(content, 0), null)
   assert.equal(queryImageDataUrl(content, 9), null)
+})
+
+test('grepPatternLength counts Unicode code points without trimming', () => {
+  assert.equal(grepPatternLength(' 😀 '), 3)
+  assert.equal(grepPatternLength('😀😀😀'), 3)
+  assert.equal(grepPatternLength('   '), 3)
+  assert.equal(grepPatternLength('😀'.repeat(4001)), 4001)
 })

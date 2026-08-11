@@ -18,8 +18,10 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,7 +31,11 @@ from src.application.upload_ingestion import (
     UploadIngestionCoordinator,
     UploadRejectedError,
 )
-from src.core.services import build_knowledge_service
+from src.core.services import (
+    GrepService,
+    active_generation_counts,
+    build_knowledge_service,
+)
 from src.core.services.knowledge_service import KnowledgeService
 from src.core.settings import Settings
 from src.core.trace import SQLiteTraceStore  # noqa: E402  (plan §C2.4)
@@ -38,10 +44,17 @@ from src.core.types import (
     JsonDict,
 )
 from src.ingestion import build_ingestion_pipeline
+from src.ingestion.storage import SQLiteGrepIndex
 from src.libs.embedding.embedding_factory import EmbeddingFactory
 from src.libs.llm.llm_factory import LLMFactory
+from src.libs.loader import SQLiteIntegrityStore
 from src.libs.reranker.reranker_factory import RerankerFactory
-from src.mcp_server.tools import QueryKnowledgeHubTool, ToolArgumentError, ToolExecutionError
+from src.mcp_server.tools import (
+    GrepKnowledgeHubTool,
+    QueryKnowledgeHubTool,
+    ToolArgumentError,
+    ToolExecutionError,
+)
 from src.observability.dashboard._ingestion_helpers import (
     collection_options,
     dashboard_ai_enrichment_default,
@@ -58,11 +71,13 @@ from src.observability.dashboard.services import (
 )
 from src.observability.dashboard.services.config_service import DEFAULT_SETTINGS_PATH
 from src.observability.ingestion_trace import create_ingestion_trace_collector
+from src.observability.logger import get_logger
 
 LOCAL_ORIGIN_PORTS = (5173, 4173, 8501)
 LOCAL_HOSTS = ("localhost", "127.0.0.1")
 SECRET_FIELD = "api_key"
 WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -81,6 +96,7 @@ class AppContext:
     upload_root: Path | None
     upload_coordinator: UploadIngestionCoordinator | None
     trace_collector: Any
+    grep_service: GrepService | None = None
 
 
 @dataclass
@@ -170,6 +186,9 @@ def _build_context(
     trace_collector = overrides.get("trace_collector")
     if trace_collector is None and "trace_collector" not in overrides:
         trace_collector = create_ingestion_trace_collector(settings)
+    grep_service = overrides.get("grep_service")
+    if grep_service is None and "grep_service" not in overrides:
+        grep_service = _try_build_grep_service(settings)
     upload_coordinator = overrides.get("upload_coordinator")
     if upload_coordinator is None and "upload_coordinator" not in overrides:
         upload_coordinator = (
@@ -198,7 +217,41 @@ def _build_context(
         upload_root=upload_root,
         upload_coordinator=upload_coordinator,
         trace_collector=trace_collector,
+        grep_service=grep_service,
     )
+
+
+def _try_build_grep_service(settings: Settings) -> GrepService | None:
+    if settings.grep.get("enabled") is not True:
+        return None
+    try:
+        storage = settings.ingestion.get("storage")
+        if not isinstance(storage, Mapping):
+            raise ValueError("Missing required setting: ingestion.storage")
+        integrity_path = storage.get("integrity_db_path")
+        db_path = settings.grep.get("db_path")
+        timeout_ms = settings.grep.get("timeout_ms", 1000)
+        if not isinstance(integrity_path, str) or not integrity_path.strip():
+            raise ValueError("Missing required setting: ingestion.storage.integrity_db_path")
+        if not isinstance(db_path, str) or not db_path.strip():
+            raise ValueError("Missing required setting: grep.db_path")
+        if (
+            not isinstance(timeout_ms, int)
+            or isinstance(timeout_ms, bool)
+            or timeout_ms <= 0
+        ):
+            raise ValueError("Setting grep.timeout_ms must be a positive integer")
+        integrity = SQLiteIntegrityStore(
+            integrity_path,
+            timeout_seconds=timeout_ms / 1000.0,
+        )
+        index = SQLiteGrepIndex(db_path, timeout_ms=timeout_ms)
+        active, counts = active_generation_counts(integrity)
+        index.check_ready(active, counts)
+        return GrepService(index, integrity)
+    except Exception:
+        logger.warning("Dashboard grep capability is unavailable", exc_info=True)
+        return None
 
 
 def _cors_origins() -> list[str]:
@@ -239,6 +292,12 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_error(request: Request, exc: RequestValidationError):
+        if request.url.path == "/api/grep":
+            return JSONResponse(status_code=400, content={"detail": "invalid grep request"})
+        return await request_validation_exception_handler(request, exc)
 
     @app.middleware("http")
     async def _attach_context(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -318,7 +377,12 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
         ]
         collections = _overview_collections(current)
         stats = _overview_stats(current)
-        return OverviewResponse(components=components, collections=collections, stats=stats)
+        return OverviewResponse(
+            components=components,
+            collections=collections,
+            stats=stats,
+            capabilities=CapabilityPayload(grep=current.grep_service is not None),
+        )
 
     @app.get("/api/components/{code}", response_model=ComponentDetailResponse)
     def get_component(code: str, request: Request) -> ComponentDetailResponse:  # type: ignore[no-untyped-def]
@@ -467,6 +531,45 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
                 detail="invalid query response",
             )
         return DashboardQueryResponse.model_validate({**structured, "content": content})
+
+    @app.post("/api/grep", response_model=DashboardGrepResponse)
+    def grep_knowledge(
+        payload: DashboardGrepPayload,
+        request: Request,
+    ) -> DashboardGrepResponse:  # type: ignore[no-untyped-def]
+        current = ctx(request)
+        if current.grep_service is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="grep_unavailable",
+            )
+        tool = GrepKnowledgeHubTool(
+            lambda: current.grep_service,  # type: ignore[arg-type,return-value]
+            get_collector=lambda: current.trace_collector,
+        )
+        try:
+            result = tool.call(payload.model_dump())
+        except ToolArgumentError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except ToolExecutionError as exc:
+            if exc.component_code == "grep_unavailable":
+                current.grep_service = None
+            http_status = (
+                status.HTTP_503_SERVICE_UNAVAILABLE
+                if exc.component_code == "grep_unavailable"
+                else status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            raise HTTPException(status_code=http_status, detail=exc.component_code) from exc
+        structured = result.get("structuredContent")
+        if not isinstance(structured, Mapping):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="invalid grep response",
+            )
+        return DashboardGrepResponse.model_validate(structured)
 
     @app.get("/api/documents/{doc_id}")
     def get_document(doc_id: str, request: Request) -> JsonDict:  # type: ignore[no-untyped-def]
@@ -875,12 +978,19 @@ class ComponentSummaryPayload(BaseModel):
     details: list[dict[str, str]] = Field(default_factory=list)
 
 
+class CapabilityPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    grep: bool = False
+
+
 class OverviewResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     components: list[ComponentSummaryPayload]
     collections: list[CollectionSummary]
     stats: StatsPayload
+    capabilities: CapabilityPayload
 
 
 class CollectionSummary(BaseModel):
@@ -968,6 +1078,35 @@ class DashboardQueryResponse(BaseModel):
     request_id: str | None = None
     trace_id: str | None = None
     metadata: JsonDict = Field(default_factory=dict)
+
+
+class DashboardGrepPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pattern: str = Field(min_length=3, max_length=4000)
+    collection: str = Field(default="default", min_length=1, max_length=128)
+    top_k: int = Field(default=20, ge=1, le=20, strict=True)
+    case_sensitive: bool = Field(default=False, strict=True)
+
+
+class DashboardGrepMatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_id: str
+    text: str
+    source: str
+    page: int | None = None
+    metadata: JsonDict = Field(default_factory=dict)
+    match_count: int = Field(ge=1)
+
+
+class DashboardGrepResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    matches: list[DashboardGrepMatch]
+    truncated: bool
+    timed_out: bool
+    trace_id: str | None = None
 
 
 class DeleteDocumentResponse(BaseModel):

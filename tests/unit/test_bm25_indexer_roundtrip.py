@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import pickle
 from concurrent.futures import ThreadPoolExecutor
@@ -207,3 +208,39 @@ def test_two_indexer_instances_do_not_lose_concurrent_updates(tmp_path) -> None:
     reloaded = BM25Indexer(directory)
     assert [hit.id for hit in reloaded.query(["alpha"], top_k=5)] == ["chunk-0"]
     assert [hit.id for hit in reloaded.query(["beta"], top_k=5)] == ["chunk-1"]
+
+
+def test_offline_export_returns_only_final_active_chunk_records(tmp_path) -> None:
+    doc_key = "d" * 64
+
+    class _Active:
+        def get_active_generations(self, collection: str | None = None) -> dict[str, int]:
+            return {doc_key: 2}
+
+    def final_chunk(text: str, generation: int) -> Chunk:
+        content_hash = hashlib.sha256(text.encode()).hexdigest()
+        suffix = hashlib.sha256(f"0\0{content_hash}".encode()).hexdigest()[:32]
+        return Chunk(
+            id=f"{doc_key}:{generation}:{suffix}",
+            text=text,
+            metadata={
+                "source_path": "guide.md",
+                "collection": "docs",
+                "doc_key": doc_key,
+                "generation": generation,
+                "chunk_index": 0,
+            },
+            source_ref="guide.md",
+            chunk_index=0,
+        )
+
+    old = final_chunk("old text", 1)
+    current = final_chunk("current text", 2)
+    indexer = BM25Indexer(tmp_path / "bm25", generation_store=_Active())  # type: ignore[arg-type]
+    indexer.build([old, current], statistics([old, current]))
+
+    records = indexer.list_active_chunk_records("docs")
+
+    assert [record.id for record in records] == [current.id]
+    assert records[0].text == "current text"
+    assert records[0].content_hash == hashlib.sha256(b"current text").hexdigest()

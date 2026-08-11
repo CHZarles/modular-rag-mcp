@@ -32,6 +32,26 @@
 
 后续需求、排期和验收均以此边界为准；除非项目定位被明确修改，否则不得新增认证、权限、多租户相关模块。
 
+### 1.2 独立字面量 Grep 增量
+
+系统提供一个默认关闭的独立精确查找链路。它把 Pipeline 最终生成的 `ChunkRecord.text` 写入
+`data/db/chunk_text.db`，使用 SQLite FTS5 trigram 召回候选，再由 Python 执行最终字面量校验。
+
+```text
+pattern -> SQLiteGrepIndex -> active generation filter -> literal verification -> Top 20
+```
+
+- 配置：`grep.enabled`、`grep.db_path`、`grep.timeout_ms`。
+- MCP：available 时注册 `grep_knowledge_hub`；disabled/unavailable 时不注册。
+- Dashboard：现有知识检索页通过 `capabilities.grep` 显示“精确查找”模式。
+- 摄取：Vector/BM25 之后、publish 之前写 Grep；失败时不发布新 generation。
+- 删除：Grep 删除失败时保留 FileIntegrity 记录，允许重试。
+- 迁移：`scripts/rebuild_grep_index.py` 从 BM25 active Chunk 离线重建；运行时不依赖 BM25。
+- 隔离：Grep 故障不影响现有 BM25、Chroma、Hybrid Query、MCP Tool 和 Dashboard 语义检索。
+
+完整接口、DDL、生命周期与验收标准见
+[`docs/plans/0002-independent-literal-grep.md`](docs/plans/0002-independent-literal-grep.md)。
+
 ### 设计理念 (Design Philosophy)
 
 > **核心定位：自学与教学同步 (Learning by Teaching)**
@@ -3459,5 +3479,4 @@ RAG 系统的上限取决于其对特定业务数据的理解深度。未来的�
     - **未来演进**：不再硬编码使用混合检索。Server 可以将 `keyword_search` 和 `semantic_search` 作为独立工具暴露。Agent 可以根据用户意图自主判断：如果是搜人名，只用关键词搜；如果是搜概念，通过语义搜。这种工具使用的灵活性正是 Agentic RAG 的核心魅力。
 
 这种演进方向将把本项目从一个“智能搜索引擎”升级为一个“智能研究助理”的基础设施底座。
-
 

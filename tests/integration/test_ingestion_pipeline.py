@@ -9,12 +9,13 @@ from threading import Event
 import pytest
 
 from core.query_engine import DenseRetriever
+from core.services.grep_service import GrepService
 from core.trace import TraceContext
 from core.types import Document, IngestionRequest
 from ingestion.chunking import DocumentChunker
 from ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
 from ingestion.pipeline import IngestionPipeline
-from ingestion.storage import BM25Indexer, ImageStorage
+from ingestion.storage import BM25Indexer, ImageStorage, SQLiteGrepIndex
 from libs.loader import SQLiteIntegrityStore
 from libs.vector_store import ChromaStore
 
@@ -118,6 +119,7 @@ def build_pipeline(
     tmp_path: Path,
     *,
     fail_loader: bool = False,
+    with_grep: bool = False,
 ) -> tuple[IngestionPipeline, SQLiteIntegrityStore, ChromaStore, BM25Indexer, ImageStorage]:
     image_root = tmp_path / "images"
     integrity = SQLiteIntegrityStore(tmp_path / "ingestion_history.db")
@@ -140,6 +142,9 @@ def build_pipeline(
         SparseEncoder(),
         batch_size=1,
     )
+    grep_index = SQLiteGrepIndex(tmp_path / "grep.db") if with_grep else None
+    if grep_index is not None:
+        grep_index.initialize()
     pipeline = IngestionPipeline(
         integrity=integrity,
         loader=FixtureLoader(image_root, fail=fail_loader),
@@ -149,9 +154,100 @@ def build_pipeline(
         vector_store=vector_store,
         bm25_store=bm25_store,
         image_store=image_store,
+        grep_index=grep_index,
         claim_lease_seconds=60,
     )
     return pipeline, integrity, vector_store, bm25_store, image_store
+
+
+def test_pipeline_publishes_final_records_to_independent_grep_index(tmp_path: Path) -> None:
+    source = tmp_path / "grep.pdf"
+    source.write_text("ExactNeedle survives final transforms.", encoding="utf-8")
+    pipeline, integrity, _, _, _ = build_pipeline(tmp_path, with_grep=True)
+
+    result = pipeline.run(IngestionRequest(str(source), "docs"))
+
+    assert result.status == "success"
+    assert pipeline.grep_index is not None
+    response = GrepService(pipeline.grep_index, integrity).search(
+        pattern="exactneedle",
+        collection="docs",
+    )
+    assert [match.text for match in response.matches] == [
+        "ExactNeedle survives final transforms."
+    ]
+
+
+def test_grep_write_failure_blocks_new_generation_publication(tmp_path: Path) -> None:
+    source = tmp_path / "grep-failure.pdf"
+    source.write_text("stable needle text", encoding="utf-8")
+    pipeline, integrity, _, _, _ = build_pipeline(tmp_path, with_grep=True)
+    first = pipeline.run(IngestionRequest(str(source), "docs"))
+    assert first.status == "success"
+    assert pipeline.grep_index is not None
+
+    source.write_text("replacement needle text", encoding="utf-8")
+    pipeline.grep_index.upsert = lambda _records: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        RuntimeError("grep unavailable")
+    )
+    failed = pipeline.run(IngestionRequest(str(source), "docs"))
+
+    assert failed.status == "failed"
+    assert integrity.get_active_generations("docs") == {
+        first.metadata["doc_key"]: first.metadata["generation"]
+    }
+    response = GrepService(pipeline.grep_index, integrity).search(
+        pattern="stable",
+        collection="docs",
+    )
+    assert [match.text for match in response.matches] == ["stable needle text"]
+
+
+def test_successful_publish_removes_previous_grep_generation_even_if_other_gc_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source = tmp_path / "grep-update.pdf"
+    source.write_text("old needle text", encoding="utf-8")
+    pipeline, _, _, _, _ = build_pipeline(tmp_path, with_grep=True)
+    first = pipeline.run(IngestionRequest(str(source), "docs"))
+    source.write_text("new needle text", encoding="utf-8")
+    monkeypatch.setattr(
+        pipeline.vector_store,
+        "delete_by_metadata",
+        lambda _filters: (_ for _ in ()).throw(RuntimeError("vector cleanup failed")),
+    )
+
+    second = pipeline.run(IngestionRequest(str(source), "docs"))
+
+    assert first.status == second.status == "success"
+    assert pipeline.grep_index is not None
+    assert pipeline.grep_index.remove_generation(first.metadata["doc_key"], 1) == 0
+
+
+def test_failed_generation_cleanup_is_best_effort_and_preserves_primary_error(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source = tmp_path / "grep-cleanup.pdf"
+    source.write_text("temporary needle text", encoding="utf-8")
+    pipeline, _, _, _, _ = build_pipeline(tmp_path, with_grep=True)
+    assert pipeline.grep_index is not None
+    monkeypatch.setattr(
+        pipeline.image_store,
+        "save_refs",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("image write failed")),
+    )
+    monkeypatch.setattr(
+        pipeline.grep_index,
+        "remove_generation",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("grep cleanup failed")),
+    )
+
+    result = pipeline.run(IngestionRequest(str(source), "docs"))
+
+    assert result.status == "failed"
+    assert result.error == "store stage failed: image write failed"
 
 
 def test_pipeline_persists_dense_sparse_and_image_outputs_with_shared_ids(tmp_path: Path) -> None:

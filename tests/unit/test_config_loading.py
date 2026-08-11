@@ -41,6 +41,41 @@ def test_load_settings_returns_validated_dataclass(tmp_path: Path) -> None:
     assert settings.knowledge_service["mode"] == "local"
     assert settings.embedding["provider"] == "openai"
     assert settings.ingestion == {}
+    assert settings.grep == {"enabled": False}
+
+
+def test_load_settings_validates_enabled_grep_section(tmp_path: Path) -> None:
+    path = write_settings(
+        tmp_path / "settings.yaml",
+        VALID_SETTINGS
+        + "grep:\n  enabled: true\n  db_path: ./data/grep.db\n  timeout_ms: 750\n",
+    )
+
+    settings = load_settings(str(path))
+
+    assert settings.grep == {
+        "enabled": True,
+        "db_path": "./data/grep.db",
+        "timeout_ms": 750,
+    }
+
+
+@pytest.mark.parametrize(
+    "grep",
+    [
+        "grep: []\n",
+        "grep:\n  enabled: yes\n",
+        "grep:\n  enabled: true\n  timeout_ms: 0\n  db_path: ./grep.db\n",
+        "grep:\n  enabled: true\n  timeout_ms: 1\n  db_path: '  '\n",
+    ],
+)
+def test_load_settings_rejects_invalid_grep_configuration(
+    grep: str, tmp_path: Path
+) -> None:
+    path = write_settings(tmp_path / "settings.yaml", VALID_SETTINGS + grep)
+
+    with pytest.raises(ValueError, match="grep"):
+        load_settings(str(path))
 
 
 def test_load_settings_reads_optional_ingestion_section(tmp_path: Path) -> None:

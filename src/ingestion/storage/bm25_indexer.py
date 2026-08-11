@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import math
 import os
 import pickle
@@ -12,7 +13,7 @@ from pathlib import Path
 from threading import Lock, RLock
 from typing import Any, TypedDict
 
-from src.core.types import Chunk, JsonDict, SearchHit
+from src.core.types import Chunk, ChunkRecord, JsonDict, SearchHit
 from src.ingestion.embedding import tokenize
 from src.ports.ingestion import GenerationStateStore
 
@@ -190,6 +191,52 @@ class BM25Indexer:
             if removed:
                 self._replace_state(documents)
             return removed
+
+    def list_active_chunk_records(self, collection: str) -> list[ChunkRecord]:
+        """Export final active Chunk text for the offline grep-index rebuild."""
+        if self.generation_store is None:
+            raise ValueError("bm25 export error: generation store is required")
+        active = self.generation_store.get_active_generations(collection)
+        documents = self._snapshot_documents()
+        records: list[ChunkRecord] = []
+        for chunk_id, document in documents.items():
+            metadata = dict(document["metadata"])
+            if metadata.get("collection") != collection or not _metadata_is_active(metadata, active):
+                continue
+            text = document["text"]
+            content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            doc_key = metadata.get("doc_key")
+            generation = metadata.get("generation")
+            chunk_index = metadata.get("chunk_index")
+            if (
+                not isinstance(doc_key, str)
+                or not isinstance(generation, int)
+                or isinstance(generation, bool)
+                or not isinstance(chunk_index, int)
+                or isinstance(chunk_index, bool)
+                or chunk_index < 0
+            ):
+                raise ValueError("bm25 export error: active chunk identity is invalid")
+            suffix = hashlib.sha256(f"{chunk_index}\0{content_hash}".encode()).hexdigest()[:32]
+            if chunk_id != f"{doc_key}:{generation}:{suffix}":
+                raise ValueError("bm25 export error: active chunk id does not match text")
+            records.append(
+                ChunkRecord(
+                    id=chunk_id,
+                    text=text,
+                    metadata=metadata,
+                    content_hash=content_hash,
+                )
+            )
+        return sorted(
+            records,
+            key=lambda record: (
+                str(record.metadata.get("source_path", "")),
+                _sort_integer(record.metadata.get("page"), fallback=-1),
+                _sort_integer(record.metadata.get("chunk_index"), fallback=-1),
+                record.id,
+            ),
+        )
 
     def _queryable_documents(
         self,
@@ -403,6 +450,10 @@ def _metadata_is_active(metadata: JsonDict, active: dict[str, int]) -> bool:
         and not isinstance(generation, bool)
         and active.get(doc_key) == generation
     )
+
+
+def _sort_integer(value: object, *, fallback: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else fallback
 
 
 def _path_lock(path: Path) -> RLock:

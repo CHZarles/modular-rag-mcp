@@ -261,6 +261,25 @@ def _minimal_settings() -> Settings:
 
 
 @pytest.mark.anyio
+async def test_http_session_lists_grep_when_available() -> None:
+    service = _ContextCapturingService()
+    server = create_mcp_server(
+        service,
+        grep_service=object(),  # type: ignore[arg-type]
+    )
+    app = server.streamable_http_app(streamable_http_path="/mcp")
+    runner = _UvicornThread(app, host="127.0.0.1", port=_free_port())
+    runner.start()
+    try:
+        async with _http_client(f"http://127.0.0.1:{runner.port}/mcp") as session:
+            listed = await session.list_tools()
+    finally:
+        runner.stop()
+
+    assert "grep_knowledge_hub" in [tool.name for tool in listed.tools]
+
+
+@pytest.mark.anyio
 async def test_http_upload_is_background_and_rejects_concurrent_same_document(
     mcp_upload_server: tuple[
         str,

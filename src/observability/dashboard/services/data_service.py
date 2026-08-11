@@ -8,7 +8,7 @@ from typing import Any
 from src.core.settings import Settings
 from src.core.types import CollectionInfo, DeleteResult, DocumentSummary, JsonDict
 from src.ingestion import DocumentManager
-from src.ingestion.storage import BM25Indexer, ImageStorage
+from src.ingestion.storage import BM25Indexer, ImageStorage, SQLiteGrepIndex
 from src.libs.loader import SQLiteIntegrityStore
 from src.libs.vector_store import ChromaStore
 
@@ -38,7 +38,16 @@ class DataService:
             _required_text(storage, "image_root", "ingestion.storage"),
             generation_store=integrity,
         )
-        return cls(DocumentManager(chroma, bm25, images, integrity))
+        grep_index = None
+        if settings.grep.get("enabled", False):
+            grep_timeout_ms = settings.grep.get("timeout_ms", 1000)
+            if not isinstance(grep_timeout_ms, int) or isinstance(grep_timeout_ms, bool):
+                raise ValueError("Setting grep.timeout_ms must be a positive integer")
+            grep_index = SQLiteGrepIndex(
+                _required_text(settings.grep, "db_path", "grep"),
+                timeout_ms=grep_timeout_ms,
+            )
+        return cls(DocumentManager(chroma, bm25, images, integrity, grep_index))
 
     def list_documents(self, collection: str | None = None) -> list[DocumentSummary]:
         return self.document_manager.list_documents(collection)

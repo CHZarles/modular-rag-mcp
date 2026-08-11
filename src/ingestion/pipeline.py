@@ -25,7 +25,7 @@ from src.core.types import (
     ProgressCallback,
 )
 from src.ingestion.embedding import BatchProcessor
-from src.ingestion.storage import VectorUpserter
+from src.ingestion.storage import SQLiteGrepIndex, VectorUpserter
 from src.observability.logger import get_logger
 from src.ports.ingestion import (
     BaseLoader,
@@ -68,6 +68,7 @@ class IngestionPipeline:
         vector_store: BaseVectorStore,
         bm25_store: BM25IndexStore,
         image_store: ImageStore,
+        grep_index: SQLiteGrepIndex | None = None,
         claim_lease_seconds: float = 900,
         enable_dense: bool = True,
         index_dimension_validator: Callable[[int], None] | None = None,
@@ -84,6 +85,7 @@ class IngestionPipeline:
         self.vector_upserter = VectorUpserter(vector_store, enabled=enable_dense)
         self.bm25_store = bm25_store
         self.image_store = image_store
+        self.grep_index = grep_index
         self.claim_lease_seconds = claim_lease_seconds
         self.index_dimension_validator = index_dimension_validator
 
@@ -276,6 +278,7 @@ class IngestionPipeline:
                         "storage_providers": {
                             "vector": type(self.vector_store).__name__ if self.enable_dense else "disabled",
                             "sparse": type(self.bm25_store).__name__,
+                            "grep": type(self.grep_index).__name__ if self.grep_index else "disabled",
                             "image": type(self.image_store).__name__,
                         },
                     },
@@ -293,6 +296,8 @@ class IngestionPipeline:
                         for chunk, record in zip(chunks, records, strict=True)
                     ]
                     self.bm25_store.upsert(indexed_chunks, sparse_vectors, trace=trace)
+                    if self.grep_index is not None:
+                        self.grep_index.upsert(records)
                     images = _coerce_image_refs(
                         document.metadata.get("images", []),
                         collection=request.collection,
@@ -320,7 +325,7 @@ class IngestionPipeline:
                 raise RuntimeError("ingestion pipeline lost its lease heartbeat")
             claim = heartbeat.close()
             heartbeat = None
-            # 三个外部存储都完成后先进入 staged，再用 generation + claim_token CAS 发布。
+            # 所有外部存储都完成后先进入 staged，再用 generation + claim_token CAS 发布。
             # 旧 worker 即使写完自己的旧代，也会在这里被控制面拒绝。
             current_stage = "publish"
             self.integrity.mark_staged(claim)
@@ -359,11 +364,23 @@ class IngestionPipeline:
                 if value not in ("", None)
             }
             # 只有真正领取到任务且 generation/claim_token 仍匹配的 worker 才能提交失败状态。
+            marked_failed = False
             if claim is not None:
                 try:
                     self.integrity.mark_failed(claim, error)
+                    marked_failed = True
                 except Exception as state_error:
                     metadata["status_record_error"] = str(state_error)
+            if marked_failed and self.grep_index is not None and claim is not None:
+                try:
+                    self.grep_index.remove_generation(claim.doc_key, claim.generation)
+                except Exception as cleanup_error:
+                    logger.warning(
+                        "Unable to delete failed grep generation %s/%s: %s",
+                        claim.doc_key,
+                        claim.generation,
+                        cleanup_error,
+                    )
             result = IngestionResult(
                 source_path=normalized_source_path or request.source_path,
                 collection=request.collection,
@@ -398,14 +415,22 @@ class IngestionPipeline:
                 self.bm25_store.remove_generation(claim.doc_key, generation)
                 self.image_store.delete_generation(claim.doc_key, generation)
             except Exception as exc:
-                # 同步 GC 只负责减少垃圾。旧 worker 仍可能随后补写旧代，因此生产环境
-                # 还需要周期性 GC；无论哪种清理失败，都不能撤销 active_generation。
                 logger.warning(
                     "Unable to delete garbage generation %s/%s: %s",
                     claim.doc_key,
                     generation,
                     exc,
                 )
+            if self.grep_index is not None:
+                try:
+                    self.grep_index.remove_generation(claim.doc_key, generation)
+                except Exception as exc:
+                    logger.warning(
+                        "Unable to delete garbage grep generation %s/%s: %s",
+                        claim.doc_key,
+                        generation,
+                        exc,
+                    )
 
     def _notify_after_publish(
         self,

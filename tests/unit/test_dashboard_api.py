@@ -7,6 +7,9 @@ from pathlib import Path
 from threading import Event
 from typing import Any
 
+import pytest
+
+from core.services.grep_service import GrepMatch, GrepResponse
 from core.settings import Settings
 from core.types import (
     CollectionInfo,
@@ -27,6 +30,7 @@ from observability.dashboard.services import (
     IngestionJobService,
     TraceService,
 )
+from src.ingestion.storage.sqlite_grep_index import GrepIndexUnavailableError
 
 
 @dataclass
@@ -162,6 +166,27 @@ class FakeKnowledgeService:
 
     def get_document_summary(self, doc_id: str) -> DocumentSummary:
         raise KeyError(doc_id)
+
+
+@dataclass
+class FakeGrepService:
+    calls: list[JsonDict] = field(default_factory=list)
+
+    def search(self, **kwargs: Any) -> GrepResponse:
+        self.calls.append(dict(kwargs))
+        return GrepResponse(
+            matches=[
+                GrepMatch(
+                    chunk_id="chunk-1",
+                    text="exact needle",
+                    source_path="/private/manual.pdf",
+                    page=2,
+                    metadata={"collection": "docs", "private": "drop"},
+                    match_count=1,
+                )
+            ],
+            truncated=True,
+        )
 
 
 def _config_service(tmp_path: Path) -> ConfigService:
@@ -323,6 +348,110 @@ def test_query_endpoint_reports_unavailable_service_without_internal_details(
     assert response.json() == {"detail": "query service is not available"}
 
 
+def test_grep_endpoint_uses_independent_service_and_public_response(tmp_path: Path) -> None:
+    service = FakeGrepService()
+    client = _client(tmp_path, grep_service=service)
+
+    response = client.post(
+        "/api/grep",
+        json={
+            "pattern": " needle ",
+            "collection": "docs",
+            "top_k": 20,
+            "case_sensitive": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert service.calls == [
+        {
+            "pattern": " needle ",
+            "collection": "docs",
+            "top_k": 20,
+            "case_sensitive": True,
+        }
+    ]
+    assert response.json()["matches"][0] == {
+        "chunk_id": "chunk-1",
+        "text": "exact needle",
+        "source": "manual.pdf",
+        "page": 2,
+        "metadata": {"collection": "docs"},
+        "match_count": 1,
+    }
+
+
+def test_grep_endpoint_isolated_when_capability_is_unavailable(tmp_path: Path) -> None:
+    client = _client(tmp_path, grep_service=None)
+
+    response = client.post("/api/grep", json={"pattern": "needle"})
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "grep_unavailable"}
+    assert client.get("/api/overview").json()["capabilities"] == {"grep": False}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"pattern": "abc", "top_k": True},
+        {"pattern": "abc", "case_sensitive": 1},
+        {"pattern": "abc", "extra": True},
+    ],
+)
+def test_grep_endpoint_rejects_invalid_json_boundaries_with_400(
+    tmp_path: Path,
+    payload: JsonDict,
+) -> None:
+    client = _client(tmp_path, grep_service=FakeGrepService())
+
+    response = client.post("/api/grep", json=payload)
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "invalid grep request"}
+
+
+def test_grep_endpoint_returns_stable_500_without_internal_details(tmp_path: Path) -> None:
+    service = FakeGrepService()
+
+    def fail(**kwargs: Any) -> GrepResponse:
+        del kwargs
+        raise RuntimeError("/private/index.db exploded")
+
+    service.search = fail  # type: ignore[method-assign]
+    client = _client(tmp_path, grep_service=service)
+
+    response = client.post("/api/grep", json={"pattern": "needle"})
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "grep_failed"}
+    assert "/private/index.db" not in response.text
+
+
+def test_runtime_grep_unavailability_turns_off_only_its_capability(tmp_path: Path) -> None:
+    grep_service = FakeGrepService()
+
+    def unavailable(**kwargs: Any) -> GrepResponse:
+        del kwargs
+        raise GrepIndexUnavailableError("missing index")
+
+    grep_service.search = unavailable  # type: ignore[method-assign]
+    knowledge_service = FakeKnowledgeService(QueryResponse(results=[]))
+    client = _client(
+        tmp_path,
+        grep_service=grep_service,
+        knowledge_service=knowledge_service,
+    )
+
+    grep_response = client.post("/api/grep", json={"pattern": "needle"})
+    query_response = client.post("/api/query", json={"query": "still available"})
+
+    assert grep_response.status_code == 503
+    assert grep_response.json() == {"detail": "grep_unavailable"}
+    assert client.get("/api/overview").json()["capabilities"] == {"grep": False}
+    assert query_response.status_code == 200
+
+
 def test_overview_aggregates_components_collections_and_stats(tmp_path: Path) -> None:
     data_service = FakeDataService(
         documents=[
@@ -342,6 +471,7 @@ def test_overview_aggregates_components_collections_and_stats(tmp_path: Path) ->
     assert codes == ["GEN", "EMB", "SPLIT", "RET", "RANK", "STORE"]
     assert {entry["name"] for entry in payload["collections"]} >= {"default"}
     assert payload["stats"]["document_count"] == 1
+    assert payload["capabilities"] == {"grep": False}
 
 
 def test_get_component_redacts_api_key(tmp_path: Path) -> None:

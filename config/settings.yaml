@@ -93,6 +93,12 @@ observability:
   # Only consulted when ``backend: jsonl`` is selected.
   log_file: ./logs/traces.jsonl
 
+# Independent literal lookup. Build the SQLite index before enabling it.
+grep:
+  enabled: false
+  db_path: ./data/db/chunk_text.db
+  timeout_ms: 1000
+
 # Local maintainer dashboard. It binds to loopback unless explicitly overridden.
 dashboard:
   enabled: true

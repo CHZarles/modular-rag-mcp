@@ -11,7 +11,7 @@ from src.core.settings import Settings
 from src.ingestion.chunking import DocumentChunker
 from src.ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
 from src.ingestion.pipeline import IngestionPipeline
-from src.ingestion.storage import BM25Indexer, ImageStorage
+from src.ingestion.storage import BM25Indexer, ImageStorage, SQLiteGrepIndex
 from src.ingestion.transform import ChunkRefiner, ImageCaptioner, MetadataEnricher
 from src.libs.loader import MinerUPdfLoader, PdfLoader, SQLiteIntegrityStore
 from src.libs.vector_store import create_vector_store
@@ -46,6 +46,15 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
         image_root,
         generation_store=integrity,
     )
+    grep_index = None
+    if settings.grep.get("enabled", False):
+        grep_timeout_ms = settings.grep.get("timeout_ms", 1000)
+        if not isinstance(grep_timeout_ms, int) or isinstance(grep_timeout_ms, bool):
+            raise ValueError("Setting grep.timeout_ms must be a positive integer")
+        grep_index = SQLiteGrepIndex(
+            _required_text(settings.grep, "db_path", "grep"),
+            timeout_ms=grep_timeout_ms,
+        )
 
     return IngestionPipeline(
         integrity=integrity,
@@ -64,6 +73,7 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
         vector_store=vector_store,
         bm25_store=bm25_store,
         image_store=image_store,
+        grep_index=grep_index,
         enable_dense=enable_dense,
         claim_lease_seconds=_positive_float(
             ingestion,

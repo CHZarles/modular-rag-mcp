@@ -6,6 +6,7 @@ from src.mcp_server.tools.base import (
     ToolHandler,
 )
 from src.mcp_server.tools.get_document_summary import GetDocumentSummaryTool
+from src.mcp_server.tools.grep_knowledge_hub import GrepKnowledgeHubTool
 from src.mcp_server.tools.ingestion_jobs import GetIngestionJobTool, UploadDocumentTool
 from src.mcp_server.tools.list_collections import ListCollectionsTool
 from src.mcp_server.tools.query_knowledge_hub import QueryKnowledgeHubTool
@@ -13,6 +14,7 @@ from src.mcp_server.tools.query_knowledge_hub import QueryKnowledgeHubTool
 __all__ = [
     "GetDocumentSummaryTool",
     "GetIngestionJobTool",
+    "GrepKnowledgeHubTool",
     "ListCollectionsTool",
     "QueryKnowledgeHubTool",
     "ToolArgumentError",

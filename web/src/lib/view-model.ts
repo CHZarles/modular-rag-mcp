@@ -23,3 +23,7 @@ export function queryImageDataUrl(
   if (typeof block.mimeType !== 'string' || !block.mimeType.startsWith('image/')) return null
   return `data:${block.mimeType};base64,${block.data}`
 }
+
+export function grepPatternLength(value: string): number {
+  return Array.from(value).length
+}
