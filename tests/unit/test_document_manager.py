@@ -72,6 +72,14 @@ class FakeChromaStore:
 class FakeBM25Indexer:
     def __init__(self) -> None:
         self.remove_calls: list[tuple[str, str]] = []
+        self.records: list[ChunkRecord] = []
+
+    def list_active_chunk_records(self, collection: str) -> list[ChunkRecord]:
+        return [
+            record
+            for record in self.records
+            if record.metadata.get("collection") == collection
+        ]
 
     def remove_document(self, source_path: str, collection: str) -> None:
         self.remove_calls.append((source_path, collection))
@@ -175,6 +183,16 @@ def test_get_document_detail_returns_ordered_chunks_and_images() -> None:
     assert [chunk["id"] for chunk in detail["chunks"]] == ["chunk-a-1", "chunk-a-2"]
     assert detail["chunks"][0]["text"] == "Alpha one"
     assert detail["images"][0]["image_id"] == "image-a"
+
+
+def test_get_document_detail_reads_bm25_when_dense_index_is_disabled() -> None:
+    manager, chroma, bm25, _, _ = _manager()
+    bm25.records = list(chroma.records)
+    chroma.records = []
+
+    detail = manager.get_document_detail("revision-a-2")
+
+    assert [chunk["id"] for chunk in detail["chunks"]] == ["chunk-a-1", "chunk-a-2"]
 
 
 def test_delete_document_coordinates_all_stores_and_removes_listing() -> None:

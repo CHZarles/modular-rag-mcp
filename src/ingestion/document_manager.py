@@ -59,9 +59,14 @@ class DocumentManager:
         images = self.image_storage.list_by_document(source_path, collection)
         summary = self._summary(row, image_count=len(images))
         generation = _nonnegative_int(row, "generation")
-        chunks = self.chroma_store.get_by_metadata(
-            {"doc_key": summary.doc_id, "generation": generation}
-        )
+        filters = {"doc_key": summary.doc_id, "generation": generation}
+        chunks = self.chroma_store.get_by_metadata(filters)
+        if not chunks:
+            chunks = [
+                chunk
+                for chunk in self.bm25_indexer.list_active_chunk_records(collection)
+                if all(chunk.metadata.get(key) == value for key, value in filters.items())
+            ]
         return {
             "document": summary.to_dict(),
             "chunks": [
