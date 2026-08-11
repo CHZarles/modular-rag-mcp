@@ -27,3 +27,16 @@ export function queryImageDataUrl(
 export function grepPatternLength(value: string): number {
   return Array.from(value).length
 }
+
+export function validateUploadCandidate(
+  fileName: string,
+  fileSize: number,
+  acceptedExtensions: readonly string[],
+  maxUploadBytes: number,
+): 'unsupported_file_type' | 'file_too_large' | null {
+  const normalizedName = fileName.toLowerCase()
+  if (!acceptedExtensions.some((extension) => normalizedName.endsWith(extension.toLowerCase()))) {
+    return 'unsupported_file_type'
+  }
+  return fileSize > maxUploadBytes ? 'file_too_large' : null
+}

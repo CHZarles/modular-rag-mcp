@@ -16,6 +16,10 @@ from src.application.services import IngestionService
 from src.core.settings import Settings
 from src.core.trace import TraceCollector, TraceContext
 from src.core.types import IngestionRequest, IngestionResult, ProgressCallback
+from src.libs.loader.csv_loader import csv_to_markdown
+from src.libs.loader.docx_loader import validate_docx
+from src.libs.loader.format_router import IMAGE_EXTENSIONS, SUPPORTED_EXTENSIONS
+from src.libs.loader.image_loader import validate_image
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 MAX_FILENAME_CHARS = 255
@@ -68,7 +72,8 @@ class UploadIngestionCoordinator:
     ) -> IngestionJob:
         safe_name = _safe_filename(filename)
         normalized_collection = _collection(collection)
-        _validate_pdf(content, self.max_upload_bytes)
+        extension = Path(safe_name).suffix.lower()
+        _validate_upload(extension, content, self.max_upload_bytes)
         if not isinstance(force, bool) or not isinstance(ai_enrichment, bool):
             raise UploadRejectedError("invalid_upload_options")
 
@@ -85,6 +90,7 @@ class UploadIngestionCoordinator:
                 settings=settings_for_ingestion_profile(
                     self.settings,
                     ai_enrichment=ai_enrichment,
+                    require_image_caption=extension in IMAGE_EXTENSIONS,
                 ),
                 ingestion_factory=self.ingestion_factory,
             )
@@ -180,21 +186,23 @@ def settings_for_ingestion_profile(
     settings: Settings,
     *,
     ai_enrichment: bool,
+    require_image_caption: bool = False,
 ) -> Settings:
-    if ai_enrichment:
+    if ai_enrichment and not require_image_caption:
         return settings
     ingestion = dict(settings.ingestion)
-    ingestion["chunk_refiner"] = {
-        **_mapping(ingestion.get("chunk_refiner")),
-        "use_llm": False,
-    }
-    ingestion["metadata_enricher"] = {
-        **_mapping(ingestion.get("metadata_enricher")),
-        "use_llm": False,
-    }
+    if not ai_enrichment:
+        ingestion["chunk_refiner"] = {
+            **_mapping(ingestion.get("chunk_refiner")),
+            "use_llm": False,
+        }
+        ingestion["metadata_enricher"] = {
+            **_mapping(ingestion.get("metadata_enricher")),
+            "use_llm": False,
+        }
     ingestion["image_captioner"] = {
         **_mapping(ingestion.get("image_captioner")),
-        "enabled": False,
+        "enabled": require_image_caption,
     }
     return replace(settings, ingestion=ingestion)
 
@@ -207,8 +215,8 @@ def _safe_filename(value: object) -> str:
         raise UploadRejectedError("invalid_filename")
     if any(ord(character) < 32 for character in filename):
         raise UploadRejectedError("invalid_filename")
-    if Path(filename).suffix.lower() != ".pdf":
-        raise UploadRejectedError("invalid_pdf")
+    if Path(filename).suffix.lower() not in SUPPORTED_EXTENSIONS:
+        raise UploadRejectedError("unsupported_file_type")
     return filename
 
 
@@ -221,13 +229,32 @@ def _collection(value: object) -> str:
     return collection
 
 
-def _validate_pdf(content: object, max_upload_bytes: int) -> None:
+def _validate_upload(extension: str, content: object, max_upload_bytes: int) -> None:
+    error_code = {
+        ".pdf": "invalid_pdf",
+        ".docx": "invalid_docx",
+        ".csv": "invalid_csv",
+        ".png": "invalid_image",
+        ".jpg": "invalid_image",
+        ".jpeg": "invalid_image",
+        ".webp": "invalid_image",
+    }[extension]
     if not isinstance(content, bytes) or not content:
-        raise UploadRejectedError("invalid_pdf")
+        raise UploadRejectedError(error_code)
     if len(content) > max_upload_bytes:
         raise UploadRejectedError("file_too_large")
-    if b"%PDF-" not in content[:1024]:
-        raise UploadRejectedError("invalid_pdf")
+    try:
+        if extension == ".pdf":
+            if b"%PDF-" not in content[:1024]:
+                raise ValueError("invalid PDF header")
+        elif extension == ".docx":
+            validate_docx(content)
+        elif extension == ".csv":
+            csv_to_markdown(content, "upload")
+        else:
+            validate_image(content, extension)
+    except ValueError as exc:
+        raise UploadRejectedError(error_code) from exc
 
 
 def _stage(content: bytes, upload_root: Path, filename: str) -> Path:

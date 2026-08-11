@@ -760,6 +760,20 @@ def test_ingestion_options_lists_collections_and_default(tmp_path: Path) -> None
     payload = response.json()
     assert "papers" in payload["collections"]
     assert payload["ai_enrichment_default"] is False
+    assert payload["accepted_extensions"] == [
+        ".pdf",
+        ".docx",
+        ".csv",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+    ]
+    assert payload["max_upload_bytes"] == 50 * 1024 * 1024
+    assert payload["pdf_loader_provider"] == "markitdown"
+    assert payload["image_caption_provider"] == "openai"
+    assert payload["image_caption_model"] == "gpt-4o-mini"
+    assert payload["splitter_provider"] == "recursive"
 
 
 def test_ingestion_job_endpoint_writes_pdf_and_dispatches(

@@ -48,6 +48,7 @@ from src.ingestion.storage import SQLiteGrepIndex
 from src.libs.embedding.embedding_factory import EmbeddingFactory
 from src.libs.llm.llm_factory import LLMFactory
 from src.libs.loader import SQLiteIntegrityStore
+from src.libs.loader.format_router import SUPPORTED_EXTENSIONS
 from src.libs.reranker.reranker_factory import RerankerFactory
 from src.mcp_server.tools import (
     GrepKnowledgeHubTool,
@@ -104,6 +105,11 @@ class DocumentTarget:
     doc_id: str
     source_path: str
     collection: str
+
+
+def _configured_text(config: Mapping[str, Any], key: str) -> str | None:
+    value = config.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _safe_build(label: str, factory: Any, settings: Settings) -> Any:
@@ -702,9 +708,21 @@ def _register_routes(app: FastAPI, state: dict[str, AppContext]) -> None:
         data_service = require_data_service(current)
         indexed = data_service.list_collections()
         options = collection_options(current.settings, indexed)
+        loader_config = current.settings.ingestion.get("loader", {})
+        if not isinstance(loader_config, Mapping):
+            loader_config = {}
+        vision_config = current.settings.vision_llm
+        if not isinstance(vision_config, Mapping):
+            vision_config = current.settings.llm
         return IngestionOptionsResponse(
             collections=options,
             ai_enrichment_default=dashboard_ai_enrichment_default(current.settings),
+            accepted_extensions=list(SUPPORTED_EXTENSIONS),
+            max_upload_bytes=MAX_UPLOAD_BYTES,
+            pdf_loader_provider=_configured_text(loader_config, "provider") or "markitdown",
+            image_caption_provider=_configured_text(vision_config, "provider"),
+            image_caption_model=_configured_text(vision_config, "model"),
+            splitter_provider=_configured_text(current.settings.splitter, "provider"),
         )
 
     @app.post(
@@ -1249,6 +1267,12 @@ class IngestionOptionsResponse(BaseModel):
 
     collections: list[str]
     ai_enrichment_default: bool
+    accepted_extensions: list[str]
+    max_upload_bytes: int
+    pdf_loader_provider: str
+    image_caption_provider: str | None
+    image_caption_model: str | None
+    splitter_provider: str | None
 
 
 class IngestionJobResponse(BaseModel):

@@ -17,6 +17,8 @@ import httpx2
 from mcp import ClientSession, types
 from mcp.client.streamable_http import streamable_http_client
 
+from src.libs.loader.format_router import SUPPORTED_EXTENSIONS
+
 DEFAULT_MCP_URL = "http://127.0.0.1:8766/mcp"
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
@@ -76,7 +78,7 @@ def _tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     if args.command == "document":
         return "get_document_summary", {"doc_id": args.doc_id}
     if args.command == "upload":
-        content = _read_pdf(args.path)
+        content = _read_upload(args.path)
         return "upload_document", {
             "filename": args.path.name,
             "content_base64": base64.b64encode(content).decode("ascii"),
@@ -119,7 +121,7 @@ def _build_parser() -> argparse.ArgumentParser:
     document.add_argument("doc_id")
     _add_connection_options(document, defaults=False)
 
-    upload = commands.add_parser("upload", help="Upload one PDF for background ingestion")
+    upload = commands.add_parser("upload", help="Upload one supported file for ingestion")
     upload.add_argument("path", type=Path)
     upload.add_argument("--collection", default="default")
     upload.add_argument("--force", action="store_true")
@@ -157,25 +159,25 @@ def _positive_int(value: str) -> int:
     return result
 
 
-def _read_pdf(path: Path) -> bytes:
+def _read_upload(path: Path) -> bytes:
     resolved = path.expanduser()
-    if resolved.suffix.lower() != ".pdf":
-        raise _CliInputError("upload path must have a .pdf suffix")
+    if resolved.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        raise _CliInputError(f"unsupported file type: {resolved.suffix or '<none>'}")
     try:
         size = resolved.stat().st_size
         if not resolved.is_file():
             raise _CliInputError("upload path must be a file")
         if size > MAX_UPLOAD_BYTES:
-            raise _CliInputError("PDF exceeds the 50 MiB upload limit")
+            raise _CliInputError("file exceeds the 50 MiB upload limit")
         content = resolved.read_bytes()
     except _CliInputError:
         raise
     except OSError as exc:
         raise _CliInputError(f"cannot read upload path: {exc}") from exc
-    if not content or b"%PDF-" not in content[:1024]:
-        raise _CliInputError("upload path is not a valid PDF")
+    if not content:
+        raise _CliInputError("upload file must not be empty")
     if len(content) > MAX_UPLOAD_BYTES:
-        raise _CliInputError("PDF exceeds the 50 MiB upload limit")
+        raise _CliInputError("file exceeds the 50 MiB upload limit")
     return content
 
 

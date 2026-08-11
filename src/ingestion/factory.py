@@ -13,7 +13,15 @@ from src.ingestion.embedding import BatchProcessor, DenseEncoder, SparseEncoder
 from src.ingestion.pipeline import IngestionPipeline
 from src.ingestion.storage import BM25Indexer, ImageStorage, SQLiteGrepIndex
 from src.ingestion.transform import ChunkRefiner, ImageCaptioner, MetadataEnricher
-from src.libs.loader import MinerUPdfLoader, PdfLoader, SQLiteIntegrityStore
+from src.libs.loader import (
+    CsvLoader,
+    DocxLoader,
+    FormatRouter,
+    ImageLoader,
+    MinerUPdfLoader,
+    PdfLoader,
+    SQLiteIntegrityStore,
+)
 from src.libs.vector_store import create_vector_store
 from src.ports.ingestion import BaseLoader
 
@@ -58,7 +66,7 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
 
     return IngestionPipeline(
         integrity=integrity,
-        loader=_create_loader(ingestion, image_root),
+        loader=_create_format_router(ingestion, image_root),
         chunker=DocumentChunker(settings),
         transforms=[
             ChunkRefiner(settings),
@@ -83,6 +91,22 @@ def build_ingestion_pipeline(settings: Settings) -> IngestionPipeline:
         index_dimension_validator=(
             index_guard.ensure_dimension if index_guard is not None else None
         ),
+    )
+
+
+def _create_format_router(ingestion: Mapping[str, Any], image_root: str) -> FormatRouter:
+    pdf_loader = _create_loader(ingestion, image_root)
+    image_loader = ImageLoader(image_root)
+    return FormatRouter(
+        {
+            ".pdf": pdf_loader,
+            ".docx": DocxLoader(),
+            ".csv": CsvLoader(),
+            ".png": image_loader,
+            ".jpg": image_loader,
+            ".jpeg": image_loader,
+            ".webp": image_loader,
+        }
     )
 
 

@@ -1,6 +1,6 @@
 # Modular RAG MCP Server
 
-面向 PDF 知识库的检索服务。服务通过 MCP 返回候选 Chunk、来源、页码、各阶段分数和关联原图；不生成回答，也不将检索结果包装成问答结论。
+面向本地资料库的检索服务。服务通过 MCP 返回候选 Chunk、来源、页码、各阶段分数和关联原图；不生成回答，也不将检索结果包装成问答结论。
 
 ## 运行边界
 
@@ -13,10 +13,10 @@
 
 | 模块 | 当前实现 |
 | --- | --- |
-| 摄取 | PDF -> Markdown -> Chunk -> 索引；支持 MinerU 标准 API 和 MarkItDown 解析器 |
+| 摄取 | PDF、DOCX、CSV、PNG/JPEG/WebP -> `Document` -> Chunk -> 索引；PDF 支持 MinerU 和 MarkItDown |
 | 检索 | BM25、Dense 与 RRF Hybrid；可选独立 SQLite FTS5 字面量查找；默认配置为 BM25-only、Grep 关闭 |
 | 多模态 | 摄取时可为图片生成描述；检索命中图片 Chunk 时返回原始图片内容 |
-| MCP | stdio 与 Streamable HTTP；提供查询、Collection、文档摘要、PDF 上传和摄取任务查询工具 |
+| MCP | stdio 与 Streamable HTTP；提供查询、Collection、文档摘要、资料上传和摄取任务查询工具 |
 | 可观测性 | Query 与 Ingestion Trace 持久化到 SQLite，Dashboard 展示阶段输入、耗时和分数 |
 | 评测 | PostgreSQL 回归集与 HotpotQA 检索基准；指标为 Hit@5、MRR@5 和图片召回检查 |
 | 运维控制台 | React + FastAPI 私有维护界面，用于配置、摄取、检索调试、Trace 和 Benchmark |
@@ -117,12 +117,13 @@ modular-rag-cli collections
 modular-rag-cli query '要检索的问题' --collection default --top-k 5
 modular-rag-cli document <doc_id>
 modular-rag-cli upload ./document.pdf --collection default
+modular-rag-cli upload ./architecture.png --collection default
 modular-rag-cli job <job_id>
 ```
 
 它默认连接 `http://127.0.0.1:8766/mcp`；`RAG_MCP_URL` 或 `--url` 可指定其他端点。stdout 只输出单个 `structuredContent` JSON，适合 Agent 直接消费；请求诊断写入 stderr。完整命令契约见 [extension/cli/README.md](extension/cli/README.md)。
 
-PDF 上传限制为 50 MiB。服务可以并发接收不同文件，但通过容量为 8 的有界队列和单 worker 串行执行摄取，避免并行写入多个索引。同一稳定文件正在处理时返回 `document_busy`；独立暂存、原子发布、文件锁以及 Pipeline 的 claim、lease 和 generation fence 共同防止同名上传串写或过期 worker 发布结果。
+单文件上传限制为 50 MiB，支持 PDF、DOCX、CSV、PNG、JPG/JPEG 和 WebP。独立图片必须成功生成视觉描述才会发布；PDF 内嵌图片描述失败时仍保留正文。服务可以并发接收不同文件，但通过容量为 8 的有界队列和单 worker 串行执行摄取，避免并行写入多个索引。同一稳定文件正在处理时返回 `document_busy`；独立暂存、原子发布、文件锁以及 Pipeline 的 claim、lease 和 generation fence 共同防止同名上传串写或过期 worker 发布结果。
 
 ### 启动 Dashboard
 

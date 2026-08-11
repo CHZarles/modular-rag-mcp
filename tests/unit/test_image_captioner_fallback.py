@@ -156,6 +156,20 @@ def test_missing_vision_client_falls_back_without_losing_reference(tmp_path: Pat
     assert result.metadata["unprocessed_image_refs"] == ["img-1"]
 
 
+def test_standalone_image_requires_a_successful_caption(tmp_path: Path) -> None:
+    chunk = make_chunk([{"id": "img-1", "path": str(tmp_path / "missing.png")}])
+    standalone = Chunk(
+        id=chunk.id,
+        text=chunk.text,
+        metadata={**chunk.metadata, "doc_type": "image", "standalone_image": True},
+        source_ref=chunk.source_ref,
+        chunk_index=chunk.chunk_index,
+    )
+
+    with pytest.raises(RuntimeError, match="image_caption_required"):
+        ImageCaptioner(settings(True), vision_llm=FakeVisionLLM()).transform([standalone])
+
+
 def test_enabled_mode_builds_current_openai_compatible_vision_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

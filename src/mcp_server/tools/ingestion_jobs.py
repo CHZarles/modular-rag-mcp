@@ -1,4 +1,4 @@
-"""MCP Tools for submitting PDF uploads and polling ingestion jobs."""
+"""MCP Tools for submitting supported uploads and polling ingestion jobs."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from src.application.upload_ingestion import (
     UploadRejectedError,
 )
 from src.core.types import JsonDict
+from src.libs.loader.format_router import SUPPORTED_EXTENSIONS
 from src.mcp_server.request_context import current_request_context
 from src.mcp_server.tools.base import (
     ToolArgumentError,
@@ -38,7 +39,7 @@ _JOB_ARGUMENTS = frozenset({"job_id"})
 
 class UploadDocumentTool:
     name = "upload_document"
-    description = "上传 PDF 并提交后台摄取任务，立即返回可轮询的任务 ID"
+    description = "上传资料并提交后台摄取任务，立即返回可轮询的任务 ID"
     input_schema: JsonDict = {
         "type": "object",
         "properties": {
@@ -46,13 +47,13 @@ class UploadDocumentTool:
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 255,
-                "description": "包含 .pdf 后缀的原始文件名",
+                "description": "原始文件名，支持 " + "、".join(SUPPORTED_EXTENSIONS),
             },
             "content_base64": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": MAX_BASE64_CHARS,
-                "description": "PDF 文件的标准 Base64 内容",
+                "description": "文件的标准 Base64 内容",
             },
             "collection": {
                 "type": "string",
@@ -86,7 +87,7 @@ class UploadDocumentTool:
         try:
             content = base64.b64decode(encoded, validate=True)
         except (binascii.Error, ValueError):
-            return _error_result("invalid_pdf")
+            return _error_result("invalid_file")
 
         collection = validate_identifier(
             arguments.get("collection", "default"), field="collection"
@@ -121,7 +122,7 @@ class UploadDocumentTool:
 
 class GetIngestionJobTool:
     name = "get_ingestion_job"
-    description = "按任务 ID 查询 PDF 摄取状态、阶段进度和结果"
+    description = "按任务 ID 查询文件摄取状态、阶段进度和结果"
     input_schema: JsonDict = {
         "type": "object",
         "properties": {

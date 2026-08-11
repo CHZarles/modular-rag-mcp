@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { formatElapsedSeconds } from '../src/lib/format.ts'
-import { grepPatternLength, queryImageDataUrl, selectAvailableValue, summarizeRuntime } from '../src/lib/view-model.ts'
+import { grepPatternLength, queryImageDataUrl, selectAvailableValue, summarizeRuntime, validateUploadCandidate } from '../src/lib/view-model.ts'
 
 test('formatElapsedSeconds keeps benchmark runtime readable', () => {
   assert.equal(formatElapsedSeconds(0), '0 秒')
@@ -45,4 +45,12 @@ test('grepPatternLength counts Unicode code points without trimming', () => {
   assert.equal(grepPatternLength('😀😀😀'), 3)
   assert.equal(grepPatternLength('   '), 3)
   assert.equal(grepPatternLength('😀'.repeat(4001)), 4001)
+})
+
+test('validateUploadCandidate follows server-provided extensions and size limit', () => {
+  const extensions = ['.pdf', '.docx', '.png']
+
+  assert.equal(validateUploadCandidate('ARCHITECTURE.PNG', 1024, extensions, 2048), null)
+  assert.equal(validateUploadCandidate('notes.txt', 1024, extensions, 2048), 'unsupported_file_type')
+  assert.equal(validateUploadCandidate('large.pdf', 4096, extensions, 2048), 'file_too_large')
 })

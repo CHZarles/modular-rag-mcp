@@ -53,6 +53,8 @@ class ImageCaptioner:
         for chunk in chunks:
             refs = _image_refs(chunk.metadata.get("image_refs"))
             if not refs:
+                if chunk.metadata.get("standalone_image") is True:
+                    raise RuntimeError("image_caption_required")
                 results.append(chunk)
                 continue
             if (
@@ -63,7 +65,7 @@ class ImageCaptioner:
                 continue
 
             try:
-                results.append(self._caption_chunk(chunk, refs, trace))
+                processed = self._caption_chunk(chunk, refs, trace)
             except Exception as exc:
                 # 异常隔离在 Chunk 边界；失败信息只进入 metadata，不中止摄取。
                 metadata = {
@@ -72,7 +74,13 @@ class ImageCaptioner:
                     "unprocessed_image_refs": refs,
                     "image_caption_error": str(exc),
                 }
-                results.append(replace(chunk, metadata=metadata))
+                processed = replace(chunk, metadata=metadata)
+            if (
+                processed.metadata.get("standalone_image") is True
+                and processed.metadata.get("has_unprocessed_images") is not False
+            ):
+                raise RuntimeError("image_caption_required")
+            results.append(processed)
         return results
 
     def _caption_chunk(

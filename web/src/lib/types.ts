@@ -169,6 +169,12 @@ export interface HotpotQABenchmarkJob {
 export interface IngestionOptions {
   collections: string[]
   ai_enrichment_default: boolean
+  accepted_extensions: string[]
+  max_upload_bytes: number
+  pdf_loader_provider: string
+  image_caption_provider: string | null
+  image_caption_model: string | null
+  splitter_provider: string | null
 }
 
 export type IngestionStatus = 'queued' | 'running' | 'success' | 'skipped' | 'failed'

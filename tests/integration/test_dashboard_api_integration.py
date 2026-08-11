@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import io
 import time
+import zipfile
 from pathlib import Path
+from typing import Any
 
 import pymupdf
+import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
+from src.libs.llm import ChatResponse
 from src.observability.dashboard.api import create_app
 
 
@@ -63,6 +69,102 @@ def test_api_health_endpoint_reachable(tmp_path: Path) -> None:
     assert response.json() == {"status": "ok"}
 
 
+@pytest.mark.parametrize(
+    ("filename", "expected_text", "doc_type"),
+    [
+        ("architecture.docx", "DOCX unique architecture phrase", "docx"),
+        ("people.csv", "role: Platform Architect", "csv"),
+    ],
+)
+def test_api_ingests_docx_and_csv_through_existing_pipeline(
+    tmp_path: Path,
+    filename: str,
+    expected_text: str,
+    doc_type: str,
+) -> None:
+    client = TestClient(create_app(settings_path=_write_settings(tmp_path)))
+    content = (
+        _docx_bytes(expected_text)
+        if filename.endswith(".docx")
+        else b"name,role\nAlice,Platform Architect\n"
+    )
+
+    response = client.post(
+        "/api/ingestion/jobs",
+        files={"file": (filename, content, "application/octet-stream")},
+        data={"collection": "api-docs", "force": "false", "ai_enrichment": "false"},
+    )
+
+    assert response.status_code == 202, response.text
+    assert _wait_for_job(client, response.json()["job_id"])["status"] == "success"
+    documents = client.get("/api/documents", params={"collection": "api-docs"}).json()["documents"]
+    document = next(item for item in documents if item["source_path"].endswith(filename))
+    detail = client.get(f"/api/documents/{document['doc_id']}").json()
+    assert any(expected_text in chunk["text"] for chunk in detail["chunks"])
+    assert detail["chunks"][0]["metadata"]["doc_type"] == doc_type
+
+
+def test_api_ingests_and_retrieves_standalone_image(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeVision:
+        def chat_with_image(self, _text: str, _image: Any, **_kwargs: Any) -> ChatResponse:
+            return ChatResponse(
+                content="Three tier ingestion architecture with a format router.",
+                model="fake-vision",
+            )
+
+    monkeypatch.setattr(
+        "src.ingestion.transform.image_captioner.create_vision_llm",
+        lambda _settings: FakeVision(),
+    )
+    client = TestClient(create_app(settings_path=_write_settings(tmp_path)))
+    content = _image_bytes()
+
+    response = client.post(
+        "/api/ingestion/jobs",
+        files={"file": ("architecture.png", content, "image/png")},
+        data={"collection": "api-images", "force": "false", "ai_enrichment": "false"},
+    )
+
+    assert response.status_code == 202, response.text
+    assert _wait_for_job(client, response.json()["job_id"])["status"] == "success"
+    documents = client.get("/api/documents", params={"collection": "api-images"}).json()["documents"]
+    document = next(item for item in documents if item["source_path"].endswith("architecture.png"))
+    detail = client.get(f"/api/documents/{document['doc_id']}").json()
+    assert "Three tier ingestion architecture" in detail["chunks"][0]["text"]
+    assert len(detail["images"]) == 1
+    assert Path(detail["images"][0]["path"]).read_bytes() == content
+
+    query = client.post(
+        "/api/query",
+        json={"query": "format router architecture", "collection": "api-images", "top_k": 3},
+    )
+    assert query.status_code == 200, query.text
+    assert any(block["type"] == "image" for block in query.json()["content"])
+
+    class FailingVision:
+        def chat_with_image(self, _text: str, _image: Any, **_kwargs: Any) -> ChatResponse:
+            raise RuntimeError("vision unavailable")
+
+    monkeypatch.setattr(
+        "src.ingestion.transform.image_captioner.create_vision_llm",
+        lambda _settings: FailingVision(),
+    )
+    retry = client.post(
+        "/api/ingestion/jobs",
+        files={"file": ("architecture.png", content, "image/png")},
+        data={"collection": "api-images", "force": "true", "ai_enrichment": "false"},
+    )
+    assert retry.status_code == 202, retry.text
+    failed = _wait_for_job(client, retry.json()["job_id"])
+    assert failed["status"] == "failed"
+    assert "image_caption_required" in failed["error"]
+    active_detail = client.get(f"/api/documents/{document['doc_id']}").json()
+    assert "Three tier ingestion architecture" in active_detail["chunks"][0]["text"]
+
+
 def _pdf_bytes(path: Path, text: str) -> bytes:
     document = pymupdf.open()
     page = document.new_page()
@@ -70,6 +172,56 @@ def _pdf_bytes(path: Path, text: str) -> bytes:
     document.save(path)
     document.close()
     return path.read_bytes()
+
+
+def _docx_bytes(text: str) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            "</Types>",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="word/document.xml"/>'
+            "</Relationships>",
+        )
+        archive.writestr(
+            "word/document.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            f"<w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p><w:sectPr/></w:body>"
+            "</w:document>",
+        )
+    return output.getvalue()
+
+
+def _image_bytes() -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (32, 24), "white").save(output, format="PNG")
+    return output.getvalue()
+
+
+def _wait_for_job(client: TestClient, job_id: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/ingestion/jobs/{job_id}")
+        assert response.status_code == 200
+        payload = response.json()
+        if payload["status"] in {"success", "skipped", "failed"}:
+            return payload
+        time.sleep(0.05)
+    raise AssertionError(f"ingestion job {job_id} did not finish")
 
 
 def _write_settings(tmp_path: Path) -> Path:

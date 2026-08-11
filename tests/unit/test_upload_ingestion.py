@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import subprocess
 import sys
 import time
@@ -11,6 +12,7 @@ from threading import Event
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from src.application.ingestion_jobs import (
     IngestionJobService,
@@ -97,6 +99,32 @@ def test_different_uploads_queue_and_keep_their_own_bytes(tmp_path: Path) -> Non
         coordinator.shutdown()
 
 
+def test_standalone_image_is_accepted_and_forces_caption_profile(tmp_path: Path) -> None:
+    ingestion = BlockingIngestion()
+    captured_settings: list[Settings] = []
+
+    def factory(settings: Settings) -> BlockingIngestion:
+        captured_settings.append(settings)
+        return ingestion
+
+    coordinator = UploadIngestionCoordinator(_settings(), tmp_path / "uploads", factory)
+    content = _image_bytes("PNG")
+    try:
+        job = coordinator.submit(
+            filename="architecture.png",
+            content=content,
+            ai_enrichment=False,
+        )
+        assert ingestion.started.wait(timeout=1)
+        assert captured_settings[0].ingestion["image_captioner"]["enabled"] is True
+        assert captured_settings[0].ingestion["chunk_refiner"]["use_llm"] is False
+        ingestion.release.set()
+        assert _wait_for(coordinator.jobs, job.job_id, "success").status == "success"
+    finally:
+        ingestion.release.set()
+        coordinator.shutdown()
+
+
 def test_full_queue_cleans_staging_and_releases_target_lock(tmp_path: Path) -> None:
     ingestion = BlockingIngestion()
     jobs = IngestionJobService(max_workers=1, max_active_jobs=1)
@@ -163,9 +191,12 @@ with pathlib.Path(sys.argv[1]).open("a+b") as stream:
 @pytest.mark.parametrize(
     ("filename", "content", "code"),
     [
-        ("guide.txt", b"%PDF-1.4", "invalid_pdf"),
+        ("guide.txt", b"%PDF-1.4", "unsupported_file_type"),
         ("guide.pdf", b"", "invalid_pdf"),
         ("guide.pdf", b"not a pdf", "invalid_pdf"),
+        ("guide.docx", b"not zip", "invalid_docx"),
+        ("guide.csv", b"\xff", "invalid_csv"),
+        ("guide.png", b"bad", "invalid_image"),
         ("guide.pdf", b"%PDF-1.4\ntoo large", "file_too_large"),
     ],
 )
@@ -230,3 +261,9 @@ def _settings() -> Settings:
         observability={"enabled": False},
         ingestion={},
     )
+
+
+def _image_bytes(image_format: str) -> bytes:
+    output = io.BytesIO()
+    Image.new("RGB", (8, 6), "white").save(output, format=image_format)
+    return output.getvalue()

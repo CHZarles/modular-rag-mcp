@@ -75,7 +75,8 @@ def test_upload_document_returns_stable_validation_and_busy_errors() -> None:
 
     invalid = tool.call({"filename": "a.pdf", "content_base64": "not base64"})
     assert invalid["isError"] is True
-    assert invalid["structuredContent"] == {"error": {"code": "invalid_pdf"}}
+    assert invalid["structuredContent"] == {"error": {"code": "invalid_file"}}
+    assert ".docx" in tool.input_schema["properties"]["filename"]["description"]
 
     def reject(**_arguments: Any) -> IngestionJob:
         raise UploadRejectedError("document_busy")

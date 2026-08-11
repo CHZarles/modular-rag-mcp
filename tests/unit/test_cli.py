@@ -130,7 +130,28 @@ def test_upload_reads_pdf_and_maps_ingestion_options(tmp_path, monkeypatch, caps
     }
 
 
-def test_upload_rejects_non_pdf_before_connecting(tmp_path, monkeypatch, capsys) -> None:
+def test_upload_accepts_csv_without_parsing_it_locally(tmp_path, monkeypatch, capsys) -> None:
+    captured: dict[str, Any] = {}
+    source = tmp_path / "people.csv"
+    content = b"name,role\nAlice,Architect\n"
+    source.write_bytes(content)
+
+    async def fake_call_tool(_url, _headers, tool_name, arguments):
+        captured.update(tool_name=tool_name, arguments=arguments)
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text="queued")],
+            structuredContent={"job": {"job_id": "job-2", "status": "queued"}},
+        )
+
+    monkeypatch.setattr(cli, "_call_tool", fake_call_tool)
+
+    assert cli.main(["upload", str(source)]) == 0
+    assert captured["tool_name"] == "upload_document"
+    assert captured["arguments"]["filename"] == "people.csv"
+    assert base64.b64decode(captured["arguments"]["content_base64"]) == content
+
+
+def test_upload_rejects_unsupported_file_before_connecting(tmp_path, monkeypatch, capsys) -> None:
     path = tmp_path / "notes.txt"
     path.write_text("not pdf", encoding="utf-8")
 
@@ -142,7 +163,7 @@ def test_upload_rejects_non_pdf_before_connecting(tmp_path, monkeypatch, capsys)
     assert cli.main(["upload", str(path)]) == 2
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "must have a .pdf suffix" in captured.err
+    assert "unsupported file type" in captured.err
 
 
 def test_job_maps_to_ingestion_job_tool(monkeypatch, capsys) -> None:
