@@ -1086,6 +1086,7 @@ class DashboardQueryPayload(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     collection: str = Field(default="default", min_length=1, max_length=128)
     top_k: int = Field(default=5, ge=1, le=20)
+    file_type: str | None = Field(default=None, min_length=1, max_length=16)
 
 
 class DashboardQueryResponse(BaseModel):
@@ -1105,6 +1106,7 @@ class DashboardGrepPayload(BaseModel):
     collection: str = Field(default="default", min_length=1, max_length=128)
     top_k: int = Field(default=20, ge=1, le=20, strict=True)
     case_sensitive: bool = Field(default=False, strict=True)
+    file_type: str | None = Field(default=None, min_length=1, max_length=16)
 
 
 class DashboardGrepMatch(BaseModel):

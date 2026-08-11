@@ -319,12 +319,22 @@ def test_query_endpoint_reuses_knowledge_service_and_returns_public_citations(
 
     response = client.post(
         "/api/query",
-        json={"query": "generation fence", "collection": "docs", "top_k": 3},
+        json={
+            "query": "generation fence",
+            "collection": "docs",
+            "top_k": 3,
+            "file_type": "pdf",
+        },
     )
 
     assert response.status_code == 200, response.text
     assert [request.to_dict() for request in service.requests] == [
-        QueryRequest(query="generation fence", collection="docs", top_k=3).to_dict()
+        QueryRequest(
+            query="generation fence",
+            collection="docs",
+            top_k=3,
+            filters={"doc_type": "pdf"},
+        ).to_dict()
     ]
     payload = response.json()
     assert payload["results"][0]["source"] == "manual.pdf"
@@ -359,6 +369,7 @@ def test_grep_endpoint_uses_independent_service_and_public_response(tmp_path: Pa
             "collection": "docs",
             "top_k": 20,
             "case_sensitive": True,
+            "file_type": "pdf",
         },
     )
 
@@ -369,6 +380,7 @@ def test_grep_endpoint_uses_independent_service_and_public_response(tmp_path: Pa
             "collection": "docs",
             "top_k": 20,
             "case_sensitive": True,
+            "file_type": "pdf",
         }
     ]
     assert response.json()["matches"][0] == {

@@ -14,12 +14,14 @@ from src.ingestion.storage.sqlite_grep_index import (
     normalize_search_text,
 )
 from src.mcp_server.tools.base import (
+    DOCUMENT_TYPES,
     MAX_QUERY_CHARS,
     ToolArgumentError,
     ToolExecutionError,
     public_citation_metadata,
     public_source_label,
     sanitize_wire_string,
+    validate_file_type,
     validate_identifier,
     validate_top_k,
 )
@@ -27,7 +29,9 @@ from src.observability.logger import get_logger
 
 logger = get_logger(__name__)
 
-_ALLOWED_ARGUMENTS = frozenset({"pattern", "collection", "top_k", "case_sensitive"})
+_ALLOWED_ARGUMENTS = frozenset(
+    {"pattern", "collection", "top_k", "case_sensitive", "file_type"}
+)
 
 
 class GrepKnowledgeHubTool:
@@ -55,6 +59,11 @@ class GrepKnowledgeHubTool:
                 "default": 20,
             },
             "case_sensitive": {"type": "boolean", "default": False},
+            "file_type": {
+                "type": "string",
+                "enum": list(DOCUMENT_TYPES),
+                "description": "按源文件类型筛选结果",
+            },
         },
         "required": ["pattern"],
         "additionalProperties": False,
@@ -81,6 +90,7 @@ class GrepKnowledgeHubTool:
             arguments.get("collection", "default"), field="collection"
         )
         top_k = validate_top_k(arguments.get("top_k"), default=20)
+        file_type = validate_file_type(arguments.get("file_type"))
         collector = self.get_collector() if self.get_collector is not None else None
         trace = TraceContext(trace_type="query")
         started = time.monotonic()
@@ -90,6 +100,7 @@ class GrepKnowledgeHubTool:
                 collection=collection,
                 top_k=top_k,
                 case_sensitive=case_sensitive,
+                file_type=file_type,
             )
         except GrepIndexUnavailableError:
             _finish_trace(

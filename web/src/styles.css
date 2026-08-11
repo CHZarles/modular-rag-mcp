@@ -522,8 +522,8 @@ tbody tr:hover { background: #fafbff; }
 .benchmark-config-result dt { color: var(--faint); font-size: 9px; }
 .benchmark-config-result dd { color: #657187; font-size: 10px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.query-console { align-items: end; display: grid; gap: 14px; grid-template-columns: minmax(260px, 1fr) minmax(150px, 220px) 90px auto; padding: 19px 20px; }
-.query-console-grep { grid-template-columns: minmax(240px, 1fr) minmax(140px, 200px) 80px 112px auto; }
+.query-console { align-items: end; display: grid; gap: 14px; grid-template-columns: minmax(240px, 1fr) minmax(140px, 200px) minmax(110px, 150px) 80px auto; padding: 19px 20px; }
+.query-console-grep { grid-template-columns: minmax(220px, 1fr) minmax(130px, 180px) minmax(105px, 140px) 80px 112px auto; }
 .query-console .input-with-icon { min-height: 38px; }
 .query-console .select-wrap { min-height: 38px; }
 .query-mode-switch { align-self: start; background: #eef1f6; border: 1px solid #e0e5ed; border-radius: 7px; display: inline-flex; padding: 3px; }
@@ -581,8 +581,8 @@ tbody tr:hover { background: #fafbff; }
   .component-grid { grid-template-columns: repeat(2, 1fr); }
   .benchmark-strategy-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .duration-visual { width: 135px; }
-  .query-console { grid-template-columns: minmax(260px, 1fr) minmax(150px, 200px) 80px; }
-  .query-console-grep { grid-template-columns: minmax(240px, 1fr) minmax(140px, 180px) 80px 112px; }
+  .query-console { grid-template-columns: minmax(240px, 1fr) minmax(130px, 180px) minmax(110px, 150px) 80px; }
+  .query-console-grep { grid-template-columns: minmax(220px, 1fr) minmax(120px, 160px) minmax(105px, 140px) 80px 112px; }
   .query-submit { grid-column: 1 / -1; }
 }
 

@@ -11,6 +11,7 @@ from src.ports.ingestion import BaseLoader
 
 SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".csv", ".png", ".jpg", ".jpeg", ".webp")
 IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+DOCUMENT_TYPES = ("pdf", "docx", "csv", "image")
 
 
 class FormatRouter:
@@ -52,4 +53,9 @@ def _normalize_extension(extension: str) -> str:
     return normalized
 
 
-__all__ = ["FormatRouter", "IMAGE_EXTENSIONS", "SUPPORTED_EXTENSIONS"]
+__all__ = [
+    "DOCUMENT_TYPES",
+    "FormatRouter",
+    "IMAGE_EXTENSIONS",
+    "SUPPORTED_EXTENSIONS",
+]

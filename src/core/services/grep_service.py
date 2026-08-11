@@ -49,6 +49,7 @@ class GrepService:
         collection: str = "default",
         top_k: int = 20,
         case_sensitive: bool = False,
+        file_type: str | None = None,
     ) -> GrepResponse:
         deadline = time.monotonic() + self.index.timeout_ms / 1000.0
         active_generations = self.generation_store.get_active_generations(collection)
@@ -72,6 +73,8 @@ class GrepService:
                 active_generations=active_generations,
                 deadline=deadline,
             ):
+                if file_type is not None and candidate.metadata.get("doc_type") != file_type:
+                    continue
                 haystack = (
                     candidate.text
                     if case_sensitive

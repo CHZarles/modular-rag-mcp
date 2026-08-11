@@ -51,6 +51,7 @@ def test_tool_preserves_pattern_and_emits_sanitized_match_without_pattern_trace(
             "collection": "docs",
             "top_k": 10,
             "case_sensitive": True,
+            "file_type": "pdf",
         }
     )
 
@@ -60,6 +61,7 @@ def test_tool_preserves_pattern_and_emits_sanitized_match_without_pattern_trace(
             "collection": "docs",
             "top_k": 10,
             "case_sensitive": True,
+            "file_type": "pdf",
         }
     ]
     match = result["structuredContent"]["matches"][0]
@@ -87,6 +89,7 @@ def test_tool_preserves_pattern_and_emits_sanitized_match_without_pattern_trace(
         {"pattern": "abc", "case_sensitive": 1},
         {"pattern": "abc", "top_k": True},
         {"pattern": "abc", "top_k": 21},
+        {"pattern": "abc", "file_type": "pptx"},
         {"pattern": "a" * 4001},
         {"pattern": "abc", "extra": True},
     ],

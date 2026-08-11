@@ -22,7 +22,14 @@ class _ActiveGenerations:
         return dict(self.values)
 
 
-def _record(text: str, *, doc_key: str, chunk_index: int, source_path: str) -> ChunkRecord:
+def _record(
+    text: str,
+    *,
+    doc_key: str,
+    chunk_index: int,
+    source_path: str,
+    doc_type: str = "pdf",
+) -> ChunkRecord:
     content_hash = hashlib.sha256(text.encode()).hexdigest()
     suffix = hashlib.sha256(f"{chunk_index}\0{content_hash}".encode()).hexdigest()[:32]
     return ChunkRecord(
@@ -35,6 +42,7 @@ def _record(text: str, *, doc_key: str, chunk_index: int, source_path: str) -> C
             "source_path": source_path,
             "chunk_index": chunk_index,
             "page": chunk_index + 1,
+            "doc_type": doc_type,
             "private": "not a service concern",
         },
         content_hash=content_hash,
@@ -89,6 +97,34 @@ def test_service_applies_python_literal_verification_and_stable_top_k(tmp_path: 
     assert [item.source_path for item in sensitive.matches] == ["/a.pdf", "/b.pdf"]
     assert [item.source_path for item in limited.matches] == ["/a.pdf", "/b.pdf"]
     assert limited.truncated is True
+
+
+def test_service_filters_matches_by_document_type(tmp_path: Path) -> None:
+    index = SQLiteGrepIndex(tmp_path / "grep.db")
+    index.initialize()
+    pdf = _record(
+        "shared needle",
+        doc_key="a" * 64,
+        chunk_index=0,
+        source_path="/guide.pdf",
+        doc_type="pdf",
+    )
+    csv = _record(
+        "shared needle",
+        doc_key="b" * 64,
+        chunk_index=0,
+        source_path="/data.csv",
+        doc_type="csv",
+    )
+    index.upsert([pdf])
+    index.upsert([csv])
+
+    response = GrepService(
+        index,
+        _ActiveGenerations({"a" * 64: 1, "b" * 64: 1}),
+    ).search(pattern="needle", collection="docs", file_type="csv")
+
+    assert [match.chunk_id for match in response.matches] == [csv.id]
 
 
 def test_service_enforces_one_and_twenty_result_boundaries_stably(tmp_path: Path) -> None:

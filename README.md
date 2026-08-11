@@ -25,8 +25,8 @@
 
 | Tool | 输入 | 输出 |
 | --- | --- | --- |
-| `query_knowledge_hub` | `query`、`top_k`、`collection` | 候选文本、来源、页码、分数、阶段分数和图片内容 |
-| `grep_knowledge_hub`（按配置启用） | `pattern`、`top_k`、`collection`、`case_sensitive` | 完整匹配 Chunk、公开来源、页码、非重叠命中次数和截断状态 |
+| `query_knowledge_hub` | `query`、`top_k`、`collection`、`file_type` | 候选文本、来源、页码、分数、阶段分数和图片内容 |
+| `grep_knowledge_hub`（按配置启用） | `pattern`、`top_k`、`collection`、`case_sensitive`、`file_type` | 完整匹配 Chunk、公开来源、页码、非重叠命中次数和截断状态 |
 | `list_collections` | 无 | 可查询的 Collection |
 | `get_document_summary` | `doc_id` | 文档标题、摘要、标签和来源信息 |
 | `upload_document` | `filename`、`content_base64`、`collection`、`force`、`ai_enrichment` | 已排队的摄取任务 |

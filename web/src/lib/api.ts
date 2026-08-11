@@ -57,13 +57,13 @@ function jsonBody(value: unknown): RequestInit {
 export const api = {
   health: () => request<HealthResponse>('/api/health'),
   getOverview: () => request<Overview>('/api/overview'),
-  queryKnowledge: (query: string, collection: string, topK: number) => request<QueryResponse>('/api/query', {
+  queryKnowledge: (query: string, collection: string, topK: number, fileType: string) => request<QueryResponse>('/api/query', {
     method: 'POST',
-    ...jsonBody({ query, collection, top_k: topK }),
+    ...jsonBody({ query, collection, top_k: topK, ...(fileType ? { file_type: fileType } : {}) }),
   }),
-  grepKnowledge: (pattern: string, collection: string, topK: number, caseSensitive: boolean) => request<GrepResponse>('/api/grep', {
+  grepKnowledge: (pattern: string, collection: string, topK: number, caseSensitive: boolean, fileType: string) => request<GrepResponse>('/api/grep', {
     method: 'POST',
-    ...jsonBody({ pattern, collection, top_k: topK, case_sensitive: caseSensitive }),
+    ...jsonBody({ pattern, collection, top_k: topK, case_sensitive: caseSensitive, ...(fileType ? { file_type: fileType } : {}) }),
   }),
   getComponent: (code: string) => request<ComponentResponse>(`/api/components/${encodeURIComponent(code)}`),
   updateComponent: (code: string, values: Record<string, unknown>, apiKey?: string) => request<ComponentResponse>(

@@ -8,10 +8,20 @@ import type { GrepMatch, GrepResponse, JsonValue, QueryResponse, QueryResult, Qu
 import { grepPatternLength, queryImageDataUrl } from '../lib/view-model'
 
 type QueryMode = 'semantic' | 'grep'
+type FileType = '' | 'pdf' | 'docx' | 'csv' | 'image'
+
+const fileTypeOptions: ReadonlyArray<{ value: FileType; label: string }> = [
+  { value: '', label: '全部类型' },
+  { value: 'pdf', label: 'PDF' },
+  { value: 'docx', label: 'DOCX' },
+  { value: 'csv', label: 'CSV' },
+  { value: 'image', label: '图片' },
+]
 
 export function QueryPage() {
   const [collections, setCollections] = useState<string[]>([])
   const [collection, setCollection] = useState('default')
+  const [fileType, setFileType] = useState<FileType>('')
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<QueryMode>('semantic')
   const [grepAvailable, setGrepAvailable] = useState(false)
@@ -50,7 +60,7 @@ export function QueryPage() {
       setSemanticLoading(true)
       setSemanticError('')
       try {
-        setSemanticResponse(await api.queryKnowledge(normalized, collection, semanticTopK))
+        setSemanticResponse(await api.queryKnowledge(normalized, collection, semanticTopK, fileType))
       } catch (reason) {
         setSemanticError(getErrorMessage(reason))
       } finally {
@@ -62,7 +72,7 @@ export function QueryPage() {
     setGrepLoading(true)
     setGrepError('')
     try {
-      setGrepResponse(await api.grepKnowledge(query, collection, grepTopK, caseSensitive))
+      setGrepResponse(await api.grepKnowledge(query, collection, grepTopK, caseSensitive, fileType))
     } catch (reason) {
       setGrepError(getErrorMessage(reason))
     } finally {
@@ -79,6 +89,7 @@ export function QueryPage() {
     <form className={`card query-console ${mode === 'grep' ? 'query-console-grep' : ''}`} onSubmit={submit}>
       <label className="field query-text-field"><span>查询内容</span><div className="input-with-icon"><Search size={17} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入查询内容" required minLength={mode === 'grep' ? 3 : 1} maxLength={mode === 'grep' ? undefined : 4000} autoFocus /></div></label>
       <label className="field"><span>Collection</span><div className="select-wrap select-wrap-full"><select value={collection} onChange={(event) => setCollection(event.target.value)}>{options.map((name) => <option key={name} value={name}>{name}</option>)}</select><ChevronDown size={15} /></div></label>
+      <label className="field"><span>文件类型</span><div className="select-wrap select-wrap-full"><select value={fileType} onChange={(event) => setFileType(event.target.value as FileType)}>{fileTypeOptions.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}</select><ChevronDown size={15} /></div></label>
       <label className="field"><span>Top K</span><input type="number" min={1} max={20} value={topK} onChange={(event) => mode === 'semantic' ? setSemanticTopK(event.currentTarget.valueAsNumber || 1) : setGrepTopK(event.currentTarget.valueAsNumber || 1)} /></label>
       {mode === 'grep' ? <label className="field query-case-field"><span>区分大小写</span><span className="query-case-control"><CaseSensitive size={17} /><Toggle checked={caseSensitive} onChange={setCaseSensitive} label="区分大小写" /></span></label> : null}
       <Button className="query-submit" type="submit" disabled={anyLoading || (mode === 'semantic' ? !query.trim() : !patternReady)}>{loading ? <LoaderCircle className="spin" size={17} /> : <Search size={17} />}{loading ? '检索中' : '检索'}</Button>

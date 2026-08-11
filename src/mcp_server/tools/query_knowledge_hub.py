@@ -11,10 +11,12 @@ from src.core.trace import TraceCollector, TraceContext
 from src.core.types import JsonDict, QueryRequest, QueryResponse
 from src.mcp_server.request_context import current_request_context
 from src.mcp_server.tools.base import (
+    DOCUMENT_TYPES,
     MAX_QUERY_CHARS,
     MAX_TOP_K,
     ToolArgumentError,
     ToolExecutionError,
+    validate_file_type,
     validate_identifier,
     validate_query,
     validate_top_k,
@@ -48,7 +50,14 @@ _COLLECTION_PROPERTY: JsonDict = {
     "default": "default",
     "description": "限定查询的知识集合",
 }
-_ALLOWED_ARGUMENTS: frozenset[str] = frozenset({"query", "top_k", "collection"})
+_FILE_TYPE_PROPERTY: JsonDict = {
+    "type": "string",
+    "enum": list(DOCUMENT_TYPES),
+    "description": "按源文件类型筛选结果",
+}
+_ALLOWED_ARGUMENTS: frozenset[str] = frozenset(
+    {"query", "top_k", "collection", "file_type"}
+)
 
 
 class QueryKnowledgeHubTool:
@@ -62,6 +71,7 @@ class QueryKnowledgeHubTool:
             "query": _QUERY_PROPERTY,
             "top_k": _TOP_K_PROPERTY,
             "collection": _COLLECTION_PROPERTY,
+            "file_type": _FILE_TYPE_PROPERTY,
         },
         "required": ["query"],
         "additionalProperties": False,
@@ -88,8 +98,14 @@ class QueryKnowledgeHubTool:
         collection = validate_identifier(
             arguments.get("collection", "default"), field="collection"
         )
+        file_type = validate_file_type(arguments.get("file_type"))
 
-        request = QueryRequest(query=query, top_k=top_k, collection=collection)
+        request = QueryRequest(
+            query=query,
+            top_k=top_k,
+            collection=collection,
+            filters={"doc_type": file_type} if file_type else {},
+        )
         try:
             response = _run_with_trace(self.get_service, request, self.get_collector)
         except ToolExecutionError:

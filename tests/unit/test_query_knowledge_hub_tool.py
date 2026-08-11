@@ -48,11 +48,23 @@ def test_tool_only_calls_knowledge_service_and_returns_cited_mcp_result() -> Non
     service = FakeKnowledgeService(_response())
     tool = QueryKnowledgeHubTool(lambda: service)
 
-    result = tool.call({"query": "  generation fence  ", "top_k": 2, "collection": "docs"})
+    result = tool.call(
+        {
+            "query": "  generation fence  ",
+            "top_k": 2,
+            "collection": "docs",
+            "file_type": "pdf",
+        }
+    )
 
     assert isinstance(tool, ToolHandler)
     assert service.requests == [
-        QueryRequest(query="generation fence", top_k=2, collection="docs")
+        QueryRequest(
+            query="generation fence",
+            top_k=2,
+            collection="docs",
+            filters={"doc_type": "pdf"},
+        )
     ]
     assert result["content"][0]["type"] == "text"
     assert "[1]" in result["content"][0]["text"]
@@ -124,6 +136,7 @@ def test_tool_collector_failure_does_not_break_query() -> None:
         {"query": "x", "top_k": 0},
         {"query": "x", "top_k": True},
         {"query": "x", "collection": " "},
+        {"query": "x", "file_type": "pptx"},
         {"query": "x", "unknown": 1},
     ],
 )

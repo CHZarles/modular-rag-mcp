@@ -17,6 +17,7 @@ from src.core.wire_safety import (
     public_source_label,
     sanitize_wire_string,
 )
+from src.libs.loader.format_router import DOCUMENT_TYPES
 
 MAX_QUERY_CHARS: Final = 4000
 MAX_TOP_K: Final = 20
@@ -81,6 +82,16 @@ def validate_identifier(value: Any, *, field: str) -> str:
     )
 
 
+def validate_file_type(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in DOCUMENT_TYPES:
+        raise ToolArgumentError(
+            f"file_type must be one of: {', '.join(DOCUMENT_TYPES)}"
+        )
+    return value
+
+
 def _normalize_non_empty_string(
     value: Any, *, field: str, max_length: int
 ) -> str:
@@ -97,6 +108,7 @@ def _normalize_non_empty_string(
 
 
 __all__ = [
+    "DOCUMENT_TYPES",
     "MAX_IDENTIFIER_CHARS",
     "MAX_QUERY_CHARS",
     "MAX_TOP_K",
@@ -108,6 +120,7 @@ __all__ = [
     "public_source_label",
     "sanitize_wire_string",
     "validate_identifier",
+    "validate_file_type",
     "validate_query",
     "validate_top_k",
 ]
