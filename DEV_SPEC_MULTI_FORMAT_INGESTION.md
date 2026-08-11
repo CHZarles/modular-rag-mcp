@@ -33,14 +33,14 @@
 | 格式 | 规范化结果 |
 |---|---|
 | PDF | 沿用 MarkItDown 或 MinerU，输出 Markdown 和内嵌图片引用 |
-| DOCX | 使用 MarkItDown 输出 Markdown |
+| DOCX | 使用 MarkItDown 输出 Markdown，并提取可支持的内嵌图片 |
 | CSV | 使用标准库 `csv`，每行转为带列名的自包含文本 |
 | 独立图片 | 生成一个图片引用和一段必需的视觉描述 |
 
 ### 2.3 非目标
 
 - 不支持 `.doc`、PPT/PPTX、XLS/XLSX、HEIC、GIF 或动画图片。
-- 不在第一版抽取 DOCX 内嵌图片、批注或修订记录。
+- 不在第一版抽取 DOCX 批注或修订记录。
 - 不实现批量上传、图库、OCR 工作台、CLIP 或独立多模态索引。
 - 不新增数据库表、上传路由、任务状态机或公共领域对象。
 - 不实现动态 Loader 注册、扩展名到类名的 YAML 映射或格式专用 Pipeline。
@@ -167,9 +167,9 @@ Factory 先按现有配置创建 PDF Adapter，再与三个固定 Adapter 装配
 ### 5.3 DOCX
 
 - 使用 MarkItDown DOCX Adapter 输出 Markdown。
-- `doc_type=docx`，`images=[]`。
+- `doc_type=docx`，PNG、JPEG 和 WebP 内嵌图片输出为现有图片引用。
 - 上传层确认文件是有效 DOCX 容器；Adapter 对空转换结果报错。
-- 第一版不抽取内嵌图片。
+- 内嵌图片追加稳定占位符并进入现有 Caption、ImageStorage 和检索链路。
 
 ### 5.4 CSV
 

@@ -100,7 +100,7 @@ def _create_format_router(ingestion: Mapping[str, Any], image_root: str) -> Form
     return FormatRouter(
         {
             ".pdf": pdf_loader,
-            ".docx": DocxLoader(),
+            ".docx": DocxLoader(image_root=image_root),
             ".csv": CsvLoader(),
             ".png": image_loader,
             ".jpg": image_loader,

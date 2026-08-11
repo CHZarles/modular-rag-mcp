@@ -7,14 +7,14 @@ from observability.dashboard._ingestion_helpers import (
 from src.application.upload_ingestion import settings_for_ingestion_profile
 
 
-def test_fast_profile_disables_model_enrichment_without_mutating_settings() -> None:
+def test_fast_profile_keeps_document_image_captioning_without_mutating_settings() -> None:
     settings = _settings()
 
     fast = settings_for_ingestion_profile(settings, ai_enrichment=False)
 
     assert fast.ingestion["chunk_refiner"]["use_llm"] is False
     assert fast.ingestion["metadata_enricher"]["use_llm"] is False
-    assert fast.ingestion["image_captioner"]["enabled"] is False
+    assert fast.ingestion["image_captioner"]["enabled"] is True
     assert settings.ingestion["chunk_refiner"]["use_llm"] is True
     assert settings_for_ingestion_profile(settings, ai_enrichment=True) is settings
 

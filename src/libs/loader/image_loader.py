@@ -42,7 +42,7 @@ class ImageLoader:
         mime_type, extension = validate_image(content, path.suffix)
         file_hash = compute_sha256(path)
         target = self.image_root / collection / f"{file_hash}{extension}"
-        _write_managed_image(target, content)
+        write_managed_image(target, content)
 
         placeholder = f"[IMAGE: {file_hash}]"
         prefix = f"# {path.stem}\n\n"
@@ -92,7 +92,7 @@ def validate_image(content: bytes, suffix: str) -> tuple[str, str]:
     return expected[1], expected[2]
 
 
-def _write_managed_image(target: Path, content: bytes) -> None:
+def write_managed_image(target: Path, content: bytes) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     with NamedTemporaryFile(dir=target.parent, prefix=f".{target.name}.", delete=False) as stream:
         temporary = Path(stream.name)
@@ -115,4 +115,4 @@ def _validate_input(path: Path, collection: str) -> None:
         raise ValueError("image loader input error: collection must be a simple name")
 
 
-__all__ = ["ImageLoader", "validate_image"]
+__all__ = ["ImageLoader", "validate_image", "write_managed_image"]

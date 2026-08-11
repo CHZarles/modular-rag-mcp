@@ -78,11 +78,13 @@ class _Converter:
         return _Conversion(self.text)
 
 
-def _docx_bytes() -> bytes:
+def _docx_bytes(media: dict[str, bytes] | None = None) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr("[Content_Types].xml", "<Types />")
         archive.writestr("word/document.xml", "<document />")
+        for name, content in (media or {}).items():
+            archive.writestr(f"word/media/{name}", content)
     return output.getvalue()
 
 
@@ -102,6 +104,25 @@ def test_docx_loader_returns_canonical_document(tmp_path: Path) -> None:
         "images": [],
     }
     assert len(document.id) == 64
+
+
+def test_docx_loader_extracts_embedded_images_for_captioning(tmp_path: Path) -> None:
+    image = io.BytesIO()
+    Image.new("RGB", (8, 6), "white").save(image, format="PNG")
+    source = tmp_path / "architecture.docx"
+    source.write_bytes(_docx_bytes({"image1.png": image.getvalue()}))
+
+    document = DocxLoader(
+        image_root=tmp_path / "images",
+        converter=_Converter("# System\n\nArchitecture text."),
+    ).load(str(source), "docs")
+
+    embedded = document.metadata["images"][0]
+    placeholder = f"[IMAGE: {embedded['id']}]"
+    assert placeholder in document.text
+    assert document.text[embedded["text_offset"] :][: embedded["text_length"]] == placeholder
+    assert Path(embedded["path"]).read_bytes() == image.getvalue()
+    assert embedded["mime_type"] == "image/png"
 
 
 @pytest.mark.parametrize(

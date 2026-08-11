@@ -200,10 +200,11 @@ def settings_for_ingestion_profile(
             **_mapping(ingestion.get("metadata_enricher")),
             "use_llm": False,
         }
-    ingestion["image_captioner"] = {
-        **_mapping(ingestion.get("image_captioner")),
-        "enabled": require_image_caption,
-    }
+    if require_image_caption:
+        ingestion["image_captioner"] = {
+            **_mapping(ingestion.get("image_captioner")),
+            "enabled": True,
+        }
     return replace(settings, ingestion=ingestion)
 
 
